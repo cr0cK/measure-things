@@ -88,9 +88,9 @@ follow the same format.
 Releases are automated with [release-please](https://github.com/googleapis/release-please).
 Every merge to `main` updates a release pull request that bumps `package.json`, the
 `version-name` in `src/metadata.json`, and CHANGELOG.md from the commit history: `feat` bumps the
-minor version, `fix` the patch, and breaking changes the major version. `perf`, `refactor`,
-and `revert` also release a patch; `docs`, `test`, `build`, `ci`, `chore`, and `style` never
-trigger a release. Do not edit CHANGELOG.md by hand. Merging the release pull request tags
+minor version, `fix` the patch, and breaking changes the major version, or the minor version
+before 1.0.0. `perf`, `refactor`, and `revert` also release a patch; `docs`, `test`, `build`,
+`ci`, `chore`, and `style` never trigger a release. Do not edit CHANGELOG.md by hand. Merging the release pull request tags
 `vX.Y.Z`, publishes a GitHub Release, and attaches the installable extension zip. The integer
 `version` field of src/metadata.json is left to extensions.gnome.org.
 

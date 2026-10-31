@@ -2,6 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "node",
   "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
   "pull-request-title-pattern": "chore: release ${version}",
   "changelog-sections": [
     {"type": "feat", "section": "Added"},
@@ -19,6 +20,7 @@
   "packages": {
     ".": {
       "package-name": "measure-things",
+      "initial-version": "0.1.0",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         {"type": "json", "path": "src/metadata.json", "jsonpath": "$['version-name']"}
