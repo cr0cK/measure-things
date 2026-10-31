@@ -122,8 +122,9 @@ devkit shows its own monitor.
   PR texts, docs, or test fixtures.
 - Commits and PR titles use Conventional Commits. PRs are squash-merged, so the PR title is the
   commit release-please reads. `feat` bumps the minor version, `fix` the patch, and breaking
-  changes the major version. `docs`, `test`, `build`, `ci`, `chore`, and `style` are hidden
-  changelog sections and never trigger a release.
+  changes the major version, except before 1.0.0, where they bump the minor version. The first
+  release is 0.1.0. `docs`, `test`, `build`, `ci`, `chore`, and `style` are hidden changelog
+  sections and never trigger a release.
 - release-please runs as a GitHub App (`RELEASE_APP_CLIENT_ID` variable,
   `RELEASE_APP_PRIVATE_KEY` secret), not with GITHUB_TOKEN: GitHub holds `pull_request`
   workflows on PRs opened by GITHUB_TOKEN for manual approval.
