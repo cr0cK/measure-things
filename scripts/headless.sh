@@ -133,17 +133,23 @@ pointer_move() {
     input_eval "global._headlessPointer.notify_absolute_motion(now, $1, $2)"
 }
 
+# Presses or releases a button: pointer_button PRESSED, or pointer_button RELEASED SECONDARY.
 pointer_button() {
-    input_eval "global._headlessPointer.notify_button(now, Clutter.BUTTON_PRIMARY, Clutter.ButtonState.$1)"
+    input_eval "global._headlessPointer.notify_button(now, Clutter.BUTTON_${2:-PRIMARY}, Clutter.ButtonState.$1)"
 }
 
-# Drags with the primary button from ($1, $2) to ($3, $4), through a midpoint.
+# Drags from ($1, $2) to ($3, $4) through a midpoint, with the primary button or button $5.
 pointer_drag() {
     pointer_move "$1" "$2"
-    pointer_button PRESSED
+    pointer_button PRESSED "${5:-PRIMARY}"
     pointer_move $((($1 + $3) / 2)) $((($2 + $4) / 2))
     pointer_move "$3" "$4"
-    pointer_button RELEASED
+    pointer_button RELEASED "${5:-PRIMARY}"
+}
+
+# Holds or releases a key on its own: key_state Control_L PRESSED.
+key_state() {
+    input_eval "global._headlessKeyboard.notify_keyval(now, Clutter.KEY_$1, Clutter.KeyState.$2)"
 }
 
 pointer_click() {

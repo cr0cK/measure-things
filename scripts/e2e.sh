@@ -6,6 +6,10 @@ set -euo pipefail
 
 # shellcheck source=scripts/headless.sh
 source "$(dirname "$0")/headless.sh"
+# Logical layout mode, which fractional scaling needs; at scale 1 it changes nothing.
+headless_seed() {
+    gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
+}
 headless_start "$0" "$@"
 
 FAILURES=0
@@ -154,6 +158,146 @@ press_keys Escape
 shell_eval "$EXTENSION._clearItem.activate(imports.gi.Clutter.get_current_event())" >/dev/null
 expect "$OVERLAY._helpers.length + ' ' + $EXTENSION._clearItem.sensitive + ' ' + $EXTENSION._settings.get_string('helpers')" \
     '0 false []' 'Clear helpers removes and forgets every helper'
+
+# Measuring on known screen content: a plain backdrop and a red block, under the layer and
+# captured when edit mode starts.
+shell_eval "for (const [name, color, x, y, width, height] of [
+        ['backdrop', '#3d3846', 0, 0, 1600, 1000], ['red', '#e01b24', 800, 400, 300, 200]]) {
+    const block = new imports.gi.St.Widget({name: 'e2e-' + name, x, y, width, height,
+        style: 'background-color: ' + color + ';'});
+    Main.uiGroup.insert_child_below(block, $OVERLAY.actor);
+}" >/dev/null
+press_keys Super_L Shift_L m
+wait_for "!!$OVERLAY._snapshot"
+pointer_move 950 900
+press_keys v
+pointer_move 900 500
+press_keys d
+wait_for "$OVERLAY._readout.text === '300 × 200'"
+expect "$OVERLAY._areaWidth.text + ' ' + $OVERLAY._areaHeight.text" '300 200' \
+    'D measures the area under the pointer, ignoring the guide over it'
+press_keys Return
+expect "$LAST" '{"id":7,"kind":"rectangle","x":800,"y":400,"width":300,"height":200}' \
+    'Enter adds a rectangle on the measured area'
+press_keys d
+expect "$OVERLAY._areaGroup.visible" false 'D again stops measuring the area'
+
+pointer_drag 603 403 1097 597
+expect "$LAST" '{"id":8,"kind":"rectangle","x":603,"y":403,"width":497,"height":197}' \
+    'a dragged corner snaps to the nearest screen edges'
+press_keys Delete
+pointer_move 603 403
+key_state Control_L PRESSED
+pointer_drag 603 403 1097 597
+key_state Control_L RELEASED
+expect "$LAST" '{"id":9,"kind":"rectangle","x":603,"y":403,"width":494,"height":194}' \
+    'Ctrl+drag does not snap'
+press_keys Delete
+
+pointer_drag 200 450 520 550
+pointer_click 960 900
+pointer_click 400 500
+expect "$OVERLAY._gapGroup.get_children().filter(a => a.text).map(a => a.text).join()" 280 \
+    'a selected rectangle shows the distance to its nearest neighbor'
+shell_eval "$EXTENSION._settings.set_int('zoom', 125)" >/dev/null
+expect "$(VIEW_LABEL 10)" '256 × 80' 'CSS pixel values follow the browser zoom'
+shell_eval "$EXTENSION._settings.set_int('zoom', 100)" >/dev/null
+
+press_keys Delete
+expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7 'Delete removes the rectangle'
+press_keys Control_L z
+expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7,10 'Ctrl+Z undoes the last change'
+press_keys Control_L z
+press_keys Control_L z
+expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7,9 'Ctrl+Z goes further back, one change at a time'
+press_keys Control_L Shift_L z
+press_keys Control_L y
+expect "$OVERLAY._helpers.map(h => h.id).join() + ' ' + $EXTENSION._settings.get_string('helpers')" \
+    '6,7,10 [{"kind":"vertical","x":950},{"kind":"rectangle","x":800,"y":400,"width":300,"height":200},{"kind":"rectangle","x":200,"y":450,"width":320,"height":100}]' \
+    'Ctrl+Shift+Z and Ctrl+Y redo, and the result is saved'
+press_keys Escape
+
+shell_eval "$EXTENSION._settings.set_string('color-format', 'rgb')" >/dev/null
+pointer_move 1000 450
+press_keys Super_L Shift_L c
+wait_for "$SWATCH === 'rgb(224, 27, 36)'"
+expect "$EXTENSION._picker._loupeImage.width + ' ' + $EXTENSION._picker._loupeImage.x" '110 0' \
+    'the loupe magnifies the pixels around the pointer'
+press_keys Tab
+expect "$SWATCH + ' ' + $EXTENSION._settings.get_string('color-format')" 'hsl(357, 78%, 49%) hsl' \
+    'Tab switches the color format'
+pointer_click 1000 450
+wait_for "$EXTENSION._picker === null"
+expect "$CLIPBOARD" 'hsl(357, 78%, 49%)' 'a click copies the color in the chosen format'
+shell_eval "$EXTENSION._settings.set_string('color-format', 'hex')" >/dev/null
+
+MOCKUP="$OVERLAY._mockup.actor"
+shell_eval "const {GdkPixbuf} = imports.gi;
+    const image = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, false, 8, 400, 200);
+    image.fill(0x2ec27eff);
+    image.savev('$WORK/mockup.png', 'png', [], []);
+    $EXTENSION._settings.set_string('mockup-file', '$WORK/mockup.png');
+    $EXTENSION._settings.set_boolean('mockup-visible', true);" >/dev/null
+wait_for "$MOCKUP.visible"
+expect "[$MOCKUP.x, $MOCKUP.y, $MOCKUP.width, $MOCKUP.height, $MOCKUP.opacity, $EXTENSION._mockupItem._switch.state].join()" \
+    0,0,400,200,128,true 'the mockup shows at its CSS size and half opacity'
+shell_eval "$EXTENSION._settings.set_int('mockup-density', 2); $EXTENSION._settings.set_int('zoom', 150)" >/dev/null
+expect "$MOCKUP.width + 'x' + $MOCKUP.height" 300x150 'the mockup follows its pixel density and the zoom'
+shell_eval "$EXTENSION._settings.set_int('zoom', 100)" >/dev/null
+expect "$OVERLAY.actor.contains(global.stage.get_actor_at_pos(imports.gi.Clutter.PickMode.REACTIVE, 100, 50))" \
+    false 'outside edit mode, the pointer goes through the mockup'
+press_keys Super_L Shift_L m
+pointer_drag 100 50 140 80 SECONDARY
+press_keys Control_L Shift_L Right
+press_keys bracketright
+expect "$EXTENSION._settings.get_value('mockup-position').deepUnpack().join() + ' ' + $MOCKUP.opacity" \
+    '50,30 153' 'right-drag and Ctrl+arrows move the mockup, ] raises its opacity'
+expect "$OVERLAY._helpers.length" 3 'moving the mockup leaves the helpers alone'
+press_keys Escape
+shell_eval "$EXTENSION._settings.set_boolean('mockup-visible', false)" >/dev/null
+expect "$MOCKUP.visible + ' ' + $EXTENSION._mockupItem._switch.state" 'false false' 'the mockup hides'
+shell_eval "Main.uiGroup.get_children().filter(a => a.name?.startsWith('e2e-')).forEach(a => a.destroy())" \
+    >/dev/null
+
+# Fractional scaling: at 125% the stage is 1280x800 logical pixels over 1600x1000 device pixels.
+gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig \
+    --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \
+    "$(gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig \
+        --method org.gnome.Mutter.DisplayConfig.GetCurrentState | grep -o '^(uint32 [0-9]*' | cut -c8-)" \
+    1 "[(0, 0, 1.25, 0, true, [('Meta-0', '1600x1000@60.000', @a{sv} {})])]" "@a{sv} {}" >/dev/null
+wait_for "global.stage.width === 1280"
+shell_eval "$OVERLAY.clear()" >/dev/null
+shell_eval "for (const [name, color, x, y, width, height] of [
+        ['backdrop', '#3d3846', 0, 0, 1280, 800], ['red', '#e01b24', 400, 300, 240, 160]]) {
+    const block = new imports.gi.St.Widget({name: 'e2e-' + name, x, y, width, height,
+        style: 'background-color: ' + color + ';'});
+    Main.uiGroup.insert_child_below(block, $OVERLAY.actor);
+}" >/dev/null
+press_keys Super_L Shift_L m
+wait_for "!!$OVERLAY._snapshot"
+expect "$OVERLAY._snapshot.scale + ' ' + $OVERLAY._snapshot.width" '1.25 1600' \
+    'at 125%, the capture is in device pixels'
+pointer_move 500 380
+press_keys d
+wait_for "$OVERLAY._readout.text === '240 × 160'"
+shell_eval "$EXTENSION._settings.set_string('unit', 'device')" >/dev/null
+pointer_move 501 380
+wait_for "$OVERLAY._readout.text === '300 × 200'"
+expect "$OVERLAY._areaWidth.text" 300 'at 125%, areas measure in CSS and device pixels'
+shell_eval "$EXTENSION._settings.set_string('unit', 'css')" >/dev/null
+press_keys d
+pointer_drag 300 200 637 457
+expect "$LAST" '{"id":11,"kind":"rectangle","x":300,"y":200,"width":340,"height":260}' \
+    'at 125%, dragged edges snap to screen edges'
+press_keys Escape
+pointer_move 600 440
+press_keys Super_L Shift_L c
+wait_for "$SWATCH === '#e01b24'"
+pointer_click 600 440
+wait_for "$EXTENSION._picker === null"
+expect "$CLIPBOARD" '#e01b24' 'at 125%, the picker reads the pixel under the pointer'
+shell_eval "Main.uiGroup.get_children().filter(a => a.name?.startsWith('e2e-')).forEach(a => a.destroy())" \
+    >/dev/null
 
 if grep -E 'JS (ERROR|WARNING)|Measure Things:' "$WORK/shell.log"; then
     echo 'FAIL the shell logged JavaScript errors'

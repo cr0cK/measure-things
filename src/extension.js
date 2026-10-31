@@ -41,14 +41,16 @@ export default class MeasureThingsExtension extends Extension {
                 handlers[name]
             );
         }
-        this._showHelpersSignal = this._settings.connect('changed::show-helpers', () => this._syncMenu());
+        this._settingsSignals = ['show-helpers', 'mockup-file', 'mockup-visible'].map(key =>
+            this._settings.connect(`changed::${key}`, () => this._syncMenu()));
         this._syncMenu();
     }
 
     disable() {
         for (const name of SHORTCUTS)
             Main.wm.removeKeybinding(name);
-        this._settings.disconnect(this._showHelpersSignal);
+        for (const id of this._settingsSignals)
+            this._settings.disconnect(id);
         this._picker?.cancel();
         this._picker = null;
         this._overlay.destroy();
@@ -79,6 +81,12 @@ export default class MeasureThingsExtension extends Extension {
                 this._settings.set_boolean('show-helpers', state);
         });
         menu.addMenuItem(this._showItem);
+        this._mockupItem = new PopupMenu.PopupSwitchMenuItem('Mockup', false);
+        this._mockupItem.connect('toggled', (_item, state) => {
+            if (state !== this._settings.get_boolean('mockup-visible'))
+                this._settings.set_boolean('mockup-visible', state);
+        });
+        menu.addMenuItem(this._mockupItem);
         this._clearItem = menu.addAction('Clear helpers', () => this._overlay.clear());
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -91,6 +99,9 @@ export default class MeasureThingsExtension extends Extension {
         this._editItem.label.text = this._overlay.editing ? 'Stop editing' : 'Edit helpers';
         this._gridItem.setToggleState(this._overlay.gridVisible);
         this._showItem.setToggleState(this._settings.get_boolean('show-helpers'));
+        this._mockupItem.setToggleState(this._settings.get_boolean('mockup-visible'));
+        // Without an image the switch would do nothing; the preferences choose one.
+        this._mockupItem.setSensitive(this._settings.get_string('mockup-file') !== '');
         this._clearItem.setSensitive(this._overlay.hasHelpers);
     }
 
@@ -102,7 +113,7 @@ export default class MeasureThingsExtension extends Extension {
         const editing = overlay.editing;
         overlay.exitEdit();
         overlay.setHidden(true);
-        const picker = new ColorPicker();
+        const picker = new ColorPicker(this._settings);
         this._picker = picker;
         const color = await picker.pick();
         // disable() cancels the picker, and a quick enable() may already have replaced both.
@@ -112,7 +123,7 @@ export default class MeasureThingsExtension extends Extension {
         this._picker = null;
         overlay.setHidden(false);
         if (color)
-            copyToClipboard(color.hex, 'color-select-symbolic');
+            copyToClipboard(color, 'color-select-symbolic');
         if (editing)
             overlay.enterEdit();
     }

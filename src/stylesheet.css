@@ -31,13 +31,12 @@
 }
 
 .measure-things-swatch {
-  spacing: 8px;
   color: white;
   background-color: rgba(24, 24, 27, 0.92);
   font-size: 12px;
   font-weight: bold;
   font-feature-settings: "tnum";
-  padding: 6px 10px 6px 6px;
+  padding: 6px;
   border-radius: 10px;
 }
 
@@ -46,4 +45,22 @@
   height: 22px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+.measure-things-swatch-value {
+  spacing: 8px;
+}
+
+.measure-things-loupe {
+  background-color: black;
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+
+.measure-things-loupe-pixel {
+  border: 1px solid black;
+}
+
+.measure-things-loupe-pixel-inner {
+  border: 1px solid white;
 }

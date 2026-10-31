@@ -143,6 +143,85 @@ export function guideGaps(helpers) {
 }
 
 /**
+ * Distances from a rectangle to the nearest helper on each side: guides, and rectangles that
+ * overlap it across the gap. `axis` is the coordinate the gap runs along, `at` where the line
+ * joining the two edges crosses the other axis. Touching or overlapping neighbors give no gap.
+ */
+export function rectangleGaps(helpers, id) {
+    const rect = helpers.find(helper => helper.id === id);
+    if (!rect || rect.kind !== 'rectangle')
+        return [];
+
+    const sides = {left: null, right: null, top: null, bottom: null};
+    const keep = (side, gap) => {
+        if (gap.to > gap.from && (!sides[side] || gap.to - gap.from < sides[side].to - sides[side].from))
+            sides[side] = gap;
+    };
+    const right = rect.x + rect.width;
+    const bottom = rect.y + rect.height;
+    const middleX = Math.round(rect.x + rect.width / 2);
+    const middleY = Math.round(rect.y + rect.height / 2);
+    for (const other of helpers) {
+        if (other === rect)
+            continue;
+        if (other.kind === 'vertical') {
+            keep('left', {axis: 'x', from: other.x, to: rect.x, at: middleY});
+            keep('right', {axis: 'x', from: right, to: other.x, at: middleY});
+        } else if (other.kind === 'horizontal') {
+            keep('top', {axis: 'y', from: other.y, to: rect.y, at: middleX});
+            keep('bottom', {axis: 'y', from: bottom, to: other.y, at: middleX});
+        } else {
+            const otherRight = other.x + other.width;
+            const otherBottom = other.y + other.height;
+            const overlapTop = Math.max(rect.y, other.y);
+            const overlapBottom = Math.min(bottom, otherBottom);
+            if (overlapTop < overlapBottom) {
+                const at = Math.round((overlapTop + overlapBottom) / 2);
+                keep('left', {axis: 'x', from: otherRight, to: rect.x, at});
+                keep('right', {axis: 'x', from: right, to: other.x, at});
+            }
+            const overlapLeft = Math.max(rect.x, other.x);
+            const overlapRight = Math.min(right, otherRight);
+            if (overlapLeft < overlapRight) {
+                const at = Math.round((overlapLeft + overlapRight) / 2);
+                keep('top', {axis: 'y', from: otherBottom, to: rect.y, at});
+                keep('bottom', {axis: 'y', from: bottom, to: other.y, at});
+            }
+        }
+    }
+    return Object.values(sides).filter(Boolean);
+}
+
+/**
+ * A dragged helper with its moving edges pulled onto nearby screen edges. `snapX(x)` and
+ * `snapY(y)` return the snapped coordinate, or the same one when no edge is close. Whole
+ * rectangle moves do not snap.
+ */
+export function snapHelper(helper, part, snapX, snapY) {
+    if (helper.kind === 'vertical')
+        return {...helper, x: snapX(helper.x)};
+    if (helper.kind === 'horizontal')
+        return {...helper, y: snapY(helper.y)};
+    if (part === 'move' || part === 'inside')
+        return helper;
+
+    let left = helper.x;
+    let top = helper.y;
+    let right = helper.x + helper.width;
+    let bottom = helper.y + helper.height;
+    if (part.includes('left'))
+        left = snapX(left);
+    if (part.includes('right'))
+        right = snapX(right);
+    if (part.includes('top'))
+        top = snapY(top);
+    if (part.includes('bottom'))
+        bottom = snapY(bottom);
+    const rect = rectFromPoints(left, top, right, bottom);
+    return {...helper, ...rect, width: Math.max(1, rect.width), height: Math.max(1, rect.height)};
+}
+
+/**
  * Column bands of a layout grid, offsets relative to the bounds' left edge. The container is
  * `maxWidth` wide when set (0 means the full width), centered, with `margin` padding on both
  * sides; columns share what is left after the gutters.
@@ -162,13 +241,13 @@ export function columnGrid({width, columns, gutter, margin, maxWidth}) {
 }
 
 /**
- * Converts stage pixels to CSS pixels (at 100% browser zoom) and to device pixels. In logical
- * layout mode, the one fractional scaling uses, the stage is in logical pixels; in physical
- * mode it is in device pixels.
+ * Converts stage pixels to CSS pixels and to device pixels. In logical layout mode, the one
+ * fractional scaling uses, the stage is in logical pixels, which are CSS pixels at 100% browser
+ * zoom; in physical mode it is in device pixels. `zoom` is the browser zoom factor, 1 for 100%.
  */
-export function pixelRatios(monitorScale, logical) {
+export function pixelRatios(monitorScale, logical, zoom = 1) {
     return {
-        css: logical ? 1 : 1 / monitorScale,
+        css: (logical ? 1 : 1 / monitorScale) / zoom,
         device: logical ? monitorScale : 1,
     };
 }
