@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in Measure Things does not work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Press Super+Shift+M to enter edit mode
+        2. Drag a rectangle
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Measure Things version
+      description: Shown under About at the bottom of the Measure Things preferences.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: shell
+    attributes:
+      label: GNOME Shell version and distribution
+      description: Output of `gnome-shell --version`, plus your distribution.
+      placeholder: GNOME Shell 49.1, Fedora 43
+    validations:
+      required: true
+  - type: input
+    id: scale
+    attributes:
+      label: Display scale
+      description: Scale of the monitor involved, from Settings > Displays.
+      placeholder: 125%
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant lines from `journalctl --user -b -o cat /usr/bin/gnome-shell | grep -i measure-things`.
+      render: text

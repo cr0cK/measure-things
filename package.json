@@ -1,0 +1,20 @@
+{
+  "name": "measure-things",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Development tooling for the Measure Things GNOME Shell extension.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node --test tests/*.test.js",
+    "check": "make check",
+    "e2e": "scripts/e2e.sh"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@stylistic/eslint-plugin": "5.10.0",
+    "eslint": "10.12.0",
+    "globals": "17.13.0"
+  }
+}

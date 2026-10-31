@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.measure-things" path="/org/gnome/shell/extensions/measure-things/">
+    <key name="helpers" type="s">
+      <default>'[]'</default>
+      <summary>Helpers</summary>
+      <description>JSON list of guides and rectangles, in stage pixels.</description>
+    </key>
+    <key name="show-helpers" type="b">
+      <default>true</default>
+      <summary>Show helpers</summary>
+      <description>Whether guides and rectangles stay visible outside edit mode.</description>
+    </key>
+    <key name="color" type="s">
+      <default>'#ff2d95'</default>
+      <summary>Helper color</summary>
+      <description>Color of guides, rectangles, labels, and the column grid, as #rrggbb.</description>
+    </key>
+    <key name="unit" type="s">
+      <choices>
+        <choice value="css"/>
+        <choice value="device"/>
+      </choices>
+      <default>'css'</default>
+      <summary>Display unit</summary>
+      <description>css shows CSS pixels at 100% browser zoom; device shows physical screen pixels.</description>
+    </key>
+    <key name="grid-columns" type="i">
+      <default>12</default>
+      <range min="1" max="24"/>
+      <summary>Grid columns</summary>
+      <description>Number of columns in the column grid.</description>
+    </key>
+    <key name="grid-gutter" type="i">
+      <default>24</default>
+      <range min="0" max="400"/>
+      <summary>Grid gutter</summary>
+      <description>Space between columns, in CSS pixels.</description>
+    </key>
+    <key name="grid-margin" type="i">
+      <default>24</default>
+      <range min="0" max="800"/>
+      <summary>Grid margin</summary>
+      <description>Padding on both sides of the grid container, in CSS pixels.</description>
+    </key>
+    <key name="grid-max-width" type="i">
+      <default>0</default>
+      <range min="0" max="10000"/>
+      <summary>Grid maximum width</summary>
+      <description>Width of the centered grid container, in CSS pixels; 0 uses the full width.</description>
+    </key>
+    <key name="edit-shortcut" type="as">
+      <default><![CDATA[['<Super><Shift>m']]]></default>
+      <summary>Edit shortcut</summary>
+      <description>Enters and leaves edit mode; empty disables it.</description>
+    </key>
+    <key name="pick-color-shortcut" type="as">
+      <default><![CDATA[['<Super><Shift>c']]]></default>
+      <summary>Color picker shortcut</summary>
+      <description>Starts the color picker; empty disables it.</description>
+    </key>
+    <key name="grid-shortcut" type="as">
+      <default><![CDATA[['<Super><Shift>g']]]></default>
+      <summary>Column grid shortcut</summary>
+      <description>Shows or hides the column grid over the focused window; empty disables it.</description>
+    </key>
+  </schema>
+</schemalist>
