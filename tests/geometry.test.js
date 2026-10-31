@@ -12,6 +12,7 @@ import {
     monitorAt,
     parseHelpers,
     pixelRatios,
+    rectangleGaps,
     rectFromPoints,
     serializeHelpers,
 } from '../src/geometry.js';
@@ -127,6 +128,11 @@ test('converts stage pixels in logical and physical layout modes', () => {
     assert.deepEqual(pixelRatios(1, false), {css: 1, device: 1});
 });
 
+test('divides CSS pixels by the browser zoom only', () => {
+    assert.deepEqual(pixelRatios(1.25, true, 1.25), {css: 0.8, device: 1.25});
+    assert.deepEqual(pixelRatios(2, false, 2), {css: 0.25, device: 1});
+});
+
 test('reads the layout mode from Mutter experimental features', () => {
     assert.equal(isLogicalLayout(['scale-monitor-framebuffer', 'xwayland-native-scaling']), true);
     assert.equal(isLogicalLayout(['xwayland-native-scaling']), false);
@@ -146,4 +152,43 @@ test('anchors guide labels on the edge of the outermost crossed monitor', () => 
     assert.deepEqual(labelAnchor(monitors, 'horizontal', 400), {monitor: 0, edge: 0});
     assert.deepEqual(labelAnchor(monitors, 'horizontal', 100), {monitor: 1, edge: 1920});
     assert.deepEqual(labelAnchor(monitors, 'vertical', 9000), {monitor: -1, edge: 0});
+});
+
+test('measures a rectangle to its nearest neighbor on each side', () => {
+    const helpers = [
+        rect(100, 100, 100, 50, 1),
+        rect(260, 120, 40, 100, 2),
+        rect(230, 0, 10, 140, 3),
+        {id: 4, kind: 'vertical', x: 40},
+        {id: 5, kind: 'horizontal', y: 400},
+        {id: 6, kind: 'horizontal', y: 300},
+        rect(0, 300, 50, 50, 7),
+    ];
+    assert.deepEqual(rectangleGaps(helpers, 1), [
+        {axis: 'x', from: 40, to: 100, at: 125},
+        {axis: 'x', from: 200, to: 230, at: 120},
+        {axis: 'y', from: 150, to: 300, at: 150},
+    ]);
+});
+
+test('gives no gap to touching or overlapping neighbors, or without a selected rectangle', () => {
+    const helpers = [rect(0, 0, 100, 100, 1), rect(100, 0, 50, 50, 2), rect(50, 50, 100, 100, 3)];
+    assert.deepEqual(rectangleGaps(helpers, 1), []);
+    assert.deepEqual(rectangleGaps([{id: 1, kind: 'vertical', x: 3}], 1), []);
+    assert.deepEqual(rectangleGaps(helpers, 9), []);
+});
+
+test('snaps the dragged guide or edges of a helper', () => {
+    const snap = value => (Math.abs(value - 200) <= 5 ? 200 : value);
+    assert.deepEqual(dragHelper({id: 1, kind: 'vertical', x: 190}, 'move', 7, 0, snap, snap),
+        {id: 1, kind: 'vertical', x: 200});
+    assert.deepEqual(dragHelper(rect(100, 100, 90, 90), 'bottom-right', 8, 13, snap, snap),
+        rect(100, 100, 100, 100));
+    assert.deepEqual(dragHelper(rect(190, 190, 50, 50), 'left', 8, 0, snap, snap), rect(200, 190, 40, 50));
+    assert.deepEqual(dragHelper(rect(190, 190, 50, 50), 'inside', 8, 8, snap, snap), rect(198, 198, 50, 50));
+});
+
+test('snaps the dragged edge, not the fixed one, when a resize flips the rectangle', () => {
+    const snap = value => (Math.abs(value - 252) <= 5 ? 252 : Math.abs(value - 198) <= 5 ? 198 : value);
+    assert.deepEqual(dragHelper(rect(100, 100, 100, 50), 'left', 150, 0, snap, snap), rect(200, 100, 52, 50));
 });

@@ -4,6 +4,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -27,9 +28,16 @@ export default class MeasureThingsExtension extends Extension {
         this._buildMenu();
 
         this._overlay = new Overlay(this._settings, {onStateChanged: () => this._syncMenu()});
+        // Edit mode and the picker capture the screen at once, so an open menu must go first.
         const handlers = {
-            'edit-shortcut': () => this._picker || this._overlay.toggleEdit(),
-            'pick-color-shortcut': () => this._pickColor(),
+            'edit-shortcut': () => {
+                this._closeMenu();
+                return this._picker || this._overlay.toggleEdit();
+            },
+            'pick-color-shortcut': () => {
+                this._closeMenu();
+                this._pickColor();
+            },
             'grid-shortcut': () => this._picker || this._overlay.toggleGrid(),
         };
         for (const name of SHORTCUTS) {
@@ -41,14 +49,16 @@ export default class MeasureThingsExtension extends Extension {
                 handlers[name]
             );
         }
-        this._showHelpersSignal = this._settings.connect('changed::show-helpers', () => this._syncMenu());
+        this._settingsSignals = ['show-helpers', 'mockup-file', 'mockup-visible'].map(key =>
+            this._settings.connect(`changed::${key}`, () => this._syncMenu()));
         this._syncMenu();
     }
 
     disable() {
         for (const name of SHORTCUTS)
             Main.wm.removeKeybinding(name);
-        this._settings.disconnect(this._showHelpersSignal);
+        for (const id of this._settingsSignals)
+            this._settings.disconnect(id);
         this._picker?.cancel();
         this._picker = null;
         this._overlay.destroy();
@@ -60,10 +70,15 @@ export default class MeasureThingsExtension extends Extension {
 
     _buildMenu() {
         const menu = this._indicator.menu;
-        this._editItem = menu.addAction('Edit helpers', () => this._overlay.toggleEdit());
-        menu.addAction('Add vertical guide', () => this._overlay.addGuide('vertical'));
-        menu.addAction('Add horizontal guide', () => this._overlay.addGuide('horizontal'));
-        menu.addAction('Pick color', () => this._pickColor());
+        // A menu only starts closing after its action runs, which would capture it.
+        const closingMenu = action => () => {
+            this._closeMenu();
+            action();
+        };
+        this._editItem = menu.addAction('Edit helpers', closingMenu(() => this._overlay.toggleEdit()));
+        menu.addAction('Add vertical guide', closingMenu(() => this._overlay.addGuide('vertical')));
+        menu.addAction('Add horizontal guide', closingMenu(() => this._overlay.addGuide('horizontal')));
+        menu.addAction('Pick color', closingMenu(() => this._pickColor()));
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._gridItem = new PopupMenu.PopupSwitchMenuItem('Column grid', false);
@@ -79,10 +94,20 @@ export default class MeasureThingsExtension extends Extension {
                 this._settings.set_boolean('show-helpers', state);
         });
         menu.addMenuItem(this._showItem);
+        this._mockupItem = new PopupMenu.PopupSwitchMenuItem('Mockup', false);
+        this._mockupItem.connect('toggled', (_item, state) => {
+            if (state !== this._settings.get_boolean('mockup-visible'))
+                this._settings.set_boolean('mockup-visible', state);
+        });
+        menu.addMenuItem(this._mockupItem);
         this._clearItem = menu.addAction('Clear helpers', () => this._overlay.clear());
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         menu.addAction('Preferences', () => this.openPreferences());
+    }
+
+    _closeMenu() {
+        this._indicator.menu.close(BoxPointer.PopupAnimation.NONE);
     }
 
     _syncMenu() {
@@ -91,6 +116,9 @@ export default class MeasureThingsExtension extends Extension {
         this._editItem.label.text = this._overlay.editing ? 'Stop editing' : 'Edit helpers';
         this._gridItem.setToggleState(this._overlay.gridVisible);
         this._showItem.setToggleState(this._settings.get_boolean('show-helpers'));
+        this._mockupItem.setToggleState(this._settings.get_boolean('mockup-visible'));
+        // Without an image the switch would do nothing; the preferences choose one.
+        this._mockupItem.setSensitive(this._settings.get_string('mockup-file') !== '');
         this._clearItem.setSensitive(this._overlay.hasHelpers);
     }
 
@@ -102,7 +130,7 @@ export default class MeasureThingsExtension extends Extension {
         const editing = overlay.editing;
         overlay.exitEdit();
         overlay.setHidden(true);
-        const picker = new ColorPicker();
+        const picker = new ColorPicker(this._settings);
         this._picker = picker;
         const color = await picker.pick();
         // disable() cancels the picker, and a quick enable() may already have replaced both.
@@ -111,9 +139,10 @@ export default class MeasureThingsExtension extends Extension {
 
         this._picker = null;
         overlay.setHidden(false);
-        if (color)
-            copyToClipboard(color.hex, 'color-select-symbolic');
+        // Before the confirmation shows, so edit mode does not capture it.
         if (editing)
             overlay.enterEdit();
+        if (color)
+            copyToClipboard(color, 'color-select-symbolic');
     }
 }

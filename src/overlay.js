@@ -1,10 +1,12 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
+import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {nearestBoundary, regionAround} from './edges.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {
     columnGrid,
@@ -17,16 +19,26 @@ import {
     monitorAt,
     parseHelpers,
     pixelRatios,
+    rectangleGaps,
     rectFromPoints,
     serializeHelpers,
 } from './geometry.js';
+import {History} from './history.js';
+import {Mockup} from './mockup.js';
+import {Snapshot} from './snapshot.js';
 
 // A press must travel this far, in stage pixels, before it draws a rectangle.
 const DRAG_THRESHOLD = 3;
+// Dragged edges snap to screen edges this close, in stage pixels.
+const SNAP_DISTANCE = 6;
 const LABEL_MARGIN = 4;
 const HANDLE_SIZE = 7;
-const HINT_TEXT = 'Drag  rectangle   ·   H / V  guide   ·   Arrows  nudge (Shift ×10, Alt resize)   ·   ' +
-    'Tab  select   ·   Del  remove   ·   G  grid   ·   Ctrl+C  copy   ·   Esc  done';
+const HINT_TEXT = [
+    'Drag  rectangle   ·   H / V  guide   ·   D  measure area   ·   Arrows  nudge (Shift ×10, Alt resize)   ·   ' +
+        'Tab  select   ·   Del  remove',
+    'Ctrl+Z  undo   ·   Ctrl+C  copy   ·   Ctrl+drag  no snapping   ·   Right-drag  move mockup   ·   ' +
+        'G  grid   ·   Esc  done',
+].join('\n');
 const RECTANGLE_PARTS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
 /**
@@ -48,12 +60,21 @@ export class Overlay {
         this._gridWindow = null;
         this._gridSignals = [];
         this._gridVisible = false;
+        this._history = new History(this._state());
+        this._snapshot = null;
+        this._snapshotToken = null;
+        this._measuring = false;
+        this._region = null;
+        // Shared by every line request, so a pending line calls it back once.
+        this._onLineRead = () => this._refreshPointer();
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});
         this.actor.add_constraint(new Clutter.BindConstraint({
             source: global.stage,
             coordinate: Clutter.BindCoordinate.ALL,
         }));
+        this._mockup = new Mockup(settings, monitor => this._ratios(monitor));
+        this.actor.add_child(this._mockup.actor);
         this._gridGroup = new St.Widget();
         this._helperGroup = new St.Widget();
         this._labelGroup = new St.Widget();
@@ -65,9 +86,17 @@ export class Overlay {
 
         this._crosshairX = new St.Widget();
         this._crosshairY = new St.Widget();
+        this._areaGroup = new St.Widget({visible: false});
+        this._areaX = new St.Widget();
+        this._areaY = new St.Widget();
+        this._areaWidth = new St.Label({style_class: 'measure-things-label'});
+        this._areaHeight = new St.Label({style_class: 'measure-things-label'});
+        for (const actor of [this._areaX, this._areaY, this._areaWidth, this._areaHeight])
+            this._areaGroup.add_child(actor);
         this._readout = new St.Label({style_class: 'measure-things-label measure-things-readout'});
         this._hint = new St.Label({style_class: 'measure-things-hint', text: HINT_TEXT});
-        for (const actor of [this._crosshairX, this._crosshairY, this._readout, this._hint])
+        this._hint.clutter_text.line_alignment = Pango.Alignment.CENTER;
+        for (const actor of [this._crosshairX, this._crosshairY, this._areaGroup, this._readout, this._hint])
             this._cursorGroup.add_child(actor);
 
         this.actor.connect('button-press-event', (_actor, event) => this._onPress(event));
@@ -80,7 +109,7 @@ export class Overlay {
             [Main.layoutManager, Main.layoutManager.connect('monitors-changed', () => this._syncAll())],
             [global.workspace_manager,
                 global.workspace_manager.connect('active-workspace-changed', () => this._syncGrid())],
-            ...['color', 'unit', 'show-helpers'].map(key =>
+            ...['color', 'unit', 'zoom', 'show-helpers'].map(key =>
                 [settings, settings.connect(`changed::${key}`, () => this._syncAll())]),
             ...['grid-columns', 'grid-gutter', 'grid-margin', 'grid-max-width'].map(key =>
                 [settings, settings.connect(`changed::${key}`, () => this._syncGrid())]),
@@ -94,6 +123,7 @@ export class Overlay {
         for (const [object, id] of this._signals)
             object.disconnect(id);
         this._signals = [];
+        this._mockup.destroy();
         this.actor.destroy();
         this._views.clear();
     }
@@ -124,6 +154,7 @@ export class Overlay {
         }
 
         this._grab = grab;
+        this._captureSnapshot();
         global.display.set_cursor(Meta.Cursor.CROSSHAIR);
         const [x, y] = global.get_pointer();
         this._cursorGroup.show();
@@ -134,13 +165,49 @@ export class Overlay {
         return true;
     }
 
+    /**
+     * Captures the screen without the layer, for edge detection. The capture paints the stage
+     * at once, so the layer is hidden for that paint only.
+     */
+    _captureSnapshot() {
+        const token = {};
+        this._snapshotToken = token;
+        this._snapshot = null;
+        this.actor.opacity = 0;
+        Snapshot.capture()
+            .then(snapshot => {
+                if (this._snapshotToken !== token)
+                    return;
+                this._snapshot = snapshot;
+                this._refreshPointer();
+            })
+            .catch(error => console.warn(`Measure Things: could not capture the screen: ${error.message}`))
+            .finally(() => {
+                if (this._snapshotToken === token)
+                    this.actor.opacity = 255;
+            });
+    }
+
+    _dropSnapshot() {
+        this._snapshotToken = null;
+        this._snapshot = null;
+        this.actor.opacity = 255;
+    }
+
     exitEdit() {
         if (!this._grab)
             return;
 
-        this._cancelDrag();
+        // A drag released while its snapping lines were read is done; any other is cancelled.
+        if (this._drag?.released)
+            this._finishDrag(this._drag);
+        else
+            this._cancelDrag();
         Main.popModal(this._grab);
         this._grab = null;
+        this._dropSnapshot();
+        this._measuring = false;
+        this._region = null;
         this.actor.reactive = false;
         global.display.set_cursor(Meta.Cursor.DEFAULT);
         this._cursorGroup.hide();
@@ -223,7 +290,7 @@ export class Overlay {
     /** Stage-pixel ratios on a monitor; see pixelRatios(). */
     _ratios(monitor) {
         const logical = isLogicalLayout(this._mutterSettings.get_strv('experimental-features'));
-        return pixelRatios(monitor?.geometry_scale ?? 1, logical);
+        return pixelRatios(monitor?.geometry_scale ?? 1, logical, this._settings.get_int('zoom') / 100);
     }
 
     /** The monitor under a point, and how many display units one stage pixel is worth there. */
@@ -254,8 +321,13 @@ export class Overlay {
         const color = this._color();
         this._crosshairX.style = `background-color: ${withAlpha(color, 0.45)};`;
         this._crosshairY.style = this._crosshairX.style;
+        this._areaX.style = `background-color: ${color};`;
+        this._areaY.style = this._areaX.style;
+        for (const label of [this._areaWidth, this._areaHeight])
+            label.style = `background-color: ${color};`;
         this._syncHelpers();
         this._syncGrid();
+        this._mockup.sync();
     }
 
     _syncHelpers() {
@@ -372,28 +444,56 @@ export class Overlay {
             const middle = (gap.from + gap.to) / 2;
             const kind = gap.axis === 'x' ? 'vertical' : 'horizontal';
             const anchor = labelAnchor(monitors, kind, Math.round(middle));
-            const line = new St.Widget({style: `background-color: ${withAlpha(this._color(), 0.6)};`});
             const {ratio} = gap.axis === 'x' ? this._unitAt(middle, anchor.edge)
                 : this._unitAt(anchor.edge, middle);
-            const label = new St.Label({
-                style_class: 'measure-things-label measure-things-gap',
-                text: formatLength((gap.to - gap.from) * ratio),
-            });
-            this._gapGroup.add_child(line);
-            this._gapGroup.add_child(label);
-            const [, labelWidth] = label.get_preferred_width(-1);
-            const [, labelHeight] = label.get_preferred_height(-1);
-            if (gap.axis === 'x') {
-                const y = anchor.edge + this._topInset(anchor.monitor) + labelHeight + 2 * LABEL_MARGIN;
-                line.set_position(gap.from, y + Math.round(labelHeight / 2));
-                line.set_size(gap.to - gap.from, 1);
-                label.set_position(Math.round(middle - labelWidth / 2), y);
-            } else {
-                const x = anchor.edge + 6 * LABEL_MARGIN;
-                line.set_position(x, gap.from);
-                line.set_size(1, gap.to - gap.from);
-                label.set_position(x + LABEL_MARGIN, Math.round(middle - labelHeight / 2));
-            }
+            const labelHeight = this._measureLabelHeight();
+            // Below the guide labels at the top of the screen, or right of them on the left.
+            const at = gap.axis === 'x'
+                ? anchor.edge + this._topInset(anchor.monitor) + labelHeight + 2 * LABEL_MARGIN +
+                    Math.round(labelHeight / 2)
+                : anchor.edge + 6 * LABEL_MARGIN;
+            this._drawGap({...gap, at}, ratio);
+        }
+        for (const gap of rectangleGaps(this._helpers, this._selectedId)) {
+            const middle = (gap.from + gap.to) / 2;
+            const {ratio} = gap.axis === 'x' ? this._unitAt(middle, gap.at) : this._unitAt(gap.at, middle);
+            this._drawGap(gap, ratio);
+        }
+    }
+
+    _measureLabelHeight() {
+        if (!this._labelHeight) {
+            const probe = new St.Label({style_class: 'measure-things-label measure-things-gap', text: '0'});
+            this._gapGroup.add_child(probe);
+            [, this._labelHeight] = probe.get_preferred_height(-1);
+            probe.destroy();
+        }
+        return this._labelHeight;
+    }
+
+    /**
+     * A line joining two edges along `axis`, at `at` across it, and its length: centered on a
+     * horizontal line, right of a vertical one.
+     */
+    _drawGap({axis, from, to, at}, ratio) {
+        const middle = (from + to) / 2;
+        const line = new St.Widget({style: `background-color: ${withAlpha(this._color(), 0.6)};`});
+        const label = new St.Label({
+            style_class: 'measure-things-label measure-things-gap',
+            text: formatLength((to - from) * ratio),
+        });
+        this._gapGroup.add_child(line);
+        this._gapGroup.add_child(label);
+        const [, labelWidth] = label.get_preferred_width(-1);
+        const [, labelHeight] = label.get_preferred_height(-1);
+        if (axis === 'x') {
+            line.set_position(from, at);
+            line.set_size(to - from, 1);
+            label.set_position(Math.round(middle - labelWidth / 2), at - Math.round(labelHeight / 2));
+        } else {
+            line.set_position(at, from);
+            line.set_size(1, to - from);
+            label.set_position(at + LABEL_MARGIN, Math.round(middle - labelHeight / 2));
         }
     }
 
@@ -449,7 +549,10 @@ export class Overlay {
         this._crosshairY.set_position(x, 0);
         this._crosshairY.set_size(1, global.stage.height);
         const {monitor, ratio} = this._unitAt(x, y);
-        this._readout.text = `${formatLength((x - monitor.x) * ratio)}, ${formatLength((y - monitor.y) * ratio)}`;
+        this._updateArea(x, y, ratio);
+        this._readout.text = this._region
+            ? formatSize(this._region.width * ratio, this._region.height * ratio)
+            : `${formatLength((x - monitor.x) * ratio)}, ${formatLength((y - monitor.y) * ratio)}`;
         this._readout.set_position(x + 14, y + 14);
 
         if (this._drag)
@@ -459,6 +562,88 @@ export class Overlay {
         const cursor = !helper || (hit.part === 'inside' && hit.id !== this._selectedId)
             ? 'CROSSHAIR' : cursorFor(helper.kind, hit.part);
         global.display.set_cursor(Meta.Cursor[cursor]);
+    }
+
+    /**
+     * In area measuring, finds the run of same-colored pixels around the pointer on its row and
+     * column, and draws their extent.
+     */
+    _updateArea(x, y, ratio) {
+        this._region = null;
+        const snapshot = this._snapshot;
+        const row = this._measuring && snapshot?.line('row', y, this._onLineRead);
+        const column = this._measuring && snapshot?.line('column', x, this._onLineRead);
+        const shown = Boolean(row && column);
+        this._areaGroup.visible = shown;
+        this._crosshairX.visible = !shown;
+        this._crosshairY.visible = !shown;
+        if (!shown)
+            return;
+
+        const {scale} = snapshot;
+        const across = regionAround(row, snapshot.pixel(x));
+        const down = regionAround(column, snapshot.pixel(y));
+        const region = {
+            x: across.start / scale,
+            y: down.start / scale,
+            width: (across.end - across.start) / scale,
+            height: (down.end - down.start) / scale,
+        };
+        this._region = region;
+        this._areaX.set_position(region.x, y);
+        this._areaX.set_size(region.width, 1);
+        this._areaY.set_position(x, region.y);
+        this._areaY.set_size(1, region.height);
+        this._areaWidth.text = formatLength(region.width * ratio);
+        this._areaHeight.text = formatLength(region.height * ratio);
+        const [, width] = this._areaWidth.get_preferred_width(-1);
+        const [, height] = this._areaWidth.get_preferred_height(-1);
+        this._areaWidth.set_position(Math.round(region.x + (region.width - width) / 2),
+            y - height - LABEL_MARGIN);
+        const [, heightLabelHeight] = this._areaHeight.get_preferred_height(-1);
+        this._areaHeight.set_position(x + LABEL_MARGIN,
+            Math.round(region.y + (region.height - heightLabelHeight) / 2));
+    }
+
+    /** Redraws what depends on the screen capture once a line of it has been read. */
+    _refreshPointer() {
+        if (!this.editing)
+            return;
+        const drag = this._drag;
+        if (drag?.pointer) {
+            this._applyDrag();
+            if (drag.released && !drag.waiting)
+                this._finishDrag(drag);
+        }
+        const [x, y] = global.get_pointer();
+        this._updateCursor(x, y);
+    }
+
+    /**
+     * The nearest screen edge to a vertical edge at `x`, on the row through `y`. Marks the drag
+     * as waiting while that row is being read.
+     */
+    _snapX(x, y) {
+        const snapshot = this._snapshot;
+        const row = snapshot?.line('row', y, this._onLineRead);
+        if (!row) {
+            this._drag.waiting ||= Boolean(snapshot?.reading('row', y));
+            return x;
+        }
+        const boundary = nearestBoundary(row, x * snapshot.scale, SNAP_DISTANCE * snapshot.scale);
+        return boundary === null ? x : Math.round(boundary / snapshot.scale);
+    }
+
+    /** Like _snapX(), for a horizontal edge at `y` on the column through `x`. */
+    _snapY(x, y) {
+        const snapshot = this._snapshot;
+        const column = snapshot?.line('column', x, this._onLineRead);
+        if (!column) {
+            this._drag.waiting ||= Boolean(snapshot?.reading('column', x));
+            return y;
+        }
+        const boundary = nearestBoundary(column, y * snapshot.scale, SNAP_DISTANCE * snapshot.scale);
+        return boundary === null ? y : Math.round(boundary / snapshot.scale);
     }
 
     _find(id) {
@@ -475,10 +660,14 @@ export class Overlay {
     }
 
     _onPress(event) {
-        if (event.get_button() !== Clutter.BUTTON_PRIMARY)
+        const [x, y] = event.get_coords().map(Math.round);
+        if (event.get_button() === Clutter.BUTTON_SECONDARY && this._mockup.shown && !this._drag) {
+            this._drag = {kind: 'mockup', x, y, origin: this._mockup.position};
+            return Clutter.EVENT_STOP;
+        }
+        if (event.get_button() !== Clutter.BUTTON_PRIMARY || this._drag)
             return Clutter.EVENT_STOP;
 
-        const [x, y] = event.get_coords().map(Math.round);
         const hit = hitTest(this._helpers, x, y);
         if (hit && (hit.part !== 'inside' || hit.id === this._selectedId)) {
             this._drag = {kind: 'move', id: hit.id, part: hit.part, x, y, origin: this._find(hit.id)};
@@ -491,40 +680,68 @@ export class Overlay {
 
     _onMotion(event) {
         const [x, y] = event.get_coords().map(Math.round);
+        if (this._drag && !this._drag.released) {
+            const snap = (event.get_state() & Clutter.ModifierType.CONTROL_MASK) === 0;
+            this._drag.pointer = {x, y, snap};
+            this._applyDrag();
+        }
         this._updateCursor(x, y);
-        const drag = this._drag;
-        if (!drag)
-            return Clutter.EVENT_STOP;
+        return Clutter.EVENT_STOP;
+    }
 
+    /** Applies the drag to the pointer position, snapping dragged edges to screen edges. */
+    _applyDrag() {
+        const drag = this._drag;
+        const {x, y, snap} = drag.pointer;
+        if (drag.kind === 'mockup') {
+            this._mockup.moveTo(drag.origin[0] + x - drag.x, drag.origin[1] + y - drag.y);
+            return;
+        }
+
+        drag.waiting = false;
+        const snapX = (value, rowY = y) => (snap ? this._snapX(value, rowY) : value);
+        const snapY = (value, columnX = x) => (snap ? this._snapY(columnX, value) : value);
         if (drag.kind === 'move') {
-            this._replace(dragHelper(drag.origin, drag.part, x - drag.x, y - drag.y));
+            this._replace(dragHelper(drag.origin, drag.part, x - drag.x, y - drag.y, snapX, snapY));
         } else {
             if (drag.id === null) {
                 if (Math.max(Math.abs(x - drag.x), Math.abs(y - drag.y)) < DRAG_THRESHOLD)
-                    return Clutter.EVENT_STOP;
+                    return;
                 drag.id = this._nextId++;
                 this._helpers.push({id: drag.id, kind: 'rectangle', x, y, width: 1, height: 1});
                 this._selectedId = drag.id;
             }
-            const rect = rectFromPoints(drag.x, drag.y, x, y);
+            const rect = rectFromPoints(snapX(drag.x, drag.y), snapY(drag.y, drag.x), snapX(x), snapY(y));
             this._replace({id: drag.id, kind: 'rectangle', ...rect,
                 width: Math.max(1, rect.width), height: Math.max(1, rect.height)});
         }
         this._syncHelpers();
-        return Clutter.EVENT_STOP;
     }
 
     _onRelease(event) {
         const drag = this._drag;
-        if (!drag || event.get_button() !== Clutter.BUTTON_PRIMARY)
+        const button = drag?.kind === 'mockup' ? Clutter.BUTTON_SECONDARY : Clutter.BUTTON_PRIMARY;
+        if (!drag || drag.released || event.get_button() !== button)
             return Clutter.EVENT_STOP;
 
+        // A line needed for snapping is still being read: finish once it is.
+        if (drag.waiting)
+            drag.released = true;
+        else
+            this._finishDrag(drag);
+        return Clutter.EVENT_STOP;
+    }
+
+    _finishDrag(drag) {
         this._drag = null;
+        if (drag.kind === 'mockup') {
+            this._mockup.save();
+            return;
+        }
         if (drag.kind === 'create' && drag.id === null)
             this._select(drag.insideId);
         this._save();
         this._onStateChanged();
-        return Clutter.EVENT_STOP;
     }
 
     _cancelDrag() {
@@ -532,7 +749,9 @@ export class Overlay {
         if (!drag)
             return;
         this._drag = null;
-        if (drag.kind === 'move')
+        if (drag.kind === 'mockup')
+            this._mockup.moveTo(...drag.origin);
+        else if (drag.kind === 'move')
             this._replace(drag.origin);
         else if (drag.id !== null)
             this._remove(drag.id);
@@ -564,7 +783,8 @@ export class Overlay {
 
         switch (symbol) {
         case Clutter.KEY_Escape:
-            if (this._drag)
+            // A released drag waiting for a read is done, and exitEdit() finishes it.
+            if (this._drag && !this._drag.released)
                 this._cancelDrag();
             else
                 this.exitEdit();
@@ -580,11 +800,21 @@ export class Overlay {
         case Clutter.KEY_Right:
         case Clutter.KEY_Up:
         case Clutter.KEY_Down: {
-            if (!selected || this._drag)
+            if (this._drag)
                 break;
             const step = shift ? 10 : 1;
             const dx = symbol === Clutter.KEY_Left ? -step : symbol === Clutter.KEY_Right ? step : 0;
             const dy = symbol === Clutter.KEY_Up ? -step : symbol === Clutter.KEY_Down ? step : 0;
+            if (control) {
+                if (this._mockup.shown) {
+                    const [mockupX, mockupY] = this._mockup.position;
+                    this._mockup.moveTo(mockupX + dx, mockupY + dy);
+                    this._mockup.save();
+                }
+                break;
+            }
+            if (!selected)
+                break;
             const part = alt && selected.kind === 'rectangle' ? (dx ? 'right' : 'bottom') : 'move';
             this._replace(dragHelper(selected, part, dx, dy));
             this._afterEdit();
@@ -619,8 +849,73 @@ export class Overlay {
             if (control && selected)
                 this._copy(selected);
             break;
+        case Clutter.KEY_d:
+        case Clutter.KEY_D:
+            this._measuring = !this._measuring;
+            this._updateCursor(pointerX, pointerY);
+            break;
+        case Clutter.KEY_Return:
+        case Clutter.KEY_KP_Enter:
+            if (this._region && !this._drag)
+                this._addRegion(this._region);
+            break;
+        case Clutter.KEY_z:
+        case Clutter.KEY_Z:
+            if (control && !this._drag)
+                this._restore(shift ? this._history.redo() : this._history.undo());
+            break;
+        case Clutter.KEY_y:
+        case Clutter.KEY_Y:
+            if (control && !this._drag)
+                this._restore(this._history.redo());
+            break;
+        case Clutter.KEY_bracketleft:
+        case Clutter.KEY_bracketright:
+            // A settings change puts the mockup back at its saved position, mid-drag included.
+            if (this._mockup.shown && !this._drag)
+                this._mockup.changeOpacity(symbol === Clutter.KEY_bracketleft ? -10 : 10);
+            break;
         }
         return Clutter.EVENT_STOP;
+    }
+
+    /** Adds a rectangle on the measured area, rounded to whole stage pixels. */
+    _addRegion(region) {
+        const x = Math.round(region.x);
+        const y = Math.round(region.y);
+        const helper = {
+            id: this._nextId++,
+            kind: 'rectangle',
+            x,
+            y,
+            width: Math.max(1, Math.round(region.x + region.width) - x),
+            height: Math.max(1, Math.round(region.y + region.height) - y),
+        };
+        this._helpers.push(helper);
+        this._selectedId = helper.id;
+        this._afterEdit();
+    }
+
+    _state() {
+        return JSON.stringify(this._helpers);
+    }
+
+    /** Puts back helpers from the history, without recording that as a new step. */
+    _restore(state) {
+        if (state === null)
+            return;
+        this._helpers = JSON.parse(state);
+        this._nextId = Math.max(this._nextId, ...this._helpers.map(helper => helper.id + 1));
+        if (!this._find(this._selectedId))
+            this._selectedId = null;
+        this._settings.set_string('helpers', serializeHelpers(this._helpers));
+        this._syncHelpers();
+        // Recreated helpers were drawn on top; stack them in list order, as hit testing reads it.
+        for (const helper of this._helpers) {
+            for (const actor of this._views.get(helper.id).actors)
+                actor.get_parent().set_child_above_sibling(actor, null);
+        }
+        this._onStateChanged();
     }
 
     _afterEdit() {
@@ -640,8 +935,10 @@ export class Overlay {
         copyToClipboard(text, 'edit-copy-symbolic');
     }
 
+    /** Stores the helpers and records them in the undo history. */
     _save() {
         this._settings.set_string('helpers', serializeHelpers(this._helpers));
+        this._history.record(this._state());
     }
 }
 

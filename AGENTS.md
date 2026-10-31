@@ -1,8 +1,8 @@
 # AGENTS.md
 
 Guidance for AI agents working on Measure Things, a GNOME Shell 49 extension with measuring tools
-for web and UI work: guides, measuring rectangles, a column grid, and a color picker, drawn above
-every window. Read CONTRIBUTING.md for the human workflow; this file holds what the code does not
+for web and UI work: guides, measuring rectangles, area measuring with snapping, a column grid, a
+mockup image, and a color picker, drawn above every window. Read CONTRIBUTING.md for the human workflow; this file holds what the code does not
 tell you.
 
 ## Layout
@@ -13,11 +13,15 @@ new `src/*.js` modules on its own.
 | Path | Role |
 |---|---|
 | `src/extension.js` | Panel indicator and menu, keyboard shortcuts, wiring of the overlay and the picker |
-| `src/overlay.js` | The layer above all windows: helper rendering, gap labels, column grid, edit mode |
-| `src/picker.js` | Modal color picker |
+| `src/overlay.js` | The layer above all windows: helper rendering, gap labels, column grid, edit mode, area measuring, snapping, undo |
+| `src/mockup.js` | The mockup image in the layer |
+| `src/snapshot.js` | Still capture of the screen, read by areas and lines on demand |
+| `src/picker.js` | Modal color picker with its loupe |
 | `src/prefs.js` | Adwaita preferences window; every row writes its setting directly |
 | `src/geometry.js` | Helper storage, hit testing, drag math, grid layout, pixel units (pure) |
 | `src/format.js` | Length and color formatting (pure) |
+| `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |
+| `src/history.js` | Undo and redo history (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.measure-things` |
 | `tests/` | `node --test` suites for the pure modules |
 | `docs/specs/v*.md` | Product contracts, one per minor version |
@@ -64,9 +68,22 @@ user-visible change also gets a new check in `scripts/e2e.sh`.
   value so the copy can never disagree with the label.
 - Each helper keeps its actors in `_views`, updated in place on every pointer motion. Gap
   labels and grid bands are rebuilt on each sync, because there are few of them.
-- `Shell.Screenshot.pick_color` paints the stage, actors included. The picker hides the overlay
-  while it runs and makes its own swatch transparent during each read, or the pointer could
-  sample the swatch. The e2e test checks both with known colors.
+- Area measuring, snapping, and the picker read `Snapshot`, a capture from
+  `Shell.Screenshot.screenshot_stage_to_content`, which paints the stage at once, actors included.
+  The overlay hides itself for that paint when edit mode starts; the picker captures before its
+  swatch shows, with the overlay hidden. The e2e test checks with known colors that neither the
+  helpers nor the swatch are sampled.
+- The capture stays on the GPU. Reading a whole 4K screen into memory takes over a second, so
+  `Snapshot` reads only what is needed through `Shell.Screenshot.composite_to_stream`: a full row
+  or column for edges (a few milliseconds, cached), 11 × 11 pixels for the loupe. Its pixels are
+  device pixels, stage coordinates times its `scale`; at fractional scales a screen edge can fall
+  between two stage pixels, and snapping rounds it.
+- Lines arrive asynchronously. `Snapshot.line()` returns null and calls back once the read ends;
+  the overlay then replays the drag and redraws the area from the last pointer position. A drag
+  released while a line it snaps to is still being read finishes after that read.
+- Anything on screen when edit mode or the picker starts is captured. Menu actions run before
+  the menu starts closing, so the menu closes itself without animation first, and the picker
+  re-enters edit mode before it shows its confirmation.
 - `_pickColor()` resolves only when the picker closes; do not await it from Eval. disable()
   cancels it, and the Shell can re-enable right away, so the continuation checks that the
   overlay and picker it started with are still the current ones.
@@ -82,6 +99,11 @@ user-visible change also gets a new check in `scripts/e2e.sh`.
   the first async step depends on before starting that step.
 - `St.Label` sizes are only right once the label is on the stage; add it before calling
   `get_preferred_width`.
+- St's `box-shadow` fills the whole box, so it cannot outline a transparent widget; nest two
+  bordered widgets instead, as the loupe marker does.
+- A child of a vertical `St.BoxLayout` stretches to the widest sibling unless its `x_align` is set.
+- Opacity percentages convert with `Math.round(percent * 255 / 100)`: `percent * 2.55` is a
+  hair below .5 for 50 and rounds down.
 
 ## Verify UI changes in a real GNOME Shell
 
@@ -104,12 +126,16 @@ a headless shell; reuse it rather than starting from scratch:
   disabling and re-enabling the extension keeps running the old code.
 - Look at the screenshots, and grep the shell log for `JS ERROR` and `JS WARNING`.
 
+The e2e test turns on Mutter's logical layout mode, then switches the virtual monitor to 125%
+through `org.gnome.Mutter.DisplayConfig` for its last checks, which cover fractional scaling.
+
 CI runs the e2e test in a `fedora:43` container with Mesa's software renderer. The Shell aborts
 at startup there unless the workflow starts a system D-Bus and deletes `/run/systemd/seats`:
 installing systemd creates that directory, which makes the Shell expect logind.
 
 `scripts/sandbox.sh` uses the mutter devkit instead. Do not pass `--virtual-monitor` there: the
-devkit shows its own monitor.
+devkit shows its own monitor. While the desktop session is locked, the devkit window gets no
+frames and the sandbox shell never finishes starting up; use the headless shell then.
 
 ## Versions, releases, and docs
 

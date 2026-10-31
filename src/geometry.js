@@ -87,12 +87,18 @@ export function hitTest(helpers, x, y, tolerance = HIT_TOLERANCE) {
     return null;
 }
 
-/** The helper as it was at drag start, moved or resized by the pointer delta. */
-export function dragHelper(origin, part, dx, dy) {
+const keep = value => value;
+
+/**
+ * The helper as it was at drag start, moved or resized by the pointer delta. `snapX(x)` and
+ * `snapY(y)` pull the dragged guide or edges onto nearby screen edges, before a rectangle dragged
+ * past its opposite edge flips; whole rectangle moves do not snap.
+ */
+export function dragHelper(origin, part, dx, dy, snapX = keep, snapY = keep) {
     if (origin.kind === 'horizontal')
-        return {...origin, y: origin.y + dy};
+        return {...origin, y: snapY(origin.y + dy)};
     if (origin.kind === 'vertical')
-        return {...origin, x: origin.x + dx};
+        return {...origin, x: snapX(origin.x + dx)};
     if (part === 'move' || part === 'inside')
         return {...origin, x: origin.x + dx, y: origin.y + dy};
 
@@ -101,13 +107,13 @@ export function dragHelper(origin, part, dx, dy) {
     let right = origin.x + origin.width;
     let bottom = origin.y + origin.height;
     if (part.includes('left'))
-        left += dx;
+        left = snapX(left + dx);
     if (part.includes('right'))
-        right += dx;
+        right = snapX(right + dx);
     if (part.includes('top'))
-        top += dy;
+        top = snapY(top + dy);
     if (part.includes('bottom'))
-        bottom += dy;
+        bottom = snapY(bottom + dy);
     const rect = rectFromPoints(left, top, right, bottom);
     return {...origin, ...rect, width: Math.max(1, rect.width), height: Math.max(1, rect.height)};
 }
@@ -143,6 +149,56 @@ export function guideGaps(helpers) {
 }
 
 /**
+ * Distances from a rectangle to the nearest helper on each side: guides, and rectangles that
+ * overlap it across the gap. `axis` is the coordinate the gap runs along, `at` where the line
+ * joining the two edges crosses the other axis. Touching or overlapping neighbors give no gap.
+ */
+export function rectangleGaps(helpers, id) {
+    const rect = helpers.find(helper => helper.id === id);
+    if (!rect || rect.kind !== 'rectangle')
+        return [];
+
+    const sides = {left: null, right: null, top: null, bottom: null};
+    const keep = (side, gap) => {
+        if (gap.to > gap.from && (!sides[side] || gap.to - gap.from < sides[side].to - sides[side].from))
+            sides[side] = gap;
+    };
+    const right = rect.x + rect.width;
+    const bottom = rect.y + rect.height;
+    const middleX = Math.round(rect.x + rect.width / 2);
+    const middleY = Math.round(rect.y + rect.height / 2);
+    for (const other of helpers) {
+        if (other === rect)
+            continue;
+        if (other.kind === 'vertical') {
+            keep('left', {axis: 'x', from: other.x, to: rect.x, at: middleY});
+            keep('right', {axis: 'x', from: right, to: other.x, at: middleY});
+        } else if (other.kind === 'horizontal') {
+            keep('top', {axis: 'y', from: other.y, to: rect.y, at: middleX});
+            keep('bottom', {axis: 'y', from: bottom, to: other.y, at: middleX});
+        } else {
+            const otherRight = other.x + other.width;
+            const otherBottom = other.y + other.height;
+            const overlapTop = Math.max(rect.y, other.y);
+            const overlapBottom = Math.min(bottom, otherBottom);
+            if (overlapTop < overlapBottom) {
+                const at = Math.round((overlapTop + overlapBottom) / 2);
+                keep('left', {axis: 'x', from: otherRight, to: rect.x, at});
+                keep('right', {axis: 'x', from: right, to: other.x, at});
+            }
+            const overlapLeft = Math.max(rect.x, other.x);
+            const overlapRight = Math.min(right, otherRight);
+            if (overlapLeft < overlapRight) {
+                const at = Math.round((overlapLeft + overlapRight) / 2);
+                keep('top', {axis: 'y', from: otherBottom, to: rect.y, at});
+                keep('bottom', {axis: 'y', from: bottom, to: other.y, at});
+            }
+        }
+    }
+    return Object.values(sides).filter(Boolean);
+}
+
+/**
  * Column bands of a layout grid, offsets relative to the bounds' left edge. The container is
  * `maxWidth` wide when set (0 means the full width), centered, with `margin` padding on both
  * sides; columns share what is left after the gutters.
@@ -162,13 +218,13 @@ export function columnGrid({width, columns, gutter, margin, maxWidth}) {
 }
 
 /**
- * Converts stage pixels to CSS pixels (at 100% browser zoom) and to device pixels. In logical
- * layout mode, the one fractional scaling uses, the stage is in logical pixels; in physical
- * mode it is in device pixels.
+ * Converts stage pixels to CSS pixels and to device pixels. In logical layout mode, the one
+ * fractional scaling uses, the stage is in logical pixels, which are CSS pixels at 100% browser
+ * zoom; in physical mode it is in device pixels. `zoom` is the browser zoom factor, 1 for 100%.
  */
-export function pixelRatios(monitorScale, logical) {
+export function pixelRatios(monitorScale, logical, zoom = 1) {
     return {
-        css: logical ? 1 : 1 / monitorScale,
+        css: (logical ? 1 : 1 / monitorScale) / zoom,
         device: logical ? monitorScale : 1,
     };
 }

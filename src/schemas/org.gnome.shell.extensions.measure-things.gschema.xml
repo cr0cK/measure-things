@@ -25,6 +25,49 @@
       <summary>Display unit</summary>
       <description>css shows CSS pixels at 100% browser zoom; device shows physical screen pixels.</description>
     </key>
+    <key name="zoom" type="i">
+      <default>100</default>
+      <range min="25" max="500"/>
+      <summary>Browser zoom</summary>
+      <description>Browser zoom level, in percent, that CSS pixel values and the column grid assume.</description>
+    </key>
+    <key name="color-format" type="s">
+      <choices>
+        <choice value="hex"/>
+        <choice value="rgb"/>
+        <choice value="hsl"/>
+      </choices>
+      <default>'hex'</default>
+      <summary>Color format</summary>
+      <description>Format the color picker shows and copies.</description>
+    </key>
+    <key name="mockup-file" type="s">
+      <default>''</default>
+      <summary>Mockup image</summary>
+      <description>Path of the image laid over the screen; empty for none.</description>
+    </key>
+    <key name="mockup-visible" type="b">
+      <default>false</default>
+      <summary>Show the mockup</summary>
+      <description>Whether the mockup image is shown.</description>
+    </key>
+    <key name="mockup-opacity" type="i">
+      <default>50</default>
+      <range min="5" max="100"/>
+      <summary>Mockup opacity</summary>
+      <description>Opacity of the mockup image, in percent.</description>
+    </key>
+    <key name="mockup-density" type="i">
+      <default>1</default>
+      <range min="1" max="4"/>
+      <summary>Mockup pixel density</summary>
+      <description>Image pixels per CSS pixel: 2 for an image exported at 2x.</description>
+    </key>
+    <key name="mockup-position" type="(ii)">
+      <default>(0, 0)</default>
+      <summary>Mockup position</summary>
+      <description>Top-left corner of the mockup image, in stage pixels.</description>
+    </key>
     <key name="grid-columns" type="i">
       <default>12</default>
       <range min="1" max="24"/>
