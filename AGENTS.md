@@ -17,7 +17,7 @@ new `src/*.js` modules on its own.
 | `src/mockup.js` | The mockup image in the layer |
 | `src/snapshot.js` | Still capture of the screen, read by areas and lines on demand |
 | `src/picker.js` | Modal color picker with its loupe |
-| `src/prefs.js` | Adwaita preferences window; every row writes its setting directly |
+| `src/prefs.js` | Adwaita preferences window; every row writes its setting directly. Its list of edit mode keys mirrors `_onKeyPress()` in `overlay.js`: change both together |
 | `src/geometry.js` | Helper storage, hit testing, drag math, grid layout, pixel units (pure) |
 | `src/format.js` | Length and color formatting (pure) |
 | `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |

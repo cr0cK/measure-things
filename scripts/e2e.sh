@@ -298,6 +298,38 @@ expect "$MOCKUP.visible + ' ' + $EXTENSION._mockupItem._switch.state" 'false fal
 shell_eval "Main.uiGroup.get_children().filter(a => a.name?.startsWith('e2e-')).forEach(a => a.destroy())" \
     >/dev/null
 
+# A global shortcut changed in the preferences: found with Ctrl+F, captured as pressed, and bound
+# by the shell at once.
+gnome-extensions prefs "$UUID"
+# The preferences service can wait on portal timeouts before it shows its window.
+PREFS="global.display.list_all_windows().find(w => w.get_wm_class() === 'org.gnome.Shell.Extensions')"
+wait_for "!!$PREFS" 120
+shell_eval "$PREFS.activate(global.get_current_time())" >/dev/null
+wait_for "$PREFS.has_focus()"
+sleep 1
+press_keys Control_L f
+for key in p i c k space c o l o r; do
+    press_keys "$key"
+done
+sleep 0.5
+# The only search result, the first row under the header bar; it focuses the row it finds.
+read -r RESULT_X RESULT_Y < <(shell_eval "const r = $PREFS.get_frame_rect(); \`\${Math.round(r.x + r.width / 2)} \${r.y + 97}\`")
+pointer_click "$RESULT_X" "$RESULT_Y"
+sleep 0.5
+press_keys Return
+sleep 0.5
+press_keys Control_L Alt_L k
+sleep 1
+expect "$EXTENSION._settings.get_strv('pick-color-shortcut').join()" '<Control><Alt>k' \
+    'the preferences capture a new global shortcut'
+press_keys Control_L Alt_L k
+sleep 1
+expect "!!$EXTENSION._picker" true 'the shell binds the new shortcut at once'
+press_keys Escape
+wait_for "$EXTENSION._picker === null"
+shell_eval "$EXTENSION._settings.reset('pick-color-shortcut'); $PREFS.delete(global.get_current_time())" >/dev/null
+wait_for "!$PREFS"
+
 # Fractional scaling: at 125% the stage is 1280x800 logical pixels over 1600x1000 device pixels.
 gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig \
     --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \

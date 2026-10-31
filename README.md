@@ -40,7 +40,7 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Show or hide the column grid over the focused window |
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Pick a color |
 
-The top bar menu has the same actions, plus **Add vertical guide**, **Add horizontal guide**, **Show helpers**, **Mockup**, and **Clear helpers**. The shortcuts can be changed in the preferences, where the mockup image is chosen too.
+The top bar menu has the same actions, plus **Add vertical guide**, **Add horizontal guide**, **Show helpers**, **Mockup**, and **Clear helpers**. The shortcuts can be changed in the preferences, which also list the keys of edit mode and where the mockup image is chosen.
 
 In edit mode, a hint bar lists the keys:
 

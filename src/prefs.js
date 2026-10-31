@@ -17,6 +17,34 @@ const SHORTCUTS = [
     ['pick-color-shortcut', 'Pick color'],
     ['grid-shortcut', 'Column grid'],
 ];
+// The keys the overlay handles in edit mode, as Gtk.ShortcutLabel accelerators, with the
+// modifier held for arrows apart, so four arrows fit one row.
+const ARROWS = 'Left Right Up Down';
+const EDIT_KEYS = [
+    {title: 'Add a horizontal or vertical guide at the pointer', keys: 'h v'},
+    {title: 'Measure the area under the pointer', keys: 'd'},
+    {title: 'Add the measured area as a rectangle', keys: 'Return'},
+    {title: 'Nudge the selection', keys: ARROWS, subtitle: 'With Shift: 10 pixels.'},
+    {title: 'Resize the selected rectangle', hold: '<Alt>', keys: ARROWS, subtitle: 'With Shift: 10 pixels.'},
+    {title: 'Select the next or previous helper', keys: 'Tab <Shift>Tab'},
+    {title: 'Remove the selection', keys: 'Delete BackSpace'},
+    {title: 'Copy the selected size or position', keys: '<Control>c'},
+    {title: 'Undo', keys: '<Control>z'},
+    {title: 'Redo', keys: '<Control><Shift>z <Control>y'},
+    {title: 'Turn off snapping', keys: '<Control>', subtitle: 'Hold while dragging.'},
+    {
+        title: 'Move the mockup',
+        hold: '<Control>',
+        keys: ARROWS,
+        subtitle: 'With Shift: 10 pixels. A right-drag moves it too.',
+    },
+    {title: 'Lower or raise the mockup opacity', keys: 'bracketleft bracketright'},
+    {title: 'Toggle the column grid', keys: 'g'},
+    {title: 'Cancel the current drag, or leave edit mode', keys: 'Escape'},
+];
+// A global shortcut needs one of these, so it cannot take a key away from typing.
+const SHORTCUT_MODIFIERS = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK |
+    Gdk.ModifierType.SUPER_MASK;
 const GRID_SETTINGS = [
     ['grid-columns', 'Columns', 1, 24],
     ['grid-gutter', 'Gutter', 0, 400],
@@ -29,6 +57,8 @@ export default class MeasureThingsPreferences extends ExtensionPreferences {
         const settings = this.getSettings();
         const page = new Adw.PreferencesPage();
         window.add(page);
+        // Ctrl+F finds a row among the shortcuts and keys.
+        window.search_enabled = true;
 
         const displayGroup = new Adw.PreferencesGroup({title: 'Display'});
         page.add(displayGroup);
@@ -89,28 +119,31 @@ export default class MeasureThingsPreferences extends ExtensionPreferences {
             gridGroup.add(row);
         }
 
-        const shortcutGroup = new Adw.PreferencesGroup({
-            title: 'Keyboard shortcuts',
-            description: 'For example <Super><Shift>m. Leave empty to disable.',
-        });
+        const shortcutGroup = new Adw.PreferencesGroup({title: 'Keyboard shortcuts'});
         page.add(shortcutGroup);
         for (const [key, title] of SHORTCUTS) {
-            const row = new Adw.EntryRow({
-                title,
-                text: settings.get_strv(key)[0] ?? '',
-                show_apply_button: true,
-            });
-            row.connect('changed', () => row.remove_css_class('error'));
-            row.connect('apply', () => {
-                const text = row.get_text().trim();
-                const [valid, keyval, modifiers] = Gtk.accelerator_parse(text);
-                if (text && (!valid || keyval === 0)) {
-                    row.add_css_class('error');
-                    return;
-                }
-                settings.set_strv(key, text ? [Gtk.accelerator_name(keyval, modifiers)] : []);
-            });
+            const label = new Gtk.ShortcutLabel({disabled_text: 'Disabled', valign: Gtk.Align.CENTER});
+            const sync = () => {
+                label.accelerator = settings.get_strv(key)[0] ?? '';
+            };
+            settings.connect(`changed::${key}`, sync);
+            sync();
+            const row = new Adw.ActionRow({title, activatable: true});
+            row.add_suffix(label);
+            row.connect('activated', () => this._captureShortcut(row, settings, key, title));
             shortcutGroup.add(row);
+        }
+
+        const editKeysGroup = new Adw.PreferencesGroup({title: 'In edit mode'});
+        page.add(editKeysGroup);
+        for (const {title, subtitle = '', hold, keys} of EDIT_KEYS) {
+            const row = new Adw.ActionRow({title, subtitle});
+            if (hold) {
+                row.add_suffix(new Gtk.ShortcutLabel({accelerator: hold, valign: Gtk.Align.CENTER}));
+                row.add_suffix(new Gtk.Label({label: '+', css_classes: ['dim-label']}));
+            }
+            row.add_suffix(new Gtk.ShortcutLabel({accelerator: keys, valign: Gtk.Align.CENTER}));
+            editKeysGroup.add(row);
         }
 
         const aboutGroup = new Adw.PreferencesGroup({title: 'About'});
@@ -138,6 +171,36 @@ export default class MeasureThingsPreferences extends ExtensionPreferences {
             });
         });
         aboutGroup.add(sourceRow);
+    }
+
+    /**
+     * Asks for a new global shortcut and stores the first valid combination pressed: Escape
+     * cancels, Backspace disables the shortcut.
+     */
+    _captureShortcut(parent, settings, key, title) {
+        const prompt = 'Press the new shortcut, with Ctrl, Alt, or Super. Backspace disables it.';
+        const dialog = new Adw.AlertDialog({heading: title, body: prompt});
+        dialog.add_response('cancel', 'Cancel');
+        const controller = new Gtk.EventControllerKey({propagation_phase: Gtk.PropagationPhase.CAPTURE});
+        controller.connect('key-pressed', (_controller, keyval, _keycode, state) => {
+            const modifiers = state & Gtk.accelerator_get_default_mod_mask();
+            if (keyval === Gdk.KEY_Escape && !modifiers) {
+                dialog.close();
+            } else if (keyval === Gdk.KEY_BackSpace && !modifiers) {
+                settings.set_strv(key, []);
+                dialog.close();
+            } else if (Gtk.accelerator_valid(keyval, modifiers)) {
+                if (modifiers & SHORTCUT_MODIFIERS) {
+                    settings.set_strv(key, [Gtk.accelerator_name(Gdk.keyval_to_lower(keyval), modifiers)]);
+                    dialog.close();
+                } else {
+                    dialog.body = `${prompt}\n\nA shortcut without Ctrl, Alt, or Super would take the key from typing.`;
+                }
+            }
+            return Gdk.EVENT_STOP;
+        });
+        dialog.add_controller(controller);
+        dialog.present(parent);
     }
 
     _mockupGroup(window, settings) {
