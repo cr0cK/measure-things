@@ -28,9 +28,16 @@ export default class MeasureThingsExtension extends Extension {
         this._buildMenu();
 
         this._overlay = new Overlay(this._settings, {onStateChanged: () => this._syncMenu()});
+        // Edit mode and the picker capture the screen at once, so an open menu must go first.
         const handlers = {
-            'edit-shortcut': () => this._picker || this._overlay.toggleEdit(),
-            'pick-color-shortcut': () => this._pickColor(),
+            'edit-shortcut': () => {
+                this._closeMenu();
+                return this._picker || this._overlay.toggleEdit();
+            },
+            'pick-color-shortcut': () => {
+                this._closeMenu();
+                this._pickColor();
+            },
             'grid-shortcut': () => this._picker || this._overlay.toggleGrid(),
         };
         for (const name of SHORTCUTS) {
@@ -63,10 +70,9 @@ export default class MeasureThingsExtension extends Extension {
 
     _buildMenu() {
         const menu = this._indicator.menu;
-        // Edit mode and the picker capture the screen at once, so the menu must be gone first:
-        // it only starts closing after the action runs.
+        // A menu only starts closing after its action runs, which would capture it.
         const closingMenu = action => () => {
-            menu.close(BoxPointer.PopupAnimation.NONE);
+            this._closeMenu();
             action();
         };
         this._editItem = menu.addAction('Edit helpers', closingMenu(() => this._overlay.toggleEdit()));
@@ -98,6 +104,10 @@ export default class MeasureThingsExtension extends Extension {
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         menu.addAction('Preferences', () => this.openPreferences());
+    }
+
+    _closeMenu() {
+        this._indicator.menu.close(BoxPointer.PopupAnimation.NONE);
     }
 
     _syncMenu() {

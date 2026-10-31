@@ -176,6 +176,15 @@ pointer_move 1450 200
 press_keys d
 wait_for "$OVERLAY._areaGroup.visible"
 expect "$OVERLAY._readout.text" '1600 × 968' 'edit mode started from the menu does not capture the menu'
+press_keys Escape
+shell_eval "$EXTENSION._indicator.menu.open()" >/dev/null
+sleep 0.5
+press_keys Super_L Shift_L m
+wait_for "!!$OVERLAY._snapshot"
+press_keys d
+wait_for "$OVERLAY._areaGroup.visible"
+expect "$OVERLAY._readout.text + ' ' + $EXTENSION._indicator.menu.isOpen" '1600 × 968 false' \
+    'the edit shortcut closes an open menu before the capture'
 press_keys d
 pointer_move 950 900
 press_keys v
@@ -273,11 +282,15 @@ shell_eval "$EXTENSION._settings.set_int('zoom', 100)" >/dev/null
 expect "$OVERLAY.actor.contains(global.stage.get_actor_at_pos(imports.gi.Clutter.PickMode.REACTIVE, 100, 50))" \
     false 'outside edit mode, the pointer goes through the mockup'
 press_keys Super_L Shift_L m
-pointer_drag 100 50 140 80 SECONDARY
+pointer_move 100 50
+pointer_button PRESSED SECONDARY
+pointer_move 140 80
+press_keys bracketright
+pointer_button RELEASED SECONDARY
 press_keys Control_L Shift_L Right
 press_keys bracketright
 expect "$EXTENSION._settings.get_value('mockup-position').deepUnpack().join() + ' ' + $MOCKUP.opacity" \
-    '50,30 153' 'right-drag and Ctrl+arrows move the mockup, ] raises its opacity'
+    '50,30 153' 'right-drag and Ctrl+arrows move the mockup, ] raises its opacity after the drag'
 expect "$OVERLAY._helpers.length" 3 'moving the mockup leaves the helpers alone'
 press_keys Escape
 shell_eval "$EXTENSION._settings.set_boolean('mockup-visible', false)" >/dev/null

@@ -783,7 +783,8 @@ export class Overlay {
 
         switch (symbol) {
         case Clutter.KEY_Escape:
-            if (this._drag)
+            // A released drag waiting for a read is done, and exitEdit() finishes it.
+            if (this._drag && !this._drag.released)
                 this._cancelDrag();
             else
                 this.exitEdit();
@@ -870,7 +871,8 @@ export class Overlay {
             break;
         case Clutter.KEY_bracketleft:
         case Clutter.KEY_bracketright:
-            if (this._mockup.shown)
+            // A settings change puts the mockup back at its saved position, mid-drag included.
+            if (this._mockup.shown && !this._drag)
                 this._mockup.changeOpacity(symbol === Clutter.KEY_bracketleft ? -10 : 10);
             break;
         }
