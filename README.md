@@ -58,17 +58,17 @@ Positions are relative to the monitor they are on. CSS pixel values assume 100% 
 
 ## Install
 
-From a release, download `measure-things@cr0ck.github.io.shell-extension.zip`, then:
+Download the latest release and install it:
 
 ```sh
-gnome-extensions install --force measure-things@cr0ck.github.io.shell-extension.zip
+curl -fsSLo /tmp/measure-things.zip https://github.com/cr0cK/measure-things/releases/latest/download/measure-things@cr0ck.github.io.shell-extension.zip
+gnome-extensions install --force /tmp/measure-things.zip
 ```
 
-From a checkout:
+The same commands update an existing install. For a specific version, replace `latest/download`
+with `download/vX.Y.Z`.
 
-```sh
-make install
-```
+To install from a checkout instead, run `make install` from the repository root.
 
 Log out and back in (Wayland cannot restart GNOME Shell in place), then enable the extension:
 
