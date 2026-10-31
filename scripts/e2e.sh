@@ -159,16 +159,24 @@ shell_eval "$EXTENSION._clearItem.activate(imports.gi.Clutter.get_current_event(
 expect "$OVERLAY._helpers.length + ' ' + $EXTENSION._clearItem.sensitive + ' ' + $EXTENSION._settings.get_string('helpers')" \
     '0 false []' 'Clear helpers removes and forgets every helper'
 
-# Measuring on known screen content: a plain backdrop and a red block, under the layer and
-# captured when edit mode starts.
-shell_eval "for (const [name, color, x, y, width, height] of [
+# Measuring on known screen content: a plain backdrop and a red block above the windows and below
+# the top bar, its menus, and the layer, captured when edit mode starts.
+shell_eval "let below = global.window_group;
+for (const [name, color, x, y, width, height] of [
         ['backdrop', '#3d3846', 0, 0, 1600, 1000], ['red', '#e01b24', 800, 400, 300, 200]]) {
     const block = new imports.gi.St.Widget({name: 'e2e-' + name, x, y, width, height,
         style: 'background-color: ' + color + ';'});
-    Main.uiGroup.insert_child_below(block, $OVERLAY.actor);
+    Main.uiGroup.insert_child_above(block, below);
+    below = block;
 }" >/dev/null
-press_keys Super_L Shift_L m
+shell_eval "$EXTENSION._indicator.menu.open()" >/dev/null
+shell_eval "$EXTENSION._editItem.activate(imports.gi.Clutter.get_current_event())" >/dev/null
 wait_for "!!$OVERLAY._snapshot"
+pointer_move 1450 200
+press_keys d
+wait_for "$OVERLAY._areaGroup.visible"
+expect "$OVERLAY._readout.text" '1600 × 968' 'edit mode started from the menu does not capture the menu'
+press_keys d
 pointer_move 950 900
 press_keys v
 pointer_move 900 500
@@ -193,6 +201,18 @@ key_state Control_L RELEASED
 expect "$LAST" '{"id":9,"kind":"rectangle","x":603,"y":403,"width":494,"height":194}' \
     'Ctrl+drag does not snap'
 press_keys Delete
+# Release in the same batch as the last motion, before the shell has read the row it needs.
+pointer_move 790 700
+press_keys v
+pointer_button PRESSED
+shell_eval "const {Clutter, GLib} = imports.gi;
+    global._headlessPointer.notify_absolute_motion(GLib.get_monotonic_time(), 797, 450);
+    global._headlessPointer.notify_button(GLib.get_monotonic_time(), Clutter.BUTTON_PRIMARY,
+        Clutter.ButtonState.RELEASED);" >/dev/null
+wait_for "$OVERLAY._drag === null"
+expect "$LAST + ' ' + JSON.parse($EXTENSION._settings.get_string('helpers')).at(-1).x" \
+    '{"id":10,"kind":"vertical","x":800} 800' 'a drag released before its row is read still snaps'
+press_keys Delete
 
 pointer_drag 200 450 520 550
 pointer_click 960 900
@@ -200,21 +220,27 @@ pointer_click 400 500
 expect "$OVERLAY._gapGroup.get_children().filter(a => a.text).map(a => a.text).join()" 280 \
     'a selected rectangle shows the distance to its nearest neighbor'
 shell_eval "$EXTENSION._settings.set_int('zoom', 125)" >/dev/null
-expect "$(VIEW_LABEL 10)" '256 × 80' 'CSS pixel values follow the browser zoom'
+expect "$(VIEW_LABEL 11)" '256 × 80' 'CSS pixel values follow the browser zoom'
 shell_eval "$EXTENSION._settings.set_int('zoom', 100)" >/dev/null
 
 press_keys Delete
 expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7 'Delete removes the rectangle'
 press_keys Control_L z
-expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7,10 'Ctrl+Z undoes the last change'
+expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7,11 'Ctrl+Z undoes the last change'
 press_keys Control_L z
 press_keys Control_L z
-expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7,9 'Ctrl+Z goes further back, one change at a time'
+expect "$OVERLAY._helpers.map(h => h.id).join()" 6,7,10 'Ctrl+Z goes further back, one change at a time'
 press_keys Control_L Shift_L z
 press_keys Control_L y
 expect "$OVERLAY._helpers.map(h => h.id).join() + ' ' + $EXTENSION._settings.get_string('helpers')" \
-    '6,7,10 [{"kind":"vertical","x":950},{"kind":"rectangle","x":800,"y":400,"width":300,"height":200},{"kind":"rectangle","x":200,"y":450,"width":320,"height":100}]' \
+    '6,7,11 [{"kind":"vertical","x":950},{"kind":"rectangle","x":800,"y":400,"width":300,"height":200},{"kind":"rectangle","x":200,"y":450,"width":320,"height":100}]' \
     'Ctrl+Shift+Z and Ctrl+Y redo, and the result is saved'
+shell_eval "$OVERLAY._select(7)" >/dev/null
+press_keys Delete
+press_keys Control_L z
+expect "$OVERLAY._helpers.map(h => $OVERLAY._helperGroup.get_children().indexOf($OVERLAY._views.get(h.id).shape))
+    .every((index, i, all) => i === 0 || index > all[i - 1])" true \
+    'undo stacks helpers in list order, as hit testing reads them'
 press_keys Escape
 
 shell_eval "$EXTENSION._settings.set_string('color-format', 'rgb')" >/dev/null
@@ -267,11 +293,13 @@ gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gn
     1 "[(0, 0, 1.25, 0, true, [('Meta-0', '1600x1000@60.000', @a{sv} {})])]" "@a{sv} {}" >/dev/null
 wait_for "global.stage.width === 1280"
 shell_eval "$OVERLAY.clear()" >/dev/null
-shell_eval "for (const [name, color, x, y, width, height] of [
+shell_eval "let below = global.window_group;
+for (const [name, color, x, y, width, height] of [
         ['backdrop', '#3d3846', 0, 0, 1280, 800], ['red', '#e01b24', 400, 300, 240, 160]]) {
     const block = new imports.gi.St.Widget({name: 'e2e-' + name, x, y, width, height,
         style: 'background-color: ' + color + ';'});
-    Main.uiGroup.insert_child_below(block, $OVERLAY.actor);
+    Main.uiGroup.insert_child_above(block, below);
+    below = block;
 }" >/dev/null
 press_keys Super_L Shift_L m
 wait_for "!!$OVERLAY._snapshot"
@@ -287,7 +315,7 @@ expect "$OVERLAY._areaWidth.text" 300 'at 125%, areas measure in CSS and device 
 shell_eval "$EXTENSION._settings.set_string('unit', 'css')" >/dev/null
 press_keys d
 pointer_drag 300 200 637 457
-expect "$LAST" '{"id":11,"kind":"rectangle","x":300,"y":200,"width":340,"height":260}' \
+expect "$LAST" '{"id":12,"kind":"rectangle","x":300,"y":200,"width":340,"height":260}' \
     'at 125%, dragged edges snap to screen edges'
 press_keys Escape
 pointer_move 600 440

@@ -15,7 +15,6 @@ import {
     rectangleGaps,
     rectFromPoints,
     serializeHelpers,
-    snapHelper,
 } from '../src/geometry.js';
 
 const rect = (x, y, width, height, id = 1) => ({id, kind: 'rectangle', x, y, width, height});
@@ -179,11 +178,17 @@ test('gives no gap to touching or overlapping neighbors, or without a selected r
     assert.deepEqual(rectangleGaps(helpers, 9), []);
 });
 
-test('snaps the moving edges of a dragged helper', () => {
+test('snaps the dragged guide or edges of a helper', () => {
     const snap = value => (Math.abs(value - 200) <= 5 ? 200 : value);
-    assert.deepEqual(snapHelper({id: 1, kind: 'vertical', x: 197}, 'move', snap, snap),
+    assert.deepEqual(dragHelper({id: 1, kind: 'vertical', x: 190}, 'move', 7, 0, snap, snap),
         {id: 1, kind: 'vertical', x: 200});
-    assert.deepEqual(snapHelper(rect(100, 100, 98, 103), 'bottom-right', snap, snap), rect(100, 100, 100, 100));
-    assert.deepEqual(snapHelper(rect(198, 198, 50, 50), 'left', snap, snap), rect(200, 198, 48, 50));
-    assert.deepEqual(snapHelper(rect(198, 198, 50, 50), 'inside', snap, snap), rect(198, 198, 50, 50));
+    assert.deepEqual(dragHelper(rect(100, 100, 90, 90), 'bottom-right', 8, 13, snap, snap),
+        rect(100, 100, 100, 100));
+    assert.deepEqual(dragHelper(rect(190, 190, 50, 50), 'left', 8, 0, snap, snap), rect(200, 190, 40, 50));
+    assert.deepEqual(dragHelper(rect(190, 190, 50, 50), 'inside', 8, 8, snap, snap), rect(198, 198, 50, 50));
+});
+
+test('snaps the dragged edge, not the fixed one, when a resize flips the rectangle', () => {
+    const snap = value => (Math.abs(value - 252) <= 5 ? 252 : Math.abs(value - 198) <= 5 ? 198 : value);
+    assert.deepEqual(dragHelper(rect(100, 100, 100, 50), 'left', 150, 0, snap, snap), rect(200, 100, 52, 50));
 });

@@ -22,7 +22,6 @@ import {
     rectangleGaps,
     rectFromPoints,
     serializeHelpers,
-    snapHelper,
 } from './geometry.js';
 import {History} from './history.js';
 import {Mockup} from './mockup.js';
@@ -199,7 +198,11 @@ export class Overlay {
         if (!this._grab)
             return;
 
-        this._cancelDrag();
+        // A drag released while its snapping lines were read is done; any other is cancelled.
+        if (this._drag?.released)
+            this._finishDrag(this._drag);
+        else
+            this._cancelDrag();
         Main.popModal(this._grab);
         this._grab = null;
         this._dropSnapshot();
@@ -606,28 +609,39 @@ export class Overlay {
     _refreshPointer() {
         if (!this.editing)
             return;
-        if (this._drag?.pointer)
+        const drag = this._drag;
+        if (drag?.pointer) {
             this._applyDrag();
+            if (drag.released && !drag.waiting)
+                this._finishDrag(drag);
+        }
         const [x, y] = global.get_pointer();
         this._updateCursor(x, y);
     }
 
-    /** The nearest screen edge to a vertical edge at `x`, on the row through `y`. */
+    /**
+     * The nearest screen edge to a vertical edge at `x`, on the row through `y`. Marks the drag
+     * as waiting while that row is being read.
+     */
     _snapX(x, y) {
         const snapshot = this._snapshot;
         const row = snapshot?.line('row', y, this._onLineRead);
-        if (!row)
+        if (!row) {
+            this._drag.waiting ||= Boolean(snapshot?.reading('row', y));
             return x;
+        }
         const boundary = nearestBoundary(row, x * snapshot.scale, SNAP_DISTANCE * snapshot.scale);
         return boundary === null ? x : Math.round(boundary / snapshot.scale);
     }
 
-    /** The nearest screen edge to a horizontal edge at `y`, on the column through `x`. */
+    /** Like _snapX(), for a horizontal edge at `y` on the column through `x`. */
     _snapY(x, y) {
         const snapshot = this._snapshot;
         const column = snapshot?.line('column', x, this._onLineRead);
-        if (!column)
+        if (!column) {
+            this._drag.waiting ||= Boolean(snapshot?.reading('column', x));
             return y;
+        }
         const boundary = nearestBoundary(column, y * snapshot.scale, SNAP_DISTANCE * snapshot.scale);
         return boundary === null ? y : Math.round(boundary / snapshot.scale);
     }
@@ -666,7 +680,7 @@ export class Overlay {
 
     _onMotion(event) {
         const [x, y] = event.get_coords().map(Math.round);
-        if (this._drag) {
+        if (this._drag && !this._drag.released) {
             const snap = (event.get_state() & Clutter.ModifierType.CONTROL_MASK) === 0;
             this._drag.pointer = {x, y, snap};
             this._applyDrag();
@@ -684,11 +698,11 @@ export class Overlay {
             return;
         }
 
+        drag.waiting = false;
         const snapX = (value, rowY = y) => (snap ? this._snapX(value, rowY) : value);
         const snapY = (value, columnX = x) => (snap ? this._snapY(columnX, value) : value);
         if (drag.kind === 'move') {
-            const moved = dragHelper(drag.origin, drag.part, x - drag.x, y - drag.y);
-            this._replace(snapHelper(moved, drag.part, snapX, snapY));
+            this._replace(dragHelper(drag.origin, drag.part, x - drag.x, y - drag.y, snapX, snapY));
         } else {
             if (drag.id === null) {
                 if (Math.max(Math.abs(x - drag.x), Math.abs(y - drag.y)) < DRAG_THRESHOLD)
@@ -707,19 +721,27 @@ export class Overlay {
     _onRelease(event) {
         const drag = this._drag;
         const button = drag?.kind === 'mockup' ? Clutter.BUTTON_SECONDARY : Clutter.BUTTON_PRIMARY;
-        if (!drag || event.get_button() !== button)
+        if (!drag || drag.released || event.get_button() !== button)
             return Clutter.EVENT_STOP;
 
+        // A line needed for snapping is still being read: finish once it is.
+        if (drag.waiting)
+            drag.released = true;
+        else
+            this._finishDrag(drag);
+        return Clutter.EVENT_STOP;
+    }
+
+    _finishDrag(drag) {
         this._drag = null;
         if (drag.kind === 'mockup') {
             this._mockup.save();
-            return Clutter.EVENT_STOP;
+            return;
         }
         if (drag.kind === 'create' && drag.id === null)
             this._select(drag.insideId);
         this._save();
         this._onStateChanged();
-        return Clutter.EVENT_STOP;
     }
 
     _cancelDrag() {
@@ -886,6 +908,11 @@ export class Overlay {
             this._selectedId = null;
         this._settings.set_string('helpers', serializeHelpers(this._helpers));
         this._syncHelpers();
+        // Recreated helpers were drawn on top; stack them in list order, as hit testing reads it.
+        for (const helper of this._helpers) {
+            for (const actor of this._views.get(helper.id).actors)
+                actor.get_parent().set_child_above_sibling(actor, null);
+        }
         this._onStateChanged();
     }
 

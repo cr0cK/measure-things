@@ -87,12 +87,18 @@ export function hitTest(helpers, x, y, tolerance = HIT_TOLERANCE) {
     return null;
 }
 
-/** The helper as it was at drag start, moved or resized by the pointer delta. */
-export function dragHelper(origin, part, dx, dy) {
+const keep = value => value;
+
+/**
+ * The helper as it was at drag start, moved or resized by the pointer delta. `snapX(x)` and
+ * `snapY(y)` pull the dragged guide or edges onto nearby screen edges, before a rectangle dragged
+ * past its opposite edge flips; whole rectangle moves do not snap.
+ */
+export function dragHelper(origin, part, dx, dy, snapX = keep, snapY = keep) {
     if (origin.kind === 'horizontal')
-        return {...origin, y: origin.y + dy};
+        return {...origin, y: snapY(origin.y + dy)};
     if (origin.kind === 'vertical')
-        return {...origin, x: origin.x + dx};
+        return {...origin, x: snapX(origin.x + dx)};
     if (part === 'move' || part === 'inside')
         return {...origin, x: origin.x + dx, y: origin.y + dy};
 
@@ -101,13 +107,13 @@ export function dragHelper(origin, part, dx, dy) {
     let right = origin.x + origin.width;
     let bottom = origin.y + origin.height;
     if (part.includes('left'))
-        left += dx;
+        left = snapX(left + dx);
     if (part.includes('right'))
-        right += dx;
+        right = snapX(right + dx);
     if (part.includes('top'))
-        top += dy;
+        top = snapY(top + dy);
     if (part.includes('bottom'))
-        bottom += dy;
+        bottom = snapY(bottom + dy);
     const rect = rectFromPoints(left, top, right, bottom);
     return {...origin, ...rect, width: Math.max(1, rect.width), height: Math.max(1, rect.height)};
 }
@@ -190,35 +196,6 @@ export function rectangleGaps(helpers, id) {
         }
     }
     return Object.values(sides).filter(Boolean);
-}
-
-/**
- * A dragged helper with its moving edges pulled onto nearby screen edges. `snapX(x)` and
- * `snapY(y)` return the snapped coordinate, or the same one when no edge is close. Whole
- * rectangle moves do not snap.
- */
-export function snapHelper(helper, part, snapX, snapY) {
-    if (helper.kind === 'vertical')
-        return {...helper, x: snapX(helper.x)};
-    if (helper.kind === 'horizontal')
-        return {...helper, y: snapY(helper.y)};
-    if (part === 'move' || part === 'inside')
-        return helper;
-
-    let left = helper.x;
-    let top = helper.y;
-    let right = helper.x + helper.width;
-    let bottom = helper.y + helper.height;
-    if (part.includes('left'))
-        left = snapX(left);
-    if (part.includes('right'))
-        right = snapX(right);
-    if (part.includes('top'))
-        top = snapY(top);
-    if (part.includes('bottom'))
-        bottom = snapY(bottom);
-    const rect = rectFromPoints(left, top, right, bottom);
-    return {...helper, ...rect, width: Math.max(1, rect.width), height: Math.max(1, rect.height)};
 }
 
 /**

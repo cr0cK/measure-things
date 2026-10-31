@@ -4,6 +4,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -62,10 +63,16 @@ export default class MeasureThingsExtension extends Extension {
 
     _buildMenu() {
         const menu = this._indicator.menu;
-        this._editItem = menu.addAction('Edit helpers', () => this._overlay.toggleEdit());
-        menu.addAction('Add vertical guide', () => this._overlay.addGuide('vertical'));
-        menu.addAction('Add horizontal guide', () => this._overlay.addGuide('horizontal'));
-        menu.addAction('Pick color', () => this._pickColor());
+        // Edit mode and the picker capture the screen at once, so the menu must be gone first:
+        // it only starts closing after the action runs.
+        const closingMenu = action => () => {
+            menu.close(BoxPointer.PopupAnimation.NONE);
+            action();
+        };
+        this._editItem = menu.addAction('Edit helpers', closingMenu(() => this._overlay.toggleEdit()));
+        menu.addAction('Add vertical guide', closingMenu(() => this._overlay.addGuide('vertical')));
+        menu.addAction('Add horizontal guide', closingMenu(() => this._overlay.addGuide('horizontal')));
+        menu.addAction('Pick color', closingMenu(() => this._pickColor()));
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         this._gridItem = new PopupMenu.PopupSwitchMenuItem('Column grid', false);
@@ -122,9 +129,10 @@ export default class MeasureThingsExtension extends Extension {
 
         this._picker = null;
         overlay.setHidden(false);
-        if (color)
-            copyToClipboard(color, 'color-select-symbolic');
+        // Before the confirmation shows, so edit mode does not capture it.
         if (editing)
             overlay.enterEdit();
+        if (color)
+            copyToClipboard(color, 'color-select-symbolic');
     }
 }

@@ -78,8 +78,12 @@ user-visible change also gets a new check in `scripts/e2e.sh`.
   or column for edges (a few milliseconds, cached), 11 × 11 pixels for the loupe. Its pixels are
   device pixels, stage coordinates times its `scale`; at fractional scales a screen edge can fall
   between two stage pixels, and snapping rounds it.
-- Lines arrive asynchronously. `Snapshot.line()` returns null and calls back once read; the
-  overlay then replays the drag and redraws the area from the last pointer position.
+- Lines arrive asynchronously. `Snapshot.line()` returns null and calls back once the read ends;
+  the overlay then replays the drag and redraws the area from the last pointer position. A drag
+  released while a line it snaps to is still being read finishes after that read.
+- Anything on screen when edit mode or the picker starts is captured. Menu actions run before
+  the menu starts closing, so the menu closes itself without animation first, and the picker
+  re-enters edit mode before it shows its confirmation.
 - `_pickColor()` resolves only when the picker closes; do not await it from Eval. disable()
   cancels it, and the Shell can re-enable right away, so the continuation checks that the
   overlay and picker it started with are still the current ones.

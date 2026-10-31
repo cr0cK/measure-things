@@ -60,40 +60,51 @@ export class Snapshot {
 
     /**
      * The full row or column of device pixels through a stage coordinate, as a line for
-     * edges.js, if it has been read already; otherwise null, and `onRead` runs once it has.
+     * edges.js, if it has been read already; otherwise null, and `onRead` runs once the read
+     * ends. A line that could not be read stays null.
      */
     line(axis, stageCoordinate, onRead) {
         const index = this.pixel(stageCoordinate);
         const cache = this._lines[axis];
         const entry = cache.get(index);
-        if (entry?.line)
+        if (entry?.line || entry?.failed)
             return entry.line;
         if (entry) {
             entry.callbacks.add(onRead);
             return null;
         }
 
-        const pending = {line: null, callbacks: new Set([onRead])};
+        const pending = {line: null, failed: false, callbacks: new Set([onRead])};
         cache.set(index, pending);
         if (cache.size > CACHED_LINES)
             cache.delete(cache.keys().next().value);
         const row = axis === 'row';
         this.area(row ? 0 : index, row ? index : 0, row ? this.width : 1, row ? 1 : this.height)
             .then(area => {
-                if (!area)
-                    return;
-                pending.line = {
-                    data: area.data,
-                    step: row ? area.channels : area.rowstride,
-                    length: row ? area.width : area.height,
-                };
-                for (const callback of pending.callbacks)
-                    callback();
+                if (area) {
+                    pending.line = {
+                        data: area.data,
+                        step: row ? area.channels : area.rowstride,
+                        length: row ? area.width : area.height,
+                    };
+                } else {
+                    pending.failed = true;
+                }
             })
             .catch(error => {
-                cache.delete(index);
+                pending.failed = true;
                 console.warn(`Measure Things: could not read the screen: ${error.message}`);
+            })
+            .finally(() => {
+                for (const callback of pending.callbacks)
+                    callback();
             });
         return null;
+    }
+
+    /** Whether the line through a stage coordinate is being read. */
+    reading(axis, stageCoordinate) {
+        const entry = this._lines[axis].get(this.pixel(stageCoordinate));
+        return Boolean(entry && !entry.line && !entry.failed);
     }
 }
