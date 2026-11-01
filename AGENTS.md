@@ -157,12 +157,10 @@ frames and the sandbox shell never finishes starting up; use the headless shell 
 - Design a new minor version in a `docs` PR that adds its `docs/specs/v*.md`, and iterate on the
   design by editing that spec in the PR, not in an issue or in review comments. Once the spec is
   merged, the implementation issue holds only the delivery plan and links the spec.
-- Every rule of a spec has a stable ID: a three-letter section code and a number, such as
-  `ZON-3`. A new rule takes the next free number of its section; IDs are never renumbered or
-  reused. Plans, PRs, commits, tests, and code comments cite rules by ID.
-- The delivery plan splits the implementation into plans named P1, P2, P3, and so on: one plan is
-  one PR. Each plan lists the rule IDs it implements, and its PR text names the plan, such as
-  "P1 of #8".
+- Every spec has a code of three letters, plus a digit when two specs would share it, such as
+  `SET` or `SET2`, written in its title. Its delivery plan splits into plans named `<code>-P1`,
+  `<code>-P2`, and so on. One plan is one PR, whose text starts with the plan name, such as
+  `SET-P1`.
 - A user-visible change updates README.md and the current `docs/specs/v*.md` in the same PR. When
   it changes what the overlay, the menu, the picker, or the preferences look like, run
   `scripts/screenshots.sh`, look at the new images, and commit them. Source, docs, and UI strings
