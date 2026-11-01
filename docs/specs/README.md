@@ -13,9 +13,8 @@ specific to this repository is in [This project](#this-project) at the end.
   code is already taken, such as `SET` or `SET2`. A code is never reused or renamed.
 - The spec lives in `docs/specs/<CODE>.md`. Its images live in `docs/specs/images/`, named
   `<CODE>-<name>.png`.
-- The title gives the code and the version the spec ships in:
-  `# <Project> — <CODE> specification (<version>)`. The first paragraph says what the spec covers,
-  which spec it builds on, and the names of its plans.
+- The spec starts with its [state](#state), then the title `# <Project> — <CODE> specification`,
+  then one paragraph saying what it covers.
 - Internally, refer to a spec by its code: in issues, PRs, commits, code comments, and
   conversations. Version numbers are for releases only.
 - A spec is complete and self-contained. Someone with no other context must be able to implement
@@ -24,6 +23,41 @@ specific to this repository is in [This project](#this-project) at the end.
 - Write rules as short bullets, one behavior each. Cover the edge cases, the lifecycle, failures,
   and what is out of scope. Leave nothing for the implementer to invent.
 - Images are mockups. Where an image and the text disagree, the text wins.
+
+## State
+
+Every spec starts with a YAML front matter block that holds its state. It is the single place
+where the process records where a spec stands. Agents read it before acting, and update it in the
+same PR as the step that changes it.
+
+```yaml
+---
+code: SET               # the spec code, the same as the file name
+status: approved        # see the table below
+version: v0.3           # the version it ships, or is planned to ship, in
+builds-on: PIX          # optional: the spec it extends
+tracking: "#8"          # the tracking issue, once there are plans
+plans:                  # in delivery order
+  SET-P1: "done #12"    # `todo`, or `"done #<PR>"` (quoted) once its PR is merged
+  SET-P2: todo
+replaced-by: XYZ        # optional: the spec that replaces part of this one
+amended: [v0.4]         # optional: the versions that changed it after it shipped
+owner: someone          # optional: the project maintainer when absent
+---
+```
+
+| Status | Meaning | Set by |
+|---|---|---|
+| `draft` | The spec PR is open, and the design is being written | The PR that adds the spec |
+| `approved` | The owner approved and merged the spec. No plan is merged yet | The spec PR's last commit, once the owner approves |
+| `in-progress` | Some plans are merged, not all | The first plan's PR |
+| `implemented` | Every plan is merged, and the release isn't out yet | The last plan's PR |
+| `shipped` | The release that contains the last plan is out | A small PR right after the release |
+
+- A plan's PR changes its own plan from `todo` to `"done #<PR>"`, and the spec's status, in its
+  own diff. They become true when it merges.
+- Only `shipped` specs take `amended` and `replaced-by`.
+- Specs from before this process have no plans.
 
 ## Designing
 
@@ -38,7 +72,7 @@ specific to this repository is in [This project](#this-project) at the end.
   - plans that depend on later plans, or have no way to verify them.
 
   Fix the findings in the spec and the plan, or reject them with a reason.
-- The spec merges when its owner approves it.
+- The spec merges when its owner approves it. Its last commit sets its status to `approved`.
 
 ## Plans
 
@@ -56,6 +90,8 @@ specific to this repository is in [This project](#this-project) at the end.
 
 ## Implementing
 
+- A plan starts only when its spec is `approved` or `in-progress`, and every earlier plan is
+  `done`.
 - Each plan gets its own branch and PR. The PR text starts with the plan's name, such as
   `SET-P1`.
 - A PR implements its plan's slice and nothing visible beyond it. It adds no stubs in the UI for
@@ -69,10 +105,10 @@ specific to this repository is in [This project](#this-project) at the end.
 
 ## Changing a shipped spec
 
-- A change to shipped behavior updates every spec whose rules it changes, in the same PR. The
-  spec keeps its title, and a line at its end records each version that amended it.
+- A change to shipped behavior updates every spec whose rules it changes, in the same PR, and adds
+  the coming version to each one's `amended` list.
 - A new spec that replaces part of an older one says which parts in its first paragraph. The
-  older spec gets a line at the top pointing to it, and its replaced rules are removed.
+  older spec gets `replaced-by`, and loses its replaced rules.
 
 ## Review labels
 
@@ -81,12 +117,11 @@ names.
 
 ## This project
 
-- Specs: `OVL` (v0.1), `PIX` (v0.2), and `SET` (v0.3, planned). Each one ships in one minor
-  version.
+- Each spec ships in one minor version. Their state headers say which, and where each stands.
 - Tracking issues and PRs are on GitHub. PR titles follow Conventional Commits: a spec PR is
   `docs:`, a plan PR is usually `feat:`.
 - release-please opens the release PR. Merge it only once every plan of the spec in progress is
-  merged.
+  merged, then mark the spec `shipped`.
 - The `ck-spec` skill runs the design and planning steps, and `ck-exec` runs a plan or a fix
   (`.claude/skills/`).
 - A plan PR also follows the checks in AGENTS.md: lint, unit tests, the end-to-end test in a

@@ -1,6 +1,14 @@
-# Measure Things — PIX specification (v0.2)
+---
+code: PIX
+status: shipped
+version: v0.2
+builds-on: OVL
+---
 
-Spec code: `PIX`, reading the screen's pixels, shipped in v0.2. It builds on `OVL`.
+# Measure Things — PIX specification
+
+Reading the screen's pixels: area measuring, snapping, the picker's loupe, and the mockup. It
+predates the spec process, so it has no plans.
 
 ## Goal
 

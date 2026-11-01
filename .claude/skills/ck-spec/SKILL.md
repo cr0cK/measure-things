@@ -11,8 +11,8 @@ This skill only adds the order of operations.
 ## 0. Read
 
 - `docs/specs/README.md`, AGENTS.md, and CONTRIBUTING.md.
-- The list of existing specs: `ls docs/specs/*.md`. Read every spec the new work builds on, in
-  full.
+- The state of every spec: `head -20 docs/specs/*.md` shows their front matter (code, status,
+  version, plans). Read every spec the new work builds on, in full.
 - Open spec PRs and tracking issues: `gh pr list --search "docs/specs"` and `gh issue list`.
 
 ## 1. Pick the mode
@@ -22,7 +22,8 @@ This skill only adds the order of operations.
 | **New** | A new body of work | A new `docs/specs/<CODE>.md`, a spec PR, and a tracking issue |
 | **In design** | The spec's PR is still open | New commits on that PR |
 | **Amend** | Shipped behavior changes | A spec PR. For a change that needs code, add plans for it to a tracking issue, and ck-exec implements them. A small change or a defect goes straight to ck-exec's fix mode |
-| **Replace** | A new spec takes over part of an older one | A new spec, plus a pointer line at the top of the older one |
+| **Replace** | A new spec takes over part of an older one | A new spec, plus `replaced-by` in the older one's state |
+| **Ship** | The release containing a spec's last plan is out | A small `docs` PR that sets the spec `shipped` |
 
 ## 2. New spec: the code
 
@@ -31,6 +32,8 @@ This skill only adds the order of operations.
 - Confirm the code with the user through AskUserQuestion, with two or three options. A code is
   never renamed afterwards.
 - Create the branch `docs/<code>-spec`, lowercase, in a worktree.
+- Start the file with its state: `code`, `status: draft`, and `version` (the next minor version
+  unless the user says otherwise), plus `builds-on` when it extends a spec.
 
 ## 3. The design loop
 
@@ -57,6 +60,7 @@ This skill only adds the order of operations.
   - **Acceptance**: tests, checks, and measurements, all verifiable.
   - **Prototype**: for a risky plan, a throwaway prototype with pass/fail criteria, run first.
 - A plan never depends on a later one. Each plan is one PR.
+- Record the plans in the spec's state, in order, each `todo`, along with `tracking`.
 - Add the technical notes an implementer with no context needs: the modules to touch, known
   pitfalls, and the APIs to check first.
 
@@ -80,16 +84,18 @@ reject it with a reason. Summarize the verdict in the PR, in a `<details>` block
 
 ## 6. Merge
 
-- The spec merges when its owner approves it, and not before.
+- The spec merges when its owner approves it, and not before. Its last commit before the merge
+  sets `status: approved`.
 - After the merge, update the issue's links to the main branch, and remove the worktree and the
   branch.
 
 ## 7. Amend or replace a shipped spec
 
-- **Amend**: edit the rules in place, and add a line at the end of the spec:
-  `Amended in vX.Y: <what changed>`.
+- **Amend**: edit the rules in place, and add the coming version to `amended` in its state.
 - **Replace**: the new spec says, in its first paragraph, which parts it replaces. The older spec
-  gets a line at the top pointing to it, and loses the replaced rules.
+  gets `replaced-by` in its state, and loses the replaced rules.
+- **Ship**: once the release that contains the last plan is published, set `status: shipped` in a
+  small `docs` PR. Check that the spec's `version` matches the released version.
 
 ## Report
 

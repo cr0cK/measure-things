@@ -10,8 +10,8 @@ AGENTS.md gives the project's checks, commands, and pitfalls.
 
 ## Mode
 
-- **Plan**: the argument is a plan name, such as `SET-P1`. Without one, take the lowest-numbered
-  plan without a merged PR. When that plan already has an open PR, resume it on its branch
+- **Plan**: the argument is a plan name, such as `SET-P1`. Without one, take the first plan whose
+  state is `todo` in the spec's front matter. When that plan already has an open PR, resume it on its branch
   instead of starting a new one.
 - **Fix**: the argument describes a defect, a small behavior change, or an issue. A change that
   needs design or more than one PR goes through ck-spec first, which adds plans for it.
@@ -24,9 +24,9 @@ AGENTS.md gives the project's checks, commands, and pitfalls.
    - the tracking issue, titled `<CODE>: …`;
    - the PRs of the earlier plans.
 2. **Check the spec and the order.**
-   - The spec must be merged on the main branch, with no open spec PR for its code. Otherwise,
-     stop: the design isn't done, and it belongs to ck-spec.
-   - Every earlier plan of the spec must be merged. If one isn't, stop and say which.
+   - The spec's `status` on the main branch must be `approved` or `in-progress`. A `draft` spec
+     belongs to ck-spec: stop.
+   - Every earlier plan must be `done` in the spec's state. If one isn't, stop and say which.
 3. **Worktree**: branch `feat/<code>-p<n>-<slug>`, lowercase, from the main branch.
 4. **Prototype first**, when the plan has one. It is throwaway and never committed to the PR.
    - Report each criterion as pass or fail, with its evidence.
@@ -47,6 +47,9 @@ AGENTS.md gives the project's checks, commands, and pitfalls.
    - The body starts with `<CODE>-Pn of #<issue>`.
    - It uses `Refs #<issue>`, and `Closes` only for the spec's last plan.
    - It lists the temporary restrictions, the spec changes, and the prototype verdict.
+   - Once the PR number is known, commit the state change to the spec: this plan becomes
+     `"done #<PR>"`, quoted because `#` starts a YAML comment, and the status becomes
+     `in-progress`, or `implemented` for the last plan. It becomes true when the PR merges.
 9. **Review**: right after the PR opens, run a Codex review of its diff, read-only, with
    `< /dev/null`. Fix the findings that hold in the same PR, and say in one line which ones you
    discarded and why.
@@ -62,8 +65,8 @@ For a defect, or a small behavior change the user asked for.
 3. **Classify**:
    - The code breaks the spec: fix the code, and add a regression test.
    - The spec is silent or wrong: the fix is also a spec change. When the right behavior is a
-     product choice, ask the user first. Then update every spec whose rules change, and add
-     `Amended in vX.Y: <what changed>` at the end of each shipped spec.
+     product choice, ask the user first. Then update every spec whose rules change, and add the
+     version the fix will ship in to each shipped spec's `amended` list.
    - A small behavior change the user asked for: same as a spec change.
    - A defect outside the work at hand: follow AGENTS.md, which makes it an issue with its
      reproduction, and stop there.
