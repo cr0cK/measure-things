@@ -33,17 +33,22 @@ same PR as the step that changes it.
 ```yaml
 ---
 code: SET               # the spec code, the same as the file name
-status: approved        # see the table below
-version: v0.3           # the version it ships, or is planned to ship, in
+status: in-progress     # see the table below
+version: v0.3           # the minor release series it ships in, vX.Y
 builds-on: PIX          # optional: the spec it extends
 tracking: "#8"          # the tracking issue, once there are plans
 plans:                  # in delivery order
   SET-P1: "done #12"    # `todo`, or `"done #<PR>"` (quoted) once its PR is merged
   SET-P2: todo
-replaced-by: XYZ        # optional: the spec that replaces part of this one
-amended: [v0.4]         # optional: the versions that changed it after it shipped
 owner: someone          # optional: the project maintainer when absent
 ---
+```
+
+A `shipped` spec can also hold:
+
+```yaml
+amended: [v0.4]         # the release series whose changes amended it
+replaced-by: XYZ        # the spec that replaced part of it
 ```
 
 | Status | Meaning | Set by |
@@ -107,8 +112,11 @@ owner: someone          # optional: the project maintainer when absent
 
 - A change to shipped behavior updates every spec whose rules it changes, in the same PR, and adds
   the coming version to each one's `amended` list.
-- A new spec that replaces part of an older one says which parts in its first paragraph. The
-  older spec gets `replaced-by`, and loses its replaced rules.
+- A change to shipped behavior that needs plans is a new spec, which builds on the shipped one.
+  A shipped spec never gets new plans.
+- A new spec that replaces part of an older one says which parts in its first paragraph. The older
+  spec keeps its rules while the new one is designed and implemented. The new spec's last plan
+  PR removes the replaced rules from the older spec and sets its `replaced-by`.
 
 ## Review labels
 

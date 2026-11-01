@@ -10,8 +10,9 @@ AGENTS.md gives the project's checks, commands, and pitfalls.
 
 ## Mode
 
-- **Plan**: the argument is a plan name, such as `SET-P1`. Without one, take the first plan whose
-  state is `todo` in the spec's front matter. When that plan already has an open PR, resume it on its branch
+- **Plan**: the argument is a plan name, such as `SET-P1`. Without one, take the spec whose status
+  is `approved` or `in-progress`, and its first `todo` plan. When several specs qualify, ask which
+  one. When the plan already has an open PR (branch `feat/<code>-p<n>-*`), resume it on its branch
   instead of starting a new one.
 - **Fix**: the argument describes a defect, a small behavior change, or an issue. A change that
   needs design or more than one PR goes through ck-spec first, which adds plans for it.
@@ -24,9 +25,12 @@ AGENTS.md gives the project's checks, commands, and pitfalls.
    - the tracking issue, titled `<CODE>: …`;
    - the PRs of the earlier plans.
 2. **Check the spec and the order.**
-   - The spec's `status` on the main branch must be `approved` or `in-progress`. A `draft` spec
-     belongs to ck-spec: stop.
-   - Every earlier plan must be `done` in the spec's state. If one isn't, stop and say which.
+   - Read the state from the main branch, never from a local branch: `git fetch`, then
+     `git show origin/main:docs/specs/<CODE>.md`.
+   - The spec's `status` must be `approved` or `in-progress`. A `draft` spec belongs to ck-spec:
+     stop.
+   - The plan must exist and be `todo`. Every earlier plan must be `done`. If not, stop and say
+     why.
 3. **Worktree**: branch `feat/<code>-p<n>-<slug>`, lowercase, from the main branch.
 4. **Prototype first**, when the plan has one. It is throwaway and never committed to the PR.
    - Report each criterion as pass or fail, with its evidence.
@@ -71,7 +75,9 @@ For a defect, or a small behavior change the user asked for.
    - A defect outside the work at hand: follow AGENTS.md, which makes it an issue with its
      reproduction, and stop there.
 4. **Branch** `fix/<slug>` in a worktree. Run the checks, open the PR, and get the Codex review,
-   as in plan mode.
+   as in plan mode, without the plan-only parts: no plan name, no plan state change, and no
+   tracking issue. The PR text names the spec rules it follows or changes, and closes the defect's
+   issue when there is one.
 5. Merge only when the user asks.
 
 ## Report

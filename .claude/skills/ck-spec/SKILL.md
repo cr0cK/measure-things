@@ -13,7 +13,8 @@ This skill only adds the order of operations.
 - `docs/specs/README.md`, AGENTS.md, and CONTRIBUTING.md.
 - The state of every spec: `head -20 docs/specs/*.md` shows their front matter (code, status,
   version, plans). Read every spec the new work builds on, in full.
-- Open spec PRs and tracking issues: `gh pr list --search "docs/specs"` and `gh issue list`.
+- Open spec PRs: list open PRs with their changed files (`gh pr list --json number,title,files`)
+  and keep those that touch `docs/specs/`. Also list the open issues.
 
 ## 1. Pick the mode
 
@@ -21,8 +22,8 @@ This skill only adds the order of operations.
 |---|---|---|
 | **New** | A new body of work | A new `docs/specs/<CODE>.md`, a spec PR, and a tracking issue |
 | **In design** | The spec's PR is still open | New commits on that PR |
-| **Amend** | Shipped behavior changes | A spec PR. For a change that needs code, add plans for it to a tracking issue, and ck-exec implements them. A small change or a defect goes straight to ck-exec's fix mode |
-| **Replace** | A new spec takes over part of an older one | A new spec, plus `replaced-by` in the older one's state |
+| **Amend** | A shipped spec's text needs correcting, without a code change | A spec PR. A small change with code, or a defect, goes to ck-exec's fix mode. A change that needs plans is a **New** spec that builds on the shipped one |
+| **Replace** | A new spec takes over part of an older one | A new spec. The older one keeps its rules until the new spec's last plan PR removes them and sets `replaced-by` |
 | **Ship** | The release containing a spec's last plan is out | A small `docs` PR that sets the spec `shipped` |
 
 ## 2. New spec: the code
@@ -93,9 +94,10 @@ reject it with a reason. Summarize the verdict in the PR, in a `<details>` block
 
 - **Amend**: edit the rules in place, and add the coming version to `amended` in its state.
 - **Replace**: the new spec says, in its first paragraph, which parts it replaces. The older spec
-  gets `replaced-by` in its state, and loses the replaced rules.
+  keeps them for now. The new spec's last plan PR removes them and sets `replaced-by`.
 - **Ship**: once the release that contains the last plan is published, set `status: shipped` in a
-  small `docs` PR. Check that the spec's `version` matches the released version.
+  small `docs` PR. Check that the released tag, `vX.Y.Z`, belongs to the spec's `version` series,
+  `vX.Y`.
 
 ## Report
 
