@@ -69,21 +69,25 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    <CODE>`), and spec changes merged to main. Note each in the ledger against the plan it
    concerns. Send it to the plan's running worker with SendMessage, or keep it for the plan's next
    worker. An issue about a merged plan is a fix: name it in the report for its own ck-exec run.
-3. **Act** on each plan in delivery order, on the first row that matches:
+3. **Act** on each plan in delivery order, on the first row that matches. Rows 3 to 10 apply only
+   to a plan that has a branch; information for a plan without one waits in the ledger for its
+   plan worker. A fix is one unit with no plan state: rows 11 and 12 do not gate it, and its
+   branch is created at the first tick.
 
    | # | State | Action |
    |---|---|---|
    | 1 | PR merged | Remove its worktree and local branch. The plan above restacks (row 5) |
+   | 1b | PR closed without a merge | The owner turned it down: stop this plan and the plans above, and report it. They resume only when the user runs ck-exec on the plan again |
    | 2 | A worker is running on it | Nothing, unless step 2 has information for it |
    | 3 | `blocked` | With a `**Resolved:` reply on its flag and the plan `approved` on main again: restack it on its base, which brings the spec change, set it back to `executing` or `"pr-opened #<PR>"`, and dispatch its worker. Otherwise nothing |
-   | 4 | Worker done, reviewed SHA not pushed | [Push](#push-and-pr) that exact SHA, and open the PR when there is none |
-   | 5 | Its base moved: the base plan merged, the base branch has commits past the ledger's base SHA, or the PR conflicts | Dispatch a [restack](#stacked-prs) worker |
+   | 4 | Worker done, and its work not yet pushed, in a PR, and in `"pr-opened #<PR>"` | [Push](#push-and-pr) the reviewed SHA, open the PR, and commit the state, skipping each step already done, so an interrupted tick finishes it |
+   | 5 | Its base moved: the base plan merged, the base branch has commits past the ledger's base SHA, the PR conflicts, or, for the lowest open plan, main changed the spec past its base | Dispatch a [restack](#stacked-prs) worker |
    | 6 | Unhandled review comments, a CI failure, or information for it | Dispatch an iteration worker |
    | 7 | CI pending | Nothing |
    | 8 | CI green on `"pr-opened #<PR>"`, nothing left | Commit and push `"done #<PR>"` |
    | 9 | CI green on `"done #<PR>"` | Waits for the owner's merge |
    | 10 | In flight with no worker and no report (interrupted) | Dispatch a worker that resumes it |
-   | 11 | No branch, `approved` on main, and the plan below is merged or has an open PR that is not `blocked` | Create its branch, commit and push `executing`, and dispatch the [plan worker](#plan-worker) |
+   | 11 | No branch, `approved` on main, and either it is the first plan not merged, or the plan below has an open PR that is not `blocked` | Create its branch, commit and push `executing`, and dispatch the [plan worker](#plan-worker) |
    | 12 | `todo` on main | Nothing: the report names `ck-approve <plan>`. The plans above wait |
 
    At most one plan worker runs at a time, so plans are implemented in order. Iterations and
@@ -177,12 +181,15 @@ the branch of the plan below, and its PR targets it.
 
 ### Spec gaps
 
-- A worker blocked on a gap stops its plan. The tick commits and pushes `blocked` on the plan's
-  branch, and posts the gap on the tracking issue, starting with `**Blocked: <CODE>-Pn**`. The
+- A worker blocked on a gap stops its plan. It moves the commits it has not had reviewed to a
+  local branch `wip/<branch>`, and resets its branch to the last pushed head; the plan's next
+  worker starts from that work. The tick then commits and pushes `blocked` on the plan's branch, and posts the gap on the tracking issue, starting with `**Blocked: <CODE>-Pn**`. The
   plans above it wait; the open PRs below go on.
 - The report tells the user to run `ck-spec <CODE>`. ck-spec writes the decision into the spec and
   sets the plan back to `todo`; ck-approve stamps it `approved` again and replies
-  `**Resolved: <CODE>-Pn**` to the flag. Row 3 of the tick then resumes it.
+  `**Resolved: <CODE>-Pn**` to the flag. The spec change is on main, so row 5 first restacks the
+  stack from its lowest open plan, bottom up, and row 3 then resumes the blocked plan on a base
+  that carries it.
 - A blocked fix posts its flag on its issue and ends its loop. Once the spec answers it, run
   ck-exec on the issue again.
 

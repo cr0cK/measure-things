@@ -46,7 +46,8 @@ what does not hold.
     main checkout, in a PR titled the same.
 
   Wait for green CI, then squash-merge. Reply to every open `**Blocked: <plan>**` comment of the
-  stamped plans with `**Resolved: <plan>** by #<PR>`. Remove the worktree and the branch.
+  stamped plans, and to every open `**Blocked: <CODE>**` comment when the read of the whole spec
+  found no gap, with `**Resolved: <plan or CODE>** by #<PR>`. Remove the worktree and the branch.
 - **Gaps**: a plan with a gap stays `todo`, and a gap in the spec as a whole stamps nothing at
   all. Post each gap as a comment on the open ck-spec PR, or on the tracking issue when there is
   none, starting with `**Blocked: <CODE>-Pn**`, or `**Blocked: <CODE>**` for the whole spec. The
