@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {colorToHex, colorToHsl, colorToRgb, formatColor, formatLength, formatSize, withAlpha} from '../src/format.js';
+import {
+    colorToHex,
+    colorToHsl,
+    colorToRgb,
+    formatColor,
+    formatAccelerator,
+    formatEdited,
+    formatLength,
+    formatSize,
+    withAlpha,
+} from '../src/format.js';
 
 test('formats lengths with at most two decimals', () => {
     assert.equal(formatLength(120), '120');
@@ -38,4 +48,24 @@ test('formats colors in the chosen format', () => {
     assert.equal(formatColor(color, 'rgb'), 'rgb(255, 8, 170)');
     assert.equal(formatColor(color, 'hsl'), 'hsl(321, 100%, 52%)');
     assert.equal(formatColor(color, 'cmyk'), '#ff08aa');
+});
+
+test('says when a set was last edited', () => {
+    const now = Date.parse('2026-11-01T12:00:00Z');
+    const minutes = n => now - n * 60 * 1000;
+    assert.equal(formatEdited(now, now), 'edited just now');
+    assert.equal(formatEdited(minutes(2), now), 'edited 2 min ago');
+    assert.equal(formatEdited(minutes(90), now), 'edited 1 h ago');
+    assert.equal(formatEdited(minutes(30 * 60), now), 'edited yesterday');
+    assert.equal(formatEdited(minutes(3 * 24 * 60), now), 'edited 3 days ago');
+    assert.equal(formatEdited(minutes(9 * 24 * 60), now), 'edited last week');
+    assert.equal(formatEdited(minutes(21 * 24 * 60), now), 'edited 3 weeks ago');
+    assert.equal(formatEdited(Date.parse('2026-01-15T08:00:00Z'), now), 'edited 2026-01-15');
+});
+
+test('spells out a keyboard shortcut', () => {
+    assert.equal(formatAccelerator('<Super><Shift>m'), 'Super+Shift+M');
+    assert.equal(formatAccelerator('<Control><Alt>k'), 'Ctrl+Alt+K');
+    assert.equal(formatAccelerator('<Primary>Escape'), 'Ctrl+Escape');
+    assert.equal(formatAccelerator(''), '');
 });

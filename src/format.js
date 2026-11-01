@@ -63,3 +63,39 @@ export function withAlpha(hex, alpha) {
         : [255, 45, 149];
     return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** When a set was last edited, from milliseconds since the epoch: `edited 2 min ago`. */
+export function formatEdited(edited, now) {
+    const elapsed = Math.max(0, now - edited);
+    if (elapsed < MINUTE)
+        return 'edited just now';
+    if (elapsed < HOUR)
+        return `edited ${Math.floor(elapsed / MINUTE)} min ago`;
+    if (elapsed < DAY)
+        return `edited ${Math.floor(elapsed / HOUR)} h ago`;
+    if (elapsed < 2 * DAY)
+        return 'edited yesterday';
+    if (elapsed < 7 * DAY)
+        return `edited ${Math.floor(elapsed / DAY)} days ago`;
+    if (elapsed < 14 * DAY)
+        return 'edited last week';
+    const weeks = Math.floor(elapsed / (7 * DAY));
+    if (weeks < 9)
+        return `edited ${weeks} weeks ago`;
+    return `edited ${new Date(edited).toISOString().slice(0, 10)}`;
+}
+
+const MODIFIER_NAMES = {Super: 'Super', Shift: 'Shift', Control: 'Ctrl', Primary: 'Ctrl', Alt: 'Alt', Meta: 'Meta'};
+
+/** A GTK accelerator such as `<Super><Shift>m` as `Super+Shift+M`; empty when disabled. */
+export function formatAccelerator(accelerator) {
+    const modifiers = [...accelerator.matchAll(/<(\w+)>/g)].map(([, name]) => MODIFIER_NAMES[name] ?? name);
+    const key = accelerator.replace(/<\w+>/g, '');
+    if (!key)
+        return '';
+    return [...modifiers, key.length === 1 ? key.toUpperCase() : key].join('+');
+}

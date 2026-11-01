@@ -2,7 +2,7 @@
 
 Guidance for AI agents working on Measure Things, a GNOME Shell 49 extension with measuring tools
 for web and UI work: guides, measuring rectangles, area measuring with snapping, a column grid, a
-mockup image, and a color picker, drawn above every window. Read CONTRIBUTING.md for the human workflow; this file holds what the code does not
+mockup image, and a color picker, drawn on windows and kept in saved sets. Read CONTRIBUTING.md for the human workflow; this file holds what the code does not
 tell you.
 
 ## Layout
@@ -12,9 +12,15 @@ new `src/*.js` modules on its own.
 
 | Path | Role |
 |---|---|
-| `src/extension.js` | Panel indicator and menu, keyboard shortcuts, wiring of the overlay and the picker |
-| `src/overlay.js` | The layer above all windows: helper rendering, gap labels, column grid, edit mode, area measuring, snapping, undo |
-| `src/mockup.js` | The mockup image in the layer |
+| `src/extension.js` | Panel indicator and menu (sets on screen, library), keyboard shortcuts, wiring of the manager, the overlay, and the picker |
+| `src/manager.js` | The sets on screen: models, their views, commits, undo, load, rename, delete, migration from v0.2 |
+| `src/view.js` | A set drawn inside a window actor: helpers, labels, gaps, grid, mockup, badge; the window's geometry |
+| `src/overlay.js` | The stage-wide input layer: edit mode, targeting the window under the pointer, area measuring, snapping, loading a set onto a window |
+| `src/store.js` | The sets folder: one JSON file per set, read at start, watched, written atomically |
+| `src/badge.js` | A view's badge menu |
+| `src/dialogs.js` | Shell modal dialogs: names, confirmations, Set settings |
+| `src/portal.js` | The file chooser portal, for mockup images |
+| `src/mockup.js` | Mockup images, loaded once per file |
 | `src/snapshot.js` | Still capture of the screen, read by areas and lines on demand |
 | `src/picker.js` | Modal color picker with its loupe |
 | `src/prefs.js` | Adwaita preferences window; every row writes its setting directly. Its list of edit mode keys mirrors `_onKeyPress()` in `overlay.js`: change both together |
@@ -22,12 +28,14 @@ new `src/*.js` modules on its own.
 | `src/format.js` | Length and color formatting (pure) |
 | `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |
 | `src/history.js` | Undo and redo history (pure) |
+| `src/sets.js` | Set file parsing and writing, names, colors, the v0.2 migration (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.measure-things` |
 | `tests/` | `node --test` suites for the pure modules |
 | `docs/specs/` | Product contracts, one per spec code, and the spec process in its README.md |
 | `.claude/skills/` | `ck-spec` designs a spec and its plans, `ck-exec` implements a plan or a fix |
 | `scripts/headless.sh` | Shared headless GNOME Shell harness: Eval, virtual input, screenshots |
 | `scripts/e2e.sh` | End-to-end test of the packed extension in a headless shell |
+| `scripts/test-window.js` | Plain GTK 4 window with colored blocks at known positions, for the tests |
 | `scripts/screenshots.sh` | Regenerates `docs/screenshots/` |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
 
@@ -47,33 +55,46 @@ scripts/sandbox.sh                             # try it in a windowed GNOME Shel
 `npm run lint`, `make check`, and `npm run e2e` must pass before you declare work done. A
 user-visible change also gets a new check in `scripts/e2e.sh`.
 
-## How the overlay works
+## How sets, views, and the overlay work
 
-- The overlay is one stage-sized `St.Widget` added with `Main.layoutManager.addTopChrome`, so it
-  sits above windows, fullscreen ones included. Nothing in it is reactive outside edit mode:
-  Clutter picks only reactive actors, so pointer events reach the window below. The e2e test
-  proves this with `global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, ...)`; keep
-  every new actor non-reactive.
+The spec is [docs/specs/SET.md](docs/specs/SET.md). A set is a file; a model is a set on screen,
+in `Manager`; a view draws a model inside one window.
+
+- A view's layer is a child of the window actor (`window.get_compositor_private()`), so it moves,
+  stacks, and hides with the window. It is attached only while it shows something: Mutter does
+  not scan out a window directly when its actor has an extra child. Nothing in it is reactive:
+  Clutter picks only reactive actors, so pointer events reach the window. The e2e test proves
+  this with `global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, ...)`; keep every new
+  actor non-reactive.
+- `windowGeometry()` finds where the frame is drawn. In physical layout mode Mutter scales the
+  window actor's children by the window's geometry scale, read from `get_child_transform()`; in
+  logical mode that scale is 1. Mutter also moves the surfaces onto whole device pixels of the
+  highest-scale monitor the frame touches, as `surfaceOffset()` mirrors; without that, helpers
+  land a pixel off at 125%.
+- Helpers are stored in CSS pixels at the set's zoom, relative to the zone, the window frame.
+  Interaction runs in zone pixels, stage pixels from the zone's corner; `View.toCss()` and
+  `zoneHelpers()` convert. Content is drawn in the window actor's units; labels and the badge
+  sit in a group scaled back to stage pixels, so text keeps its size. Lines are one device
+  pixel wide. The layout mode comes from Mutter's `scale-monitor-framebuffer` experimental
+  feature, which is what Mutter itself reads. Do not infer it from the St scale factor.
+- The overlay is one stage-sized `St.Widget` for input only: the crosshair, the readout, the
+  area, the hint, and load mode's highlight. It is top chrome, restacked below
+  `modalDialogGroup`: reactive in edit mode, it would otherwise cover the Set settings dialog.
 - Edit mode takes a modal grab (`Main.pushModal`, `Shell.ActionMode.POPUP`) on the overlay,
-  which then handles every pointer and key event itself. `POPUP` keeps the extension's own
-  shortcuts working during the grab. Always check `grab.get_seat_state()` for the keyboard and
-  pop the grab when it is missing.
-- Helpers are stored in stage pixels. Labels convert to the display unit with
-  `pixelRatios()`: in logical layout mode (fractional scaling) the stage is in logical pixels,
-  which are CSS pixels at 100% zoom; in physical mode the stage is in device pixels. The layout
-  mode comes from Mutter's `scale-monitor-framebuffer` experimental feature, which is what
-  Mutter itself reads. Do not infer it from the St scale factor: in physical mode that follows
-  the primary monitor only, so mixed scales would convert wrongly. The grid settings are always
-  CSS pixels.
-- A guide label and its Ctrl+C copy share `_guideMeasure()`; keep one code path per displayed
-  value so the copy can never disagree with the label.
-- Each helper keeps its actors in `_views`, updated in place on every pointer motion. Gap
-  labels and grid bands are rebuilt on each sync, because there are few of them.
+  which then handles every pointer and key event itself and targets the topmost window under
+  the pointer. `POPUP` keeps the extension's own shortcuts working during the grab. Always
+  check `grab.get_seat_state()` for the keyboard and pop the grab when it is missing.
+- Every change goes through `Manager.commit()`: one undo step and one file write. A set made
+  by a gesture stays provisional, out of the menu and unsaved, until its first commit.
+- A guide label and its Ctrl+C copy share `View.guideMeasure()`; keep one code path per
+  displayed value so the copy can never disagree with the label.
+- Each helper keeps its actors in the view's `_helperViews`, updated in place on every pointer
+  motion. Gap labels and grid bands are rebuilt on each sync, because there are few of them.
 - Area measuring, snapping, and the picker read `Snapshot`, a capture from
   `Shell.Screenshot.screenshot_stage_to_content`, which paints the stage at once, actors included.
-  The overlay hides itself for that paint when edit mode starts; the picker captures before its
-  swatch shows, with the overlay hidden. The e2e test checks with known colors that neither the
-  helpers nor the swatch are sampled.
+  The overlay and the views hide for that paint when edit mode starts; the picker captures
+  before its swatch shows, with them hidden. The e2e test checks with known colors that neither
+  the helpers nor the swatch are sampled.
 - The capture stays on the GPU. Reading a whole 4K screen into memory takes over a second, so
   `Snapshot` reads only what is needed through `Shell.Screenshot.composite_to_stream`: a full row
   or column for edges (a few milliseconds, cached), 11 × 11 pixels for the loupe. Its pixels are
@@ -105,6 +126,17 @@ user-visible change also gets a new check in `scripts/e2e.sh`.
 - A child of a vertical `St.BoxLayout` stretches to the widest sibling unless its `x_align` is set.
 - Opacity percentages convert with `Math.round(percent * 255 / 100)`: `percent * 2.55` is a
   hair below .5 for 50 and rounds down.
+- `Meta.Cursor` uses CSS cursor names (`POINTER`, not `POINTING_HAND`). An unknown name is
+  `undefined`, and `set_cursor(undefined)` aborts the whole shell.
+- `Clutter.Actor` has write-only `actions`, `constraints`, and `effect` properties: a JS field
+  of that name on an actor calls `add_action()` and throws.
+- A popup menu item activates inside its click gesture, which touches the item afterwards:
+  destroy a menu from its own action on idle, as `BadgeMenu` does.
+- Exceptions in signal handlers log as `Exception in callback`, not `JS ERROR`; the e2e test
+  greps for both.
+- At fractional scales GTK draws a window's content from its buffer's corner, shadow included,
+  so its own edges can fall halfway through a device pixel, where a measured area loses one
+  pixel. Test blocks sit where GTK's edges are whole device pixels.
 
 ## Verify UI changes in a real GNOME Shell
 
@@ -127,8 +159,12 @@ a headless shell; reuse it rather than starting from scratch:
   disabling and re-enabling the extension keeps running the old code.
 - Look at the screenshots, and grep the shell log for `JS ERROR` and `JS WARNING`.
 
-The e2e test turns on Mutter's logical layout mode, then switches the virtual monitor to 125%
-through `org.gnome.Mutter.DisplayConfig` for its last checks, which cover fractional scaling.
+The e2e test draws on `scripts/test-window.js` windows, whose blocks sit at known CSS positions,
+and reads set files from the scratch `XDG_DATA_HOME`. The harness sets `HOME` there too, so GIO
+can trash files: it refuses on a mount other than the home's, such as a tmpfs `/tmp`. The test
+turns on Mutter's logical layout mode, then switches the virtual monitor to 125% through
+`org.gnome.Mutter.DisplayConfig` for its last checks, which cover fractional scaling.
+`global._e2e` holds its Eval shortcuts.
 
 CI runs the e2e test in a `fedora:43` container with Mesa's software renderer. The Shell aborts
 at startup there unless the workflow starts a system D-Bus and deletes `/run/systemd/seats`:

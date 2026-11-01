@@ -1,51 +1,11 @@
-// Pure geometry for helpers, hit testing, grids, and pixel units. Imports nothing from gi://,
-// so node --test covers it. Coordinates are stage pixels unless a name says otherwise.
+// Pure geometry for helpers, hit testing, grids, zones, and window targeting. Imports nothing from
+// gi://, so node --test covers it. Interaction runs in zone pixels: stage pixels relative to the
+// top-left corner of a zone.
 
 export const HELPER_KINDS = ['horizontal', 'vertical', 'rectangle'];
 
 // Distance, in stage pixels, within which a guide or a rectangle edge catches the pointer.
 export const HIT_TOLERANCE = 4;
-
-/** Reads the stored JSON list, dropping invalid entries, and gives each helper a runtime id. */
-export function parseHelpers(text) {
-    let raw;
-    try {
-        raw = JSON.parse(text);
-    } catch {
-        return [];
-    }
-    if (!Array.isArray(raw))
-        return [];
-
-    const helpers = [];
-    for (const entry of raw) {
-        const helper = normalizeHelper(entry);
-        if (helper)
-            helpers.push({id: helpers.length + 1, ...helper});
-    }
-    return helpers;
-}
-
-function normalizeHelper(entry) {
-    if (!entry || !HELPER_KINDS.includes(entry.kind))
-        return null;
-    const numbers = entry.kind === 'horizontal' ? ['y']
-        : entry.kind === 'vertical' ? ['x'] : ['x', 'y', 'width', 'height'];
-    if (!numbers.every(key => Number.isFinite(entry[key])))
-        return null;
-
-    const helper = {kind: entry.kind};
-    for (const key of numbers)
-        helper[key] = Math.round(entry[key]);
-    if (entry.kind === 'rectangle' && (helper.width < 1 || helper.height < 1))
-        return null;
-    return helper;
-}
-
-/** Serializes helpers without their runtime ids. */
-export function serializeHelpers(helpers) {
-    return JSON.stringify(helpers.map(({id: _id, ...helper}) => helper));
-}
 
 /** The rectangle spanned by two corner points, in either order. */
 export function rectFromPoints(x1, y1, x2, y2) {
@@ -217,18 +177,6 @@ export function columnGrid({width, columns, gutter, margin, maxWidth}) {
     }));
 }
 
-/**
- * Converts stage pixels to CSS pixels and to device pixels. In logical layout mode, the one
- * fractional scaling uses, the stage is in logical pixels, which are CSS pixels at 100% browser
- * zoom; in physical mode it is in device pixels. `zoom` is the browser zoom factor, 1 for 100%.
- */
-export function pixelRatios(monitorScale, logical, zoom = 1) {
-    return {
-        css: (logical ? 1 : 1 / monitorScale) / zoom,
-        device: logical ? monitorScale : 1,
-    };
-}
-
 /** Index of the monitor containing a point, or of the nearest one. */
 export function monitorAt(monitors, x, y) {
     let best = -1;
@@ -250,19 +198,53 @@ export function isLogicalLayout(experimentalFeatures) {
     return experimentalFeatures.includes('scale-monitor-framebuffer');
 }
 
-/**
- * Where a guide label goes: for a vertical guide, the top edge of the highest monitor it
- * crosses; for a horizontal guide, the left edge of the leftmost one. Falls back to the stage
- * origin when the guide crosses no monitor.
- */
-export function labelAnchor(monitors, kind, position) {
-    const crossed = kind === 'vertical'
-        ? monitors.filter(m => position >= m.x && position < m.x + m.width)
-        : monitors.filter(m => position >= m.y && position < m.y + m.height);
-    if (crossed.length === 0)
-        return {monitor: -1, edge: 0};
+/** A helper with every coordinate multiplied by `factor`, then passed through `round`. */
+export function scaleHelper(helper, factor, round = value => value) {
+    const scaled = {...helper};
+    for (const key of ['x', 'y', 'width', 'height']) {
+        if (key in helper)
+            scaled[key] = round(helper[key] * factor);
+    }
+    return scaled;
+}
 
-    const key = kind === 'vertical' ? 'y' : 'x';
-    const monitor = crossed.reduce((a, b) => (b[key] < a[key] ? b : a));
-    return {monitor: monitors.indexOf(monitor), edge: monitor[key]};
+/**
+ * Index of the monitor with the highest scale among those a rectangle touches, the first on ties,
+ * as Mutter picks the scale a window is drawn at; -1 when it touches none.
+ */
+export function highestScaleMonitor(monitors, rect) {
+    let best = -1;
+    monitors.forEach((monitor, i) => {
+        const touches = rect.x < monitor.x + monitor.width && monitor.x < rect.x + rect.width &&
+            rect.y < monitor.y + monitor.height && monitor.y < rect.y + rect.height;
+        if (touches && (best < 0 || monitor.geometry_scale > monitors[best].geometry_scale))
+            best = i;
+    });
+    return best;
+}
+
+/**
+ * How far Mutter moves a window's surfaces so that they start on a device pixel of the monitor
+ * that sets their scale: `position` and `monitorOrigin` are stage coordinates on one axis. This
+ * mirrors surface_container_apply_transform() in meta-window-actor-wayland.c, which helpers
+ * drawn next to the surfaces do not inherit.
+ */
+export function surfaceOffset(position, monitorOrigin, scale) {
+    return monitorOrigin + Math.round((position - monitorOrigin) * scale) / scale - position;
+}
+
+/**
+ * The window a point targets, from windows listed top first as `{rect, role}`: a `window` can be
+ * targeted, a `blocker` in front of it, such as a popup menu, hides it, and `ignore` lets the
+ * point through. Returns the index of the target, or -1.
+ */
+export function targetAt(windows, x, y) {
+    for (let i = 0; i < windows.length; i++) {
+        const {rect, role} = windows[i];
+        if (role === 'ignore' || x < rect.x || y < rect.y || x >= rect.x + rect.width ||
+            y >= rect.y + rect.height)
+            continue;
+        return role === 'window' ? i : -1;
+    }
+    return -1;
 }

@@ -64,3 +64,174 @@
 .measure-things-loupe-pixel-inner {
   border: 1px solid white;
 }
+
+.measure-things-badge {
+  color: white;
+  background-color: rgba(24, 24, 27, 0.88);
+  font-size: 11px;
+  font-weight: bold;
+  padding: 3px 8px;
+  border-radius: 999px;
+  spacing: 6px;
+}
+
+.measure-things-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.measure-things-highlight {
+  border: 3px solid #3584e4;
+  border-radius: 12px;
+}
+
+.measure-things-menu-header {
+  font-size: 0.8em;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.measure-things-menu-title {
+  font-weight: bold;
+}
+
+.measure-things-menu-subtitle {
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.measure-things-menu-shortcut {
+  color: rgba(255, 255, 255, 0.6);
+  padding-left: 24px;
+}
+
+.measure-things-menu-scroll {
+  max-height: 280px;
+}
+
+.measure-things-set-row {
+  spacing: 10px;
+}
+
+.measure-things-set-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.measure-things-pill {
+  font-size: 0.8em;
+  font-weight: bold;
+  color: #99c1f1;
+  background-color: rgba(53, 132, 228, 0.3);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.measure-things-row-actions {
+  spacing: 6px;
+}
+
+.measure-things-row-button {
+  padding: 6px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.measure-things-row-button:hover,
+.measure-things-row-button:focus {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.measure-things-chips {
+  spacing: 6px;
+}
+
+.measure-things-chip-button {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-weight: bold;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.measure-things-chip-button:checked {
+  background-color: #3584e4;
+  color: white;
+}
+
+.measure-things-chip-button:insensitive {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.measure-things-settings {
+  spacing: 10px;
+  min-width: 420px;
+}
+
+.measure-things-section {
+  font-weight: bold;
+  padding-top: 8px;
+}
+
+.measure-things-row {
+  spacing: 10px;
+}
+
+.measure-things-field {
+  spacing: 4px;
+}
+
+.measure-things-field-title {
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.measure-things-number {
+  width: 72px;
+}
+
+.measure-things-swatches {
+  spacing: 8px;
+}
+
+.measure-things-swatch-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  border: 2px solid transparent;
+}
+
+.measure-things-swatch-button:checked,
+.measure-things-swatch-button:focus {
+  border-color: white;
+}
+
+.measure-things-button,
+.measure-things-segment {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.measure-things-button:hover,
+.measure-things-segment:hover {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.measure-things-segments {
+  spacing: 4px;
+}
+
+.measure-things-segment:checked {
+  background-color: #3584e4;
+  color: white;
+}
+
+.measure-things-file {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.measure-things-destructive {
+  color: #ff7b63;
+}
