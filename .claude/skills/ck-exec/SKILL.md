@@ -1,6 +1,6 @@
 ---
 name: ck-exec
-description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and squash-merges each PR in order once it is green. Never questions the user; spec gaps go back to ck-spec. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
+description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and squash-merges each PR in order once it is green. Never questions the user; a rare spec gap goes back to ck-approve. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
 ---
 
 # ck-exec: implement a spec's plans, a fix, or an issue
@@ -77,8 +77,9 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    worker. An issue about a merged plan is a fix: name it in the report for its own ck-exec run.
 3. **Act** on each plan in delivery order, on the first row that matches. Rows 3 to 10 apply only
    to a plan that has a branch; information for a plan without one waits in the ledger for its
-   plan worker. A fix is one unit with no plan state: rows 11 and 12 do not gate it, and the
-   first tick creates its branch and dispatches the [fix worker](#fix-worker).
+   plan worker. A fix is one unit outside any spec's plans: its states, `executing` to
+   `"done #<PR>"`, live in the ledger instead of a front matter, rows 11 and 12 do not gate it,
+   and the first tick creates its branch and dispatches the [fix worker](#fix-worker).
 
    | # | State | Action |
    |---|---|---|
@@ -86,8 +87,8 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    | 1b | PR closed without a merge | The owner turned it down: stop this plan and the plans above, and report it. Running ck-exec on the plan again starts it over: the tick deletes the old branch and worktree, and row 11 builds a new PR |
    | 2 | A worker is running on it | Nothing, unless step 2 has information for it |
    | 2b | An open PR whose head no review in the ledger covers: from before the process, or a lost ledger | With the plan `approved` on main, [adopt](#adopted-prs) it. Otherwise nothing: the report names `ck-approve <plan>` |
-   | 3 | `blocked` | With a `**Resolved:` reply on its flag and the plan `approved` on main again: restack it on its base, which brings the spec change, set it back to `executing` or `"pr-opened #<PR>"`, and dispatch its worker. Otherwise nothing |
-   | 4 | Worker done, and its work not yet pushed, in a PR, and in `"pr-opened #<PR>"` | [Push](#push-and-pr) the reviewed SHA, open the PR, and commit the state, skipping each step already done, so an interrupted tick finishes it |
+   | 3 | `blocked` | With a `**Resolved:` reply on its flag, the plan `approved` on main again, and the plans below restacked on main with no worker running on them: restack it on its base, which brings the spec change, set it back to `executing` or `"pr-opened #<PR>"`, and dispatch its worker. Otherwise nothing |
+   | 4 | Worker done, and any of these missing: the reviewed SHA on the remote, the PR, the `"pr-opened #<PR>"` state | [Push](#push-and-pr) the reviewed SHA, open the PR, and commit the state, skipping each step already done, so an interrupted tick finishes it |
    | 5 | Its base moved: the base plan merged, the base branch has commits past the ledger's base SHA, the PR conflicts, or, for the lowest open plan, main changed the spec past its base | Dispatch a [restack](#stacked-prs) worker |
    | 6 | Unhandled review comments, a CI failure, or information for it | Dispatch an iteration worker |
    | 7 | CI pending | Nothing |
@@ -177,6 +178,8 @@ soon as it is green, without waiting for the owner. The tick merges a PR only wh
 hold:
 
 - its state is `"done #<PR>"`, and every check on its head is green;
+- the plan is still `approved` on main. A spec change that set it back to `todo` holds it until
+  ck-approve stamps it again, whatever its branch says;
 - its base is main: the plan below is merged, and the PR is restacked on it;
 - the head is the reviewed SHA, or that SHA followed by state commits only;
 - no review requests changes, and no owner comment is left without a reply. A review that
