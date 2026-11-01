@@ -155,8 +155,8 @@ frames and the sandbox shell never finishes starting up; use the headless shell 
   `RELEASE_APP_PRIVATE_KEY` secret), not with GITHUB_TOKEN: GitHub holds `pull_request`
   workflows on PRs opened by GITHUB_TOKEN for manual approval.
 - Design a new minor version in a `docs` PR that adds its `docs/specs/v*.md`, and iterate on the
-  design in that PR's review, not in an issue. Once the spec is merged, the implementation issue
-  holds only the delivery plan and links the spec.
+  design by editing that spec in the PR, not in an issue or in review comments. Once the spec is
+  merged, the implementation issue holds only the delivery plan and links the spec.
 - A user-visible change updates README.md and the current `docs/specs/v*.md` in the same PR. When
   it changes what the overlay, the menu, the picker, or the preferences look like, run
   `scripts/screenshots.sh`, look at the new images, and commit them. Source, docs, and UI strings
