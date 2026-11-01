@@ -110,7 +110,7 @@ export class SetStore {
                 job.text = null;
                 try {
                     await this.folder.get_child(name).replace_contents_bytes_async(bytes, null, false,
-                        Gio.FileCreateFlags.REPLACE_DESTINATION, this._cancellable);
+                        Gio.FileCreateFlags.REPLACE_DESTINATION, null);
                     written = true;
                 } catch (error) {
                     written = false;
@@ -132,7 +132,7 @@ export class SetStore {
         this._onChanged();
         await this._writes.get(id)?.done;
         try {
-            await this.folder.get_child(name).trash_async(GLib.PRIORITY_DEFAULT, this._cancellable);
+            await this.folder.get_child(name).trash_async(GLib.PRIORITY_DEFAULT, null);
         } catch (error) {
             if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                 console.warn(`Measure Things: could not move ${name} to the trash: ${error.message}`);

@@ -114,6 +114,11 @@ export class Overlay {
         return this._mode === 'edit';
     }
 
+    /** Whether a gesture is in progress, which nothing else may commit under. */
+    get dragging() {
+        return this._drag !== null;
+    }
+
     _pushModal() {
         this.actor.reactive = true;
         this._grab = Main.pushModal(this.actor, {actionMode: Shell.ActionMode.POPUP});
@@ -538,6 +543,11 @@ export class Overlay {
             if (Math.max(Math.abs(x - drag.x), Math.abs(y - drag.y)) < DRAG_THRESHOLD || drag.refused)
                 return;
             if (!drag.view) {
+                // The window can close before the press turns into a drag.
+                if (!isManaged(drag.window)) {
+                    this._drag = null;
+                    return;
+                }
                 drag.view = this._manager.createSet(drag.window);
                 drag.target = {window: drag.window, view: drag.view};
                 this._target = drag.target;
@@ -626,7 +636,7 @@ export class Overlay {
     /** The model of the target, creating a set on a window without a view. */
     _targetModel() {
         const target = this._target;
-        if (!target)
+        if (!target || !isManaged(target.window))
             return null;
         if (!target.view) {
             target.view = this._manager.createSet(target.window);
@@ -830,6 +840,10 @@ export class Overlay {
         this._loadDone = null;
         done(window);
     }
+}
+
+function isManaged(window) {
+    return global.get_window_actors().some(actor => actor.meta_window === window);
 }
 
 /** Copies text and confirms it with an on-screen display. */

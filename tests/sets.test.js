@@ -94,6 +94,9 @@ test('suffixes a name that is already taken', () => {
     assert.equal(uniqueName('Project A', ['Project B']), 'Project A');
     assert.equal(uniqueName('Project A', ['Project A']), 'Project A 2');
     assert.equal(uniqueName('Project A', ['Project A', 'Project A 2', 'Project A 3']), 'Project A 4');
+    const long = 'x'.repeat(250);
+    assert.equal(uniqueName(long, []), 'x'.repeat(200));
+    assert.equal(uniqueName(long, ['x'.repeat(200)]), `${'x'.repeat(198)} 2`);
 });
 
 test('gives a new set the first palette color nobody on screen uses', () => {
