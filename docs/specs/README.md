@@ -7,7 +7,7 @@ specific to this repository is in [This project](#this-project) at the end.
 
 - A **spec** is the product contract for one coherent body of work. It describes what the user
   sees and what the system guarantees, not how the code is organized.
-- Each spec has an **owner**, who approves it and reviews its plans' PRs: the project maintainer,
+- Each spec has an **owner**, who approves it and its plans, and can hold any plan's PR: the project maintainer,
   unless the spec names someone else.
 - Each spec has a **code**: three uppercase letters naming its topic, plus a digit only when the
   code is already taken, such as `SET` or `SET2`. A code is never reused or renamed.
@@ -69,7 +69,7 @@ after an interruption:
 | `executing` | Being implemented on its branch | The plan's branch, first commit |
 | `blocked` | Implementation hit a gap only the spec can close, flagged on the tracking issue | The plan's branch |
 | `"pr-opened #<PR>"` | The PR is open: in review, CI, or iteration | The plan's branch |
-| `"done #<PR>"` | Ready to merge; true once it merges | The plan's branch, last commit |
+| `"done #<PR>"` | Reviewed and ready to merge; true once it merges | The plan's branch, last commit |
 
 - The in-flight states, `executing` to `"done #<PR>"`, live only on the plan's branch. Main goes
   from `approved` to `"done #<PR>"` when the PR merges. The plan's PR also sets the spec's status.
@@ -118,8 +118,8 @@ after an interruption:
 - A plan starts only when it is `approved` on main, its spec is `approved` or `in-progress`, and
   every earlier plan is merged or has its PR open.
 - Each plan gets its own branch and PR. A plan whose earlier plan is not merged yet is stacked:
-  its branch starts from that plan's branch, and its PR targets it. Plans merge in order. The PR text starts with the plan's name, such as
-  `SET-P1`.
+  its branch starts from that plan's branch, and its PR targets it. Plans merge in order. The PR text starts with the plan's name, such
+  as `SET-P1`.
 - A PR implements its plan's slice and nothing visible beyond it. It adds no stubs in the UI for
   later plans. Its text states the temporary restrictions it carries.
 - Plan PRs reference the tracking issue without closing it. Only the last plan's PR closes it.
@@ -128,7 +128,9 @@ after an interruption:
 - Before any of a PR's commits are pushed, a reviewer who did not write them reviews them
   adversarially. Each later push gets the same review of its new commits, unless they change
   only the spec's state.
-- The spec's owner reviews each plan's PR, and merges it once CI is green.
+- The owner's approval of a plan is the approval of its PR: once its review is arbitrated and CI
+  is green, the PR merges, in plan order. The owner can still hold a PR by requesting changes on
+  it, or with a comment, until an iteration handles it.
 - A spec ships with the release that contains its last plan. No release is published while a spec
   is partly merged, so a spec ships in one version.
 

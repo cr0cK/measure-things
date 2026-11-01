@@ -1,6 +1,6 @@
 ---
 name: ck-exec
-description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and never merges. Never questions the user; spec gaps go back to ck-spec. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
+description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and squash-merges each PR in order once it is green. Never questions the user; spec gaps go back to ck-spec. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
 ---
 
 # ck-exec: implement a spec's plans, a fix, or an issue
@@ -85,7 +85,7 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    | 6 | Unhandled review comments, a CI failure, or information for it | Dispatch an iteration worker |
    | 7 | CI pending | Nothing |
    | 8 | CI green on `"pr-opened #<PR>"`, nothing left | Commit and push `"done #<PR>"` |
-   | 9 | CI green on `"done #<PR>"` | Waits for the owner's merge |
+   | 9 | CI green on `"done #<PR>"` | [Merge](#merge) it when every merge condition holds; otherwise nothing, and the report names the condition |
    | 10 | In flight with no worker and no report (interrupted) | Dispatch a worker that resumes it |
    | 11 | No branch, `approved` on main, and either it is the first plan not merged, or the plan below has an open PR that is not `blocked` | Create its branch, commit and push `executing`, and dispatch the [plan worker](#plan-worker) |
    | 12 | `todo` on main | Nothing: the report names `ck-approve <plan>`. The plans above wait |
@@ -93,9 +93,9 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    At most one plan worker runs at a time, so plans are implemented in order. Iterations and
    restacks of open PRs run alongside it, at most one worker per branch.
 4. **End**: when every plan of the spec, or the fix, is merged, remove the ledger and end the
-   loop. Never merge, never queue an auto-merge, never use `--admin`: the merge is the owner's.
-5. **Report**, in a few lines: what changed since the last tick, each plan's state, the flags
-   waiting for ck-spec or ck-approve, and the PRs waiting for the owner.
+   loop. The release PR is not ck-exec's: the report says the spec is ready for it.
+5. **Report**, in a few lines: what changed since the last tick, each plan's state, the PRs
+   merged, and the flags waiting for ck-spec or ck-approve.
 
 ## Workers
 
@@ -162,6 +162,22 @@ The tick pushes and opens PRs; workers never do.
   network) gets one rerun, then becomes an operational blocker, named in every report until a
   rerun passes. Any other failure goes to an iteration worker, which fixes its root cause.
 - A new commit on a `"done #<PR>"` branch sets it back to `"pr-opened #<PR>"`.
+
+### Merge
+
+The spec is the contract and ck-approve was the owner's approval, so ck-exec merges each PR as
+soon as it is green, without waiting for the owner. The tick merges a PR only when all of these
+hold:
+
+- its state is `"done #<PR>"`, and every check on its head is green;
+- its base is main: the plan below is merged, and the PR is restacked on it;
+- the head is the reviewed SHA, or that SHA followed by state commits only;
+- no review requests changes, and no owner comment is left without a reply. A review that
+  requests changes, or an unanswered comment, holds the merge until an iteration handles it.
+
+It merges with `gh pr merge <PR> --squash --match-head-commit <head SHA>`, so a push that lands
+in between makes it fail rather than merge unchecked code. It never uses `--admin`, never queues
+an auto-merge, and never merges a PR outside its target, the release PR included.
 
 ### Stacked PRs
 
