@@ -7,43 +7,17 @@ import {
     dragHelper,
     guideGaps,
     hitTest,
+    highestScaleMonitor,
     isLogicalLayout,
-    labelAnchor,
     monitorAt,
-    parseHelpers,
-    pixelRatios,
     rectangleGaps,
     rectFromPoints,
-    serializeHelpers,
+    scaleHelper,
+    surfaceOffset,
+    targetAt,
 } from '../src/geometry.js';
 
 const rect = (x, y, width, height, id = 1) => ({id, kind: 'rectangle', x, y, width, height});
-
-test('parses stored helpers, drops invalid ones, and assigns ids', () => {
-    const helpers = parseHelpers(JSON.stringify([
-        {kind: 'vertical', x: 120.4},
-        {kind: 'horizontal', y: 'top'},
-        {kind: 'rectangle', x: 1, y: 2, width: 0, height: 5},
-        {kind: 'rectangle', x: 1, y: 2, width: 30, height: 5},
-        {kind: 'circle', x: 3},
-        null,
-    ]));
-    assert.deepEqual(helpers, [
-        {id: 1, kind: 'vertical', x: 120},
-        {id: 2, kind: 'rectangle', x: 1, y: 2, width: 30, height: 5},
-    ]);
-});
-
-test('reads malformed storage as an empty list', () => {
-    assert.deepEqual(parseHelpers('not json'), []);
-    assert.deepEqual(parseHelpers('{"kind":"vertical"}'), []);
-});
-
-test('serializes helpers without runtime ids', () => {
-    const text = serializeHelpers([{id: 7, kind: 'horizontal', y: 40}]);
-    assert.equal(text, '[{"kind":"horizontal","y":40}]');
-    assert.deepEqual(parseHelpers(text), [{id: 1, kind: 'horizontal', y: 40}]);
-});
 
 test('builds a rectangle from corners in any order', () => {
     assert.deepEqual(rectFromPoints(50, 80, 10, 20), {x: 10, y: 20, width: 40, height: 60});
@@ -122,17 +96,6 @@ test('returns no columns when gutters and margins fill the width', () => {
     assert.deepEqual(columnGrid({width: 100, columns: 12, gutter: 10, margin: 0, maxWidth: 0}), []);
 });
 
-test('converts stage pixels in logical and physical layout modes', () => {
-    assert.deepEqual(pixelRatios(1.25, true), {css: 1, device: 1.25});
-    assert.deepEqual(pixelRatios(2, false), {css: 0.5, device: 1});
-    assert.deepEqual(pixelRatios(1, false), {css: 1, device: 1});
-});
-
-test('divides CSS pixels by the browser zoom only', () => {
-    assert.deepEqual(pixelRatios(1.25, true, 1.25), {css: 0.8, device: 1.25});
-    assert.deepEqual(pixelRatios(2, false, 2), {css: 0.25, device: 1});
-});
-
 test('reads the layout mode from Mutter experimental features', () => {
     assert.equal(isLogicalLayout(['scale-monitor-framebuffer', 'xwayland-native-scaling']), true);
     assert.equal(isLogicalLayout(['xwayland-native-scaling']), false);
@@ -144,14 +107,6 @@ test('finds the monitor under a point, or the nearest one', () => {
     assert.equal(monitorAt(monitors, 1919, 500), 0);
     assert.equal(monitorAt(monitors, 2000, 100), 1);
     assert.equal(monitorAt(monitors, 3100, 900), 1);
-});
-
-test('anchors guide labels on the edge of the outermost crossed monitor', () => {
-    const monitors = [{x: 0, y: 300, width: 1920, height: 1080}, {x: 1920, y: 0, width: 1280, height: 720}];
-    assert.deepEqual(labelAnchor(monitors, 'vertical', 2000), {monitor: 1, edge: 0});
-    assert.deepEqual(labelAnchor(monitors, 'horizontal', 400), {monitor: 0, edge: 0});
-    assert.deepEqual(labelAnchor(monitors, 'horizontal', 100), {monitor: 1, edge: 1920});
-    assert.deepEqual(labelAnchor(monitors, 'vertical', 9000), {monitor: -1, edge: 0});
 });
 
 test('measures a rectangle to its nearest neighbor on each side', () => {
@@ -191,4 +146,43 @@ test('snaps the dragged guide or edges of a helper', () => {
 test('snaps the dragged edge, not the fixed one, when a resize flips the rectangle', () => {
     const snap = value => (Math.abs(value - 252) <= 5 ? 252 : Math.abs(value - 198) <= 5 ? 198 : value);
     assert.deepEqual(dragHelper(rect(100, 100, 100, 50), 'left', 150, 0, snap, snap), rect(200, 100, 52, 50));
+});
+
+test('scales every coordinate of a helper', () => {
+    assert.deepEqual(scaleHelper(rect(10, 20, 30, 41), 1.25), {id: 1, kind: 'rectangle', x: 12.5, y: 25, width: 37.5, height: 51.25});
+    assert.deepEqual(scaleHelper({id: 2, kind: 'vertical', x: 10}, 1 / 3, Math.round), {id: 2, kind: 'vertical', x: 3});
+});
+
+test('picks the highest-scale monitor a window touches, the first on ties', () => {
+    const monitors = [
+        {x: 0, y: 0, width: 1600, height: 1000, geometry_scale: 1},
+        {x: 1600, y: 0, width: 1280, height: 800, geometry_scale: 1.25},
+        {x: 2880, y: 0, width: 1280, height: 800, geometry_scale: 1.25},
+    ];
+    assert.equal(highestScaleMonitor(monitors, {x: 100, y: 100, width: 600, height: 400}), 0);
+    assert.equal(highestScaleMonitor(monitors, {x: 1500, y: 100, width: 600, height: 400}), 1);
+    assert.equal(highestScaleMonitor(monitors, {x: 1700, y: 100, width: 1600, height: 400}), 1);
+    assert.equal(highestScaleMonitor(monitors, {x: 5000, y: 0, width: 10, height: 10}), -1);
+});
+
+test('moves surfaces onto the device pixels of their monitor', () => {
+    // At 125%, 187 stage pixels from the monitor are 233.75 device pixels: rounded to 234.
+    assert.ok(Math.abs(surfaceOffset(187, 0, 1.25) - 0.2) < 1e-9);
+    assert.ok(Math.abs(surfaceOffset(1789, 1600, 1.25) + 0.2) < 1e-9);
+    assert.equal(surfaceOffset(188, 0, 1.25), 0);
+    assert.equal(surfaceOffset(301, 0, 1), 0);
+});
+
+test('targets the topmost window under a point, unless something blocks it', () => {
+    const windows = [
+        {rect: {x: 0, y: 0, width: 1600, height: 32}, role: 'ignore'},
+        {rect: {x: 120, y: 180, width: 200, height: 200}, role: 'blocker'},
+        {rect: {x: 100, y: 100, width: 600, height: 400}, role: 'window'},
+        {rect: {x: 0, y: 0, width: 1600, height: 1000}, role: 'window'},
+    ];
+    assert.equal(targetAt(windows, 400, 300), 2);
+    assert.equal(targetAt(windows, 150, 200), -1);
+    assert.equal(targetAt(windows, 10, 10), 3);
+    assert.equal(targetAt(windows, 700, 300), 3);
+    assert.equal(targetAt(windows, 1600, 300), -1);
 });

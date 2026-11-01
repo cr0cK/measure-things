@@ -26,7 +26,8 @@ headless_start() {
         # Exported before the bus starts, so the services it activates, such as the preferences
         # window, also stay away from the desktop settings.
         WORK=$(mktemp -d)
-        export WORK HEADLESS_INSIDE=1 XDG_DATA_HOME=$WORK/data XDG_CONFIG_HOME=$WORK/config
+        # HOME on the same file system as the data, so GIO trashes files into $XDG_DATA_HOME/Trash.
+        export WORK HEADLESS_INSIDE=1 HOME=$WORK XDG_DATA_HOME=$WORK/data XDG_CONFIG_HOME=$WORK/config
         export GSETTINGS_BACKEND=keyfile GTK_A11Y=none
         export GSETTINGS_SCHEMA_DIR=$XDG_DATA_HOME/gnome-shell/extensions/$UUID/schemas
         # The Wayland socket path must fit in 108 bytes, so the display name stays short.

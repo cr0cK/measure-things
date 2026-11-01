@@ -3,14 +3,14 @@
 [![PR checks](https://github.com/cr0cK/measure-things/actions/workflows/pr-checks.yml/badge.svg)](https://github.com/cr0cK/measure-things/actions/workflows/pr-checks.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A GNOME Shell extension with measuring tools for web and UI work. It draws pixel guides, measuring rectangles, a column grid, and a mockup image above every window, measures areas of the screen, and picks colors anywhere on it. Outside edit mode, clicks go through the helpers, so the page under them stays usable.
+A GNOME Shell extension with measuring tools for web and UI work. It draws pixel guides, measuring rectangles, a column grid, and a mockup image on any window, measures areas of the screen, and picks colors anywhere on it. Helpers belong to the window they measure and are kept in saved sets. Outside edit mode, clicks go through the helpers, so the page under them stays usable.
 
 <p align="center">
-  <img src="docs/screenshots/edit.png" alt="Edit mode measuring a settings card: a 555 × 219 rectangle, guides on its edges with their positions, and the gaps between them" width="100%">
+  <img src="docs/screenshots/edit.png" alt="Edit mode measuring a settings card in a window: a selected 555 × 109 rectangle, guides on its edges with their positions in the window, the gaps between them, and the set's badge in the window's corner" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/menu.png" alt="The Measure Things menu in the top bar" width="49%">
+  <img src="docs/screenshots/menu.png" alt="The Measure Things menu in the top bar: the set on screen with its window, and the library of saved sets" width="49%">
   <img src="docs/screenshots/picker.png" alt="The color picker magnifying the pixels under the pointer and showing the hex value of the center one" width="49%">
 </p>
 
@@ -20,33 +20,37 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 
 ## Features
 
+- **Sets on windows**: drawing on a window starts a set, `Untitled 1`, saved at once in its own file. Its helpers are drawn inside the window: they move with it, hide behind the windows in front of it, and positions are relative to its top-left corner. A badge in the window's bottom-right corner names the set; in edit mode, a click on it opens the set's menu.
+- **Library**: the top bar menu lists the sets on screen, which the eye hides and ✕ removes from the screen, and every saved set, which a click loads onto a window. Sets can be renamed, deleted, and saved under a new name.
 - **Guides**: horizontal and vertical 1-pixel lines labeled with their position. The gap between neighboring parallel guides is shown live, which makes alignment checks quick.
 - **Measuring rectangles**: drag to draw, then move, resize from any edge or corner, or nudge with the arrow keys. The label shows the size, the position too when the rectangle is selected, and the distance to the nearest helper on each side.
 - **Area measuring**: press <kbd>D</kbd> in edit mode to see the width and height of the area under the pointer, found from the screen pixels, like a button or a padding. <kbd>Enter</kbd> turns it into a rectangle.
 - **Snapping**: dragged guides and rectangle edges snap to the edges of what is on screen. Hold <kbd>Ctrl</kbd> to place them freely.
-- **Undo**: <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> in edit mode.
-- **Click-through**: helpers stay on screen above every window, including fullscreen ones, and let the pointer through to the windows below. Only edit mode captures input.
-- **Column grid**: a layout grid (columns, gutter, side margin, optional centered max width) laid over the focused window, which follows it when it moves or resizes.
-- **Mockup**: lays a design image over the screen at its CSS size and half opacity, to compare a page with it. Move it with a right-drag in edit mode.
+- **Undo**: <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> in edit mode, per set.
+- **Click-through**: helpers let the pointer through to their window. Only edit mode captures input.
+- **Column grid**: a layout grid (columns, gutter, side margin, optional centered max width) laid over the set's window.
+- **Mockup**: lays a design image over the window at its CSS size and half opacity, to compare a page with it. Move it with a right-drag in edit mode.
+- **Set settings**: from the badge menu, each set has its name, helper color, browser zoom, grid, and mockup image.
 - **Color picker**: a loupe magnifies the pixels under the pointer; a click copies the color as hex, `rgb()`, or `hsl()`.
-- **CSS pixels**: values are shown in CSS pixels, so they match your stylesheet on a scaled display (for example 125%). Set the browser zoom in the preferences when the page is not at 100%, or switch to device pixels.
-- Helpers are saved and come back after a restart or a lock.
+- **CSS pixels**: values are shown in CSS pixels, so they match your stylesheet on a scaled display (for example 125%). Set the browser zoom of a set when the page is not at 100%, or switch to device pixels in the preferences.
+- Sets are JSON files in `~/.local/share/measure-things/sets/`; **Open sets folder** in the menu shows them. After a restart, load a set from the library onto its window again. The helpers, grid, and mockup of version 0.2 become a set named `Untitled 1` on the first start.
 
 ## Usage
 
 | Shortcut | Action |
 |---|---|
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>M</kbd> | Enter or leave edit mode |
-| <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Show or hide the column grid over the focused window |
+| <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Show or hide the column grid of the focused window's set |
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Pick a color |
 
-The top bar menu has the same actions, plus **Add vertical guide**, **Add horizontal guide**, **Show helpers**, **Mockup**, and **Clear helpers**. The shortcuts can be changed in the preferences, which also list the keys of edit mode and where the mockup image is chosen.
+The top bar menu has the same actions, the sets on screen, and the library. A set's badge menu, in edit mode, turns its helpers, grid, and mockup on and off, and has **Set settings…**, **Save as new set…**, and **Clear helpers**. The shortcuts can be changed in the preferences, which also list the keys of edit mode.
 
 In edit mode, a hint bar lists the keys:
 
 | Input | Action |
 |---|---|
-| Drag on empty space | Draw a rectangle; edges snap to the screen content (<kbd>Ctrl</kbd>: no snapping) |
+| Drag on a window | Draw a rectangle; edges snap to the screen content (<kbd>Ctrl</kbd>: no snapping) |
+| Click a badge | Open the set's menu |
 | <kbd>H</kbd> / <kbd>V</kbd> | Add a horizontal or vertical guide at the pointer |
 | Drag a guide, a rectangle edge, or a corner | Move or resize it |
 | Click a rectangle, then drag inside it | Select it, then move it |
@@ -64,7 +68,7 @@ In edit mode, a hint bar lists the keys:
 
 In the color picker, <kbd>Tab</kbd> switches between hex, `rgb()`, and `hsl()`.
 
-Positions are relative to the monitor they are on. CSS pixel values follow the browser zoom set in the preferences, 100% by default. Area measuring, snapping, and the color picker read a still capture of the screen taken when edit mode or the picker starts.
+Edit mode acts on the window under the pointer. Positions are relative to the window's top-left corner. CSS pixel values follow the browser zoom of the set, 100% by default. Area measuring, snapping, and the color picker read a still capture of the screen taken when edit mode or the picker starts.
 
 ## Requirements
 

@@ -37,3 +37,12 @@ test('forgets the oldest states past the limit', () => {
     assert.equal(history.undo(), 'b');
     assert.equal(history.undo(), null);
 });
+
+test('rewrites every state without moving through them', () => {
+    const history = new History('a1');
+    history.record('b1');
+    history.undo();
+    history.rewrite(state => state.replace('1', '2'));
+    assert.equal(history.current, 'a2');
+    assert.equal(history.redo(), 'b2');
+});

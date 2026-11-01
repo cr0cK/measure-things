@@ -154,7 +154,8 @@ The images are mockups. Where an image and the text disagree, the text wins.
 
 - Helper geometry is stored in CSS pixels, relative to the top-left corner of the zone, at the
   set's browser zoom. A view converts it to stage pixels with the zoom and, in physical layout
-  mode, the scale of the monitor under its zone's center. A set therefore looks the same on any
+  mode, the scale Mutter draws its window at: the window's geometry scale, which follows the
+  monitor the window is on. A set therefore looks the same on any
   window, monitor, or scale, and changing the set's zoom rescales its helpers around the zone's
   corner, as the page does.
 - Positions in labels, the readout, and `Ctrl+C` are relative to the zone's top-left corner.
@@ -368,8 +369,8 @@ The panel menu manages the sets: which ones are on screen, and the library.
     (`org.freedesktop.portal.FileChooser`), and **Remove**, which clears it;
   - opacity, 5% to 100%;
   - pixel density, 1x to 4x.
-- While the file chooser is open, the dialog releases its modal grab and keeps its draft, and
-  edit mode is left. When the chooser closes, the dialog takes its grab back. Cancelling the
+- While the file chooser is open, the dialog hides, releases its modal grab, and keeps its draft,
+  and edit mode is left: the dialog's lightbox would cover the chooser. When the chooser closes, the dialog takes its grab back. Cancelling the
   chooser, or a portal error, keeps the previous image; an error also shows a notice. Disabling
   the extension closes the dialog without saving.
 - **Save** applies everything as one commit, and one undo step. Choosing a new image turns the

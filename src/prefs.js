@@ -1,21 +1,19 @@
 import Adw from 'gi://Adw';
 import Gdk from 'gi://Gdk';
 import Gio from 'gi://Gio';
-import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-import {COLOR_FORMATS, colorToHex} from './format.js';
+import {COLOR_FORMATS} from './format.js';
 
 const UNITS = ['css', 'device'];
 const UNIT_LABELS = ['CSS pixels', 'Device pixels'];
 const COLOR_FORMAT_LABELS = ['Hex', 'RGB', 'HSL'];
-const DENSITY_LABELS = ['1x', '2x', '3x', '4x'];
 const SHORTCUTS = [
     ['edit-shortcut', 'Edit helpers'],
     ['pick-color-shortcut', 'Pick color'],
-    ['grid-shortcut', 'Column grid'],
+    ['grid-shortcut', 'Column grid', 'Toggles the grid of the set on the focused window.'],
 ];
 // The keys the overlay handles in edit mode, as Gtk.ShortcutLabel accelerators, with the
 // modifier held for arrows apart, so four arrows fit one row.
@@ -45,12 +43,6 @@ const EDIT_KEYS = [
 // A global shortcut needs one of these, so it cannot take a key away from typing.
 const SHORTCUT_MODIFIERS = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK |
     Gdk.ModifierType.SUPER_MASK;
-const GRID_SETTINGS = [
-    ['grid-columns', 'Columns', 1, 24],
-    ['grid-gutter', 'Gutter', 0, 400],
-    ['grid-margin', 'Side margin', 0, 800],
-    ['grid-max-width', 'Maximum width (0 for full width)', 0, 10000],
-];
 
 export default class MeasureThingsPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
@@ -64,34 +56,12 @@ export default class MeasureThingsPreferences extends ExtensionPreferences {
         page.add(displayGroup);
         const unitRow = new Adw.ComboRow({
             title: 'Unit',
-            subtitle: 'CSS pixels match a page at 100% browser zoom.',
+            subtitle: 'CSS pixels follow the browser zoom of each set.',
             model: Gtk.StringList.new(UNIT_LABELS),
             selected: Math.max(0, UNITS.indexOf(settings.get_string('unit'))),
         });
         unitRow.connect('notify::selected', () => settings.set_string('unit', UNITS[unitRow.selected]));
         displayGroup.add(unitRow);
-        const zoomRow = Adw.SpinRow.new_with_range(25, 500, 5);
-        zoomRow.title = 'Browser zoom (%)';
-        zoomRow.subtitle = 'CSS pixel values, the grid, and the mockup follow this zoom level.';
-        settings.bind('zoom', zoomRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        displayGroup.add(zoomRow);
-
-        const rgba = new Gdk.RGBA();
-        rgba.parse(settings.get_string('color'));
-        const colorButton = new Gtk.ColorDialogButton({
-            dialog: new Gtk.ColorDialog({with_alpha: false}),
-            rgba,
-            valign: Gtk.Align.CENTER,
-        });
-        colorButton.connect('notify::rgba', () => {
-            const {red, green, blue} = colorButton.rgba;
-            settings.set_string('color', colorToHex({red: red * 255, green: green * 255, blue: blue * 255}));
-        });
-        const colorRow = new Adw.ActionRow({title: 'Helper color'});
-        colorRow.add_suffix(colorButton);
-        colorRow.set_activatable_widget(colorButton);
-        displayGroup.add(colorRow);
-
         const formatRow = new Adw.ComboRow({
             title: 'Color format',
             subtitle: 'What the color picker shows and copies; Tab switches it while picking.',
@@ -105,30 +75,25 @@ export default class MeasureThingsPreferences extends ExtensionPreferences {
         });
         displayGroup.add(formatRow);
 
-        page.add(this._mockupGroup(window, settings));
-
-        const gridGroup = new Adw.PreferencesGroup({
-            title: 'Column grid',
-            description: 'Laid over the focused window, in CSS pixels.',
+        const badgeGroup = new Adw.PreferencesGroup({title: 'Corner badges'});
+        page.add(badgeGroup);
+        const badgeRow = new Adw.SwitchRow({
+            title: 'Show outside edit mode',
+            subtitle: 'Badges never take clicks outside edit mode.',
         });
-        page.add(gridGroup);
-        for (const [key, title, lower, upper] of GRID_SETTINGS) {
-            const row = Adw.SpinRow.new_with_range(lower, upper, 1);
-            row.title = title;
-            settings.bind(key, row, 'value', Gio.SettingsBindFlags.DEFAULT);
-            gridGroup.add(row);
-        }
+        settings.bind('show-badges', badgeRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        badgeGroup.add(badgeRow);
 
         const shortcutGroup = new Adw.PreferencesGroup({title: 'Keyboard shortcuts'});
         page.add(shortcutGroup);
-        for (const [key, title] of SHORTCUTS) {
+        for (const [key, title, subtitle = ''] of SHORTCUTS) {
             const label = new Gtk.ShortcutLabel({disabled_text: 'Disabled', valign: Gtk.Align.CENTER});
             const sync = () => {
                 label.accelerator = settings.get_strv(key)[0] ?? '';
             };
             settings.connect(`changed::${key}`, sync);
             sync();
-            const row = new Adw.ActionRow({title, activatable: true});
+            const row = new Adw.ActionRow({title, subtitle, activatable: true});
             row.add_suffix(label);
             row.connect('activated', () => this._captureShortcut(row, settings, key, title));
             shortcutGroup.add(row);
@@ -201,73 +166,5 @@ export default class MeasureThingsPreferences extends ExtensionPreferences {
         });
         dialog.add_controller(controller);
         dialog.present(parent);
-    }
-
-    _mockupGroup(window, settings) {
-        const group = new Adw.PreferencesGroup({
-            title: 'Mockup',
-            description: 'An image laid over the screen at its CSS size. In edit mode, right-drag or ' +
-                'Ctrl+arrows move it, and [ and ] change its opacity.',
-        });
-
-        const fileRow = new Adw.ActionRow({title: 'Image'});
-        const syncFile = () => {
-            const path = settings.get_string('mockup-file');
-            fileRow.subtitle = path ? GLib.markup_escape_text(path, -1) : 'None';
-            clearButton.sensitive = path !== '';
-        };
-        const chooseButton = new Gtk.Button({label: 'Choose…', valign: Gtk.Align.CENTER});
-        const clearButton = new Gtk.Button({
-            icon_name: 'edit-clear-symbolic',
-            tooltip_text: 'Remove the image',
-            valign: Gtk.Align.CENTER,
-            css_classes: ['flat'],
-        });
-        chooseButton.connect('clicked', () => {
-            const filter = new Gtk.FileFilter({name: 'Images'});
-            filter.add_pixbuf_formats();
-            const filters = new Gio.ListStore({item_type: Gtk.FileFilter});
-            filters.append(filter);
-            const dialog = new Gtk.FileDialog({title: 'Choose a mockup image', filters, default_filter: filter});
-            dialog.open(window, null, (_dialog, result) => {
-                try {
-                    const path = dialog.open_finish(result)?.get_path();
-                    if (path) {
-                        settings.set_string('mockup-file', path);
-                        settings.set_boolean('mockup-visible', true);
-                    }
-                } catch {
-                    // Dismissed.
-                }
-            });
-        });
-        clearButton.connect('clicked', () => {
-            settings.set_boolean('mockup-visible', false);
-            settings.set_string('mockup-file', '');
-        });
-        fileRow.add_suffix(chooseButton);
-        fileRow.add_suffix(clearButton);
-        settings.connect('changed::mockup-file', syncFile);
-        syncFile();
-        group.add(fileRow);
-
-        const showRow = new Adw.SwitchRow({title: 'Show the mockup'});
-        settings.bind('mockup-visible', showRow, 'active', Gio.SettingsBindFlags.DEFAULT);
-        group.add(showRow);
-
-        const opacityRow = Adw.SpinRow.new_with_range(5, 100, 5);
-        opacityRow.title = 'Opacity (%)';
-        settings.bind('mockup-opacity', opacityRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        group.add(opacityRow);
-
-        const densityRow = new Adw.ComboRow({
-            title: 'Pixel density',
-            subtitle: 'Image pixels per CSS pixel: 2x for an image exported at double size.',
-            model: Gtk.StringList.new(DENSITY_LABELS),
-            selected: settings.get_int('mockup-density') - 1,
-        });
-        densityRow.connect('notify::selected', () => settings.set_int('mockup-density', densityRow.selected + 1));
-        group.add(densityRow);
-        return group;
     }
 }
