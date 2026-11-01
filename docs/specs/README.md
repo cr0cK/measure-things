@@ -104,7 +104,10 @@ replaced-by: XYZ        # the spec that replaced part of it
 - Plan PRs reference the tracking issue without closing it. Only the last plan's PR closes it.
 - A deviation from the spec is a spec change in the same PR, stated in the PR text.
 - Every user-visible behavior the PR adds gets an automated test.
-- The spec's owner reviews each plan's PR before it merges.
+- Before any of a PR's commits are pushed, a reviewer who did not write them reviews them
+  adversarially. Each later push gets the same review of its new commits, unless they change
+  only the spec's state.
+- The spec's owner reviews each plan's PR, and merges it once CI is green.
 - A spec ships with the release that contains its last plan. No release is published while a spec
   is partly merged, so a spec ships in one version.
 

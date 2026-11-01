@@ -32,7 +32,8 @@ This skill only adds the order of operations.
   already taken. Check `docs/specs/` and the open spec PRs.
 - Confirm the code with the user through AskUserQuestion, with two or three options. A code is
   never renamed afterwards.
-- Create the branch `docs/<code>-spec`, lowercase, in a worktree.
+- Create the branch `docs/<code>-spec`, lowercase, in its worktree,
+  `.claude/worktrees/docs-<code>-spec`, from `origin/main`. Never work in the main checkout.
 - Start the file with its state: `code`, `status: draft`, and `version` (the next minor version
   unless the user says otherwise), plus `builds-on` when it extends a spec.
 
@@ -81,7 +82,8 @@ most 25 findings, each labeled **high**, **medium**, or **low**:
 5. Behavior of the spec it builds on that was dropped or changed without being stated.
 
 Arbitrate each finding against the code and the platform. Fix it in the spec or the plan, or
-reject it with a reason. Summarize the verdict in the PR, in a `<details>` block.
+reject it with a reason. Summarize the verdict in the PR, in a `<details>` block, naming the
+reviewer that ran. Then wait for CI to be green before asking the owner to approve.
 
 ## 6. Merge
 
@@ -102,4 +104,5 @@ reject it with a reason. Summarize the verdict in the PR, in a `<details>` block
 ## Report
 
 The spec PR, the tracking issue, the review verdict (counts and the reviewer that actually ran),
-and what is left for the owner to decide.
+and what is left for the owner to decide. After the merge, the next step is ck-exec on
+`<CODE>-P1`.
