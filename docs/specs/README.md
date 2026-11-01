@@ -76,7 +76,8 @@ after an interruption:
 - A spec change that alters a plan's rules sets that plan back to `todo`, so it is approved
   again.
 - Only `shipped` specs take `amended` and `replaced-by`.
-- Specs from before this process have no plans.
+- Specs and PRs from before this process are adopted, not refused: see
+  [Adopting existing work](#adopting-existing-work).
 
 ## Designing
 
@@ -93,9 +94,11 @@ after an interruption:
   Fix the findings in the spec and the plan, or reject them with a reason.
 - Before anything is implemented, a gap read looks for every point where an implementer would
   have to guess: the spec, the specs it builds on, the plans, and the code they touch, in full.
-  With no gap, the spec or plan is stamped `approved`. Each gap goes back to the design, and the
-  plan stays `todo`. Implementation never questions the owner; it only starts once a plan is
-  `approved`.
+  The owner answers each gap, and each answer is written into the spec. With no gap left, the
+  spec or plan is stamped `approved`; a gap the owner leaves open keeps its plan `todo`.
+- The owner is questioned while the spec is designed and approved, never during implementation.
+  An `approved` plan has no blocker left; a gap found later is the exception, and goes back to
+  approval.
 - The owner's approval is the stamp. For a spec in design, its last commit sets `approved`, and
   the spec merges.
 
@@ -143,6 +146,19 @@ after an interruption:
 - A new spec that replaces part of an older one says which parts in its first paragraph. The older
   spec keeps its rules while the new one is designed and implemented. The new spec's last plan
   PR removes the replaced rules from the older spec and sets its `replaced-by`.
+
+## Adopting existing work
+
+Work that the process did not frame is picked up, not refused:
+
+- a spec without a front matter, without plans, or with a state from an older convention;
+- a spec marked `approved` before the gap read existed;
+- a PR open on a plan, opened before the process, with its old state.
+
+A skill that meets one says so and proposes the process to the owner: the design step adds the
+missing state and plans from the spec's text, asking only what the text leaves open; the gap read
+then stamps the plans. An adopted plan PR keeps its branch: its whole diff is reviewed as if it
+were new, its state is rewritten to the current one, and it then follows the same flow.
 
 ## Review labels
 

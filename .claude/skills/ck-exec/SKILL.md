@@ -8,9 +8,11 @@ description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as sta
 `docs/specs/README.md` is the process, with the spec and plan states. Read it first. Where it and
 this skill disagree, it wins. AGENTS.md gives the project's checks, commands, and pitfalls.
 
-**ck-exec never questions the user.** It takes every implementation call itself and reports it.
-A gap only the spec can close (an ambiguity, a contradiction, a failed prototype, a product
-choice) is flagged for ck-spec, as [Spec gaps](#spec-gaps) says.
+**ck-exec never questions the user.** The user was questioned while the spec was designed and
+approved, so an `approved` plan has no blocker left. ck-exec takes every implementation call
+itself and reports it. A gap found anyway (an ambiguity, a contradiction, a failed prototype, a
+product choice) is the exception: it is flagged and goes back to approval, as
+[Spec gaps](#spec-gaps) says.
 
 ## Start
 
@@ -34,8 +36,12 @@ starts the work:
    A change that needs design or more than one PR goes through ck-spec first: say so and stop.
 2. **The gate**, for a spec, read from `origin/main` after `git fetch`: the spec is `approved` or
    `in-progress`, and the first plan not merged is `approved`, or already in flight on its
-   branch. Otherwise start nothing, and name the next step: `ck-approve <plan>` for a `todo` plan,
-   `ck-spec <CODE>` for a `draft` spec or an open `**Blocked:` flag.
+   branch. Otherwise start nothing, and name the next step: `ck-approve <plan>` for a `todo` plan
+   or an open `**Blocked:` flag, `ck-spec <CODE>` for a `draft` spec.
+
+   Work from before the process is not refused. A spec with no front matter or no plans: say so,
+   and propose its adoption with `ck-spec <CODE>`. A plan PR opened before the process, once its
+   plan is `approved`, is adopted as [Adopted PRs](#adopted-prs) says.
 3. Invoke the `loop` skill with `10m /ck-exec tick <target>`, and do nothing else in this run.
 
 ## Where the state lives
@@ -79,6 +85,7 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    | 1 | PR merged | Remove its worktree and local branch. The plan above restacks (row 5) |
    | 1b | PR closed without a merge | The owner turned it down: stop this plan and the plans above, and report it. Running ck-exec on the plan again starts it over: the tick deletes the old branch and worktree, and row 11 builds a new PR |
    | 2 | A worker is running on it | Nothing, unless step 2 has information for it |
+   | 2b | An open PR whose head no review in the ledger covers: from before the process, or a lost ledger | With the plan `approved` on main, [adopt](#adopted-prs) it. Otherwise nothing: the report names `ck-approve <plan>` |
    | 3 | `blocked` | With a `**Resolved:` reply on its flag and the plan `approved` on main again: restack it on its base, which brings the spec change, set it back to `executing` or `"pr-opened #<PR>"`, and dispatch its worker. Otherwise nothing |
    | 4 | Worker done, and its work not yet pushed, in a PR, and in `"pr-opened #<PR>"` | [Push](#push-and-pr) the reviewed SHA, open the PR, and commit the state, skipping each step already done, so an interrupted tick finishes it |
    | 5 | Its base moved: the base plan merged, the base branch has commits past the ledger's base SHA, the PR conflicts, or, for the lowest open plan, main changed the spec past its base | Dispatch a [restack](#stacked-prs) worker |
@@ -201,13 +208,24 @@ the branch of the plan below, and its PR targets it.
   local branch `wip/<branch>`, and resets its branch to the last pushed head; the plan's next
   worker starts from that work. The tick then commits and pushes `blocked` on the plan's branch, and posts the gap on the tracking issue, starting with `**Blocked: <CODE>-Pn**`. The
   plans above it wait; the open PRs below go on.
-- The report tells the user to run `ck-spec <CODE>`. ck-spec writes the decision into the spec and
-  sets the plan back to `todo`; ck-approve stamps it `approved` again and replies
-  `**Resolved: <CODE>-Pn**` to the flag. The spec change is on main, so row 5 first restacks the
+- The report tells the user to run `ck-approve <CODE>-Pn`. It asks the user, writes the answer
+  into the spec, stamps the plan `approved` again, and replies `**Resolved: <CODE>-Pn**` to the
+  flag, handing over to ck-spec first when the answer reshapes the plans. The spec change is on main, so row 5 first restacks the
   stack from its lowest open plan, bottom up, and row 3 then resumes the blocked plan on a base
   that carries it.
 - A blocked fix posts its flag on its issue and ends its loop. Once the spec answers it, run
   ck-exec on the issue again.
+
+### Adopted PRs
+
+A plan PR opened before the process has no ledger entry and an old state, such as `"done #<PR>"`
+written when it opened. Once its plan is `approved` on main, the tick adopts it:
+
+- it reuses the PR and its branch, in a worktree, and records the branch's base;
+- a worker has the whole diff against its base reviewed, as for a new PR, and handles the
+  findings and any unanswered review comment;
+- the tick rewrites the state to `"pr-opened #<PR>"`, restacks it on main, and the PR then
+  follows the table like any other.
 
 ## Plan worker
 

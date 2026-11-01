@@ -25,7 +25,8 @@ This skill only adds the order of operations.
 | **Amend** | A shipped spec's text needs correcting, without a code change | A spec PR. A small change with code, or a defect, goes to ck-exec's fix mode. A change that needs plans is a **New** spec that builds on the shipped one |
 | **Replace** | A new spec takes over part of an older one | A new spec. The older one keeps its rules until the new spec's last plan PR removes them and sets `replaced-by` |
 | **Ship** | The release containing a spec's last plan is out | A small `docs` PR that sets the spec `shipped` |
-| **Unblock** | ck-approve or ck-exec flagged a gap: a comment starting with `**Blocked: <CODE>-Pn**` with no `**Resolved:` reply | A small `docs` PR to the spec, and the plan in the tracking issue when it changes |
+| **Design change** | ck-approve handed over an answer that reshapes the plans, or a `**Blocked:` flag needs one | A `docs` PR to the spec, and the plans in the tracking issue |
+| **Adopt** | A spec without a front matter or plans, or with a plan PR opened before the process | A `docs` PR that adds the state and the plans |
 
 ## 2. New spec: the code
 
@@ -96,23 +97,32 @@ failure at its root cause, rerun once a failure that is not the PR's, and report
 - After the merge, update the issue's links to the main branch, and remove the worktree and the
   branch.
 
-## 7. Unblock a plan
+## 7. Design changes from approval or implementation
 
-ck-approve and ck-exec never question the user; they flag what only the spec can decide.
-Running ck-spec on the spec resolves those flags.
+ck-approve questions the user on gaps and resolves most of them itself. It hands over to ck-spec
+when an answer reshapes the plans, and ck-exec's rare `**Blocked:` flags reach ck-spec the same
+way.
 
-- Find them: comments on the tracking issue, the design PR, or a fix's issue that start with
-  `**Blocked:` and have no `**Resolved:` reply.
-- For each, take the decision with the user, one question at a time, and write it into the spec,
-  and into the plan in the tracking issue when its scope, restrictions, or acceptance change.
-  Prefer a small change that unblocks the plan; a change that reshapes later plans says so.
-- One `docs` PR from `origin/main` carries the changes, reviewed adversarially as in step 5 when
-  it changes rules. It sets every plan whose rules change back to `todo`, the blocked ones
-  included.
+- Take the decisions with the user, one question at a time, and write them into the spec, and
+  into the plans in the tracking issue when their scope, order, restrictions, or acceptance
+  change.
+- One `docs` PR from `origin/main` carries the changes, reviewed adversarially as in step 5. It
+  sets every plan whose rules change back to `todo`.
 - Then the next step is `ck-approve` on those plans, which stamps and merges the PR, and replies
   `**Resolved:` to the flags. That reply is what ck-exec watches for.
 
-## 8. Amend or replace a shipped spec
+## 8. Adopt existing work
+
+Specs and plan PRs from before the process are adopted, as `docs/specs/README.md` says under
+Adopting existing work.
+
+- Add the front matter from what the spec already says: `code`, a `status` that matches what is
+  merged and shipped, `version`, `builds-on`.
+- For a spec with work left, write the plans into a tracking issue, and map each plan PR already
+  open to its plan. Ask only what the spec's text leaves open.
+- One `docs` PR carries it, and the next step is `ck-approve <CODE>`.
+
+## 9. Amend or replace a shipped spec
 
 - **Amend**: edit the rules in place, and add the coming version to `amended` in its state.
 - **Replace**: the new spec says, in its first paragraph, which parts it replaces. The older spec
