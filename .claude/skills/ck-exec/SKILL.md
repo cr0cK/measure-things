@@ -8,6 +8,10 @@ description: Implement the plans of a spec (<CODE>-P1, -P2, …) one PR each, st
 `docs/specs/README.md` is the process. Read it first. Where it and this skill disagree, it wins.
 AGENTS.md gives the project's checks, commands, and pitfalls.
 
+**ck-exec never questions the user.** It takes every implementation call itself. A gap only the
+spec can close (an ambiguity, a contradiction, a failed prototype, a product choice) becomes a
+[spec blocker](#spec-blockers), which ck-spec resolves by changing the spec.
+
 ## Start: a loop of ticks
 
 The work runs as a loop: a **tick** every 10 minutes orchestrates, and **workers** do the work.
@@ -16,7 +20,7 @@ The work runs as a loop: a **tick** every 10 minutes orchestrates, and **workers
 - Any other argument starts the work. Resolve the target first:
   - **Spec**: a spec code, such as `SET`, or a plan name, such as `SET-P2`, which starts there.
     Without an argument, take the spec whose status is `approved` or `in-progress`; when several
-    qualify, ask which one.
+    qualify, list them and stop.
   - **Issue**: `#<n>` or an issue link. Read it with its comments, then route it:
     - the tracking issue of a spec (titled `<CODE>: …`): that spec;
     - an issue that names a plan not yet merged (`<CODE>-Pn`): information for that plan. Add it
@@ -29,7 +33,16 @@ The work runs as a loop: a **tick** every 10 minutes orchestrates, and **workers
   A change that needs design or more than one PR goes through ck-spec first, which adds plans for
   it: say so and stop.
 
-  Then invoke the `loop` skill with `10m /ck-exec tick <target>`, and do nothing else in this run.
+- **Readiness read**, for a spec, before any loop starts. A worker reads in full the spec, the
+  specs it builds on, the tracking issue, AGENTS.md, and the code each plan not yet merged
+  touches. It reports, per plan, every gap only the spec can close, with what the spec says and
+  the options it sees, and takes every other call itself. Each gap becomes a
+  [spec blocker](#spec-blockers), flagged before any code is written.
+  - When the first plan to implement is blocked, start no loop: report the blockers and tell the
+    user to run `ck-spec <CODE>`. Once the fixes are merged, ck-exec runs again from the start.
+  - Otherwise the loop starts, and stops at the first blocked plan.
+- Then invoke the `loop` skill with `10m /ck-exec tick <target>`, and do nothing else in this
+  run.
 
 ## The ledger
 
@@ -39,7 +52,7 @@ The ledger carries the work from tick to tick: `$(git rev-parse --path-format=ab
 - the branch, the worktree, the PR, and its base;
 - the running worker, with its name and task;
 - the last reviewed SHA, with the reviewer and the verdict;
-- open blockers, each with its question, and the answers once given;
+- open blockers: spec blockers with their flag comment, and operational ones (CI infrastructure);
 - information received for the work and not yet handed to a worker.
 
 GitHub and git are the truth; the ledger only adds what they cannot say. Each tick reconciles the
@@ -62,7 +75,7 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    | State | Action |
    |---|---|
    | A worker is running | Nothing, unless step 2 has information for it |
-   | Unresolved blocker | Nothing until the user answers; the report repeats the question |
+   | Open spec blocker | Nothing until a spec change on main resolves it; the report names it |
    | Worker finished, reviewed SHA not pushed | [Push](#push-and-pr) that exact SHA, open or update the PR |
    | PR conflicts with its base, or its base plan merged | Dispatch a [restack](#stacked-prs) worker |
    | Review comments or CI failures to handle | Dispatch an iteration worker |
@@ -74,9 +87,9 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    Plans are implemented one at a time: the next plan starts once the previous plan's PR is open
    with no unresolved blocker. Iterations and restacks of open PRs run alongside it, at most one
    worker per PR.
-4. **Ask**: a worker that reports a decision the user must take becomes a blocker. Ask with
-   AskUserQuestion, write the answer into the ledger, and pass it to the next worker of that plan.
-   A blocker stops its own plan and the plans stacked above it, not the open PRs below.
+4. **Flag**: a worker that reports a gap only the spec can close opens a
+   [spec blocker](#spec-blockers). It stops its own plan and the plans stacked above it, not the
+   open PRs below.
 5. **End**: when every plan of the spec, or the fix, is merged, remove the ledger, and end the
    loop. Never merge, never queue an auto-merge, never use `--admin`: the merge is the owner's.
 6. **Report**, in a few lines: what changed since the last tick, each plan's state, and the
@@ -89,11 +102,13 @@ A worker is a background subagent (Agent tool), named `ck-<plan>-<task>`, such a
 files to read, the answers and information from the ledger, and what it must return.
 
 - It works only in its worktree, and commits its work there.
-- It never pushes, never opens or edits a PR, and never asks the user. A decision it cannot take
-  ends its run with a question.
+- It never pushes, never opens or edits a PR, and never asks the user. It takes every
+  implementation call itself and reports it. A gap only the spec can close ends its run blocked,
+  with the gap stated: what the spec says, why it cannot be implemented as written, and the
+  options it sees.
 - Before it reports done, it gets the [review](#adversarial-review) of its commits and arbitrates
   it.
-- It returns: done or blocked, the question when blocked, the reviewed SHA, the review verdict,
+- It returns: done or blocked, the gap when blocked, the reviewed SHA, the review verdict,
   the checks run with their results, and the spec changes it made.
 
 ### Worktrees
@@ -143,7 +158,7 @@ The tick pushes and opens PRs; workers never do.
   status becomes `in-progress`, or `implemented` for the last plan. It becomes true when the PR
   merges. Push it, and watch CI on that head.
 - CI: each tick reads `gh pr checks`. A failure that is not the code's (runner, network) gets one
-  rerun, then becomes a blocker. Any other failure goes to an iteration worker, which fixes its
+  rerun, then becomes an operational blocker, named in every report until a rerun passes. Any other failure goes to an iteration worker, which fixes its
   root cause.
 
 ### Stacked PRs
@@ -159,6 +174,16 @@ branches from plan `n`'s branch, and its PR targets that branch.
 - A restack that needed conflict resolution gets that resolution reviewed before the tick
   force-pushes it, with `--force-with-lease`.
 
+### Spec blockers
+
+- The tick flags it on GitHub, so ck-spec finds it: a comment on the tracking issue, or on the
+  input issue for a fix, that starts with `**Blocked: <CODE>-Pn**` (or `**Blocked: fix**`) and
+  gives the worker's gap and options. It records the comment link in the ledger.
+- Its report tells the user to run `ck-spec <CODE>` to resolve it. It asks nothing.
+- ck-spec resolves it with a spec change merged to main that replies to the flag comment. The
+  tick sees the change in step 2, closes the blocker, and dispatches the plan's next worker, which
+  restacks on main when the plan's PR is already open.
+
 ## Plan worker
 
 1. **Read in full**: `docs/specs/README.md` and AGENTS.md; the spec and the specs it builds on;
@@ -170,7 +195,7 @@ branches from plan `n`'s branch, and its PR targets that branch.
      below this one in the stack.
 3. **Prototype first**, when the plan has one. It is throwaway and never committed.
    - Report each criterion as pass or fail, with its evidence.
-   - When a criterion fails, or a fallback must be chosen, stop: that is a question for the user.
+   - When a criterion fails, or a fallback must be chosen, stop blocked: the plan needs ck-spec.
 4. **Implement the plan's slice only.**
    - Keep the temporary restrictions the plan states, and leave later plans out entirely: no UI
      stubs, no dead settings.
@@ -178,8 +203,9 @@ branches from plan `n`'s branch, and its PR targets that branch.
 5. **The spec stays true.**
    - When the code has to differ from the spec, edit the spec in the same branch, and report it
      for the PR text.
-   - When the spec is ambiguous or wrong in a way the user must decide, stop with the question.
-     The next worker writes the answer into the spec.
+   - When the spec is ambiguous or wrong in a way that is a product choice, stop blocked. A gap
+     with one sensible reading is an implementation call: take it, write it into the spec in the
+     branch, and report it.
 6. **Tests**: every user-visible behavior the plan adds gets an automated test. Run every check
    AGENTS.md requires, and look at screenshots of any visible change.
 7. **Commit and review**, as [Adversarial review](#adversarial-review) says, then report.
@@ -195,7 +221,7 @@ For a defect, or a small behavior change the user asked for, on branch `fix/<slu
 3. **Classify**:
    - The code breaks the spec: fix the code, and add a regression test.
    - The spec is silent or wrong: the fix is also a spec change. When the right behavior is a
-     product choice, stop with the question. Then update every spec whose rules change, and add
+     product choice, stop blocked. Otherwise update every spec whose rules change, and add
      the version the fix will ship in to each shipped spec's `amended` list.
    - A small behavior change the user asked for: same as a spec change.
    - A defect outside the work at hand: follow AGENTS.md, which makes it an issue with its
