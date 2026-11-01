@@ -96,8 +96,9 @@ replaced-by: XYZ        # the spec that replaced part of it
 ## Implementing
 
 - A plan starts only when its spec is `approved` or `in-progress`, and every earlier plan is
-  `done`.
-- Each plan gets its own branch and PR. The PR text starts with the plan's name, such as
+  `done` or has its PR open.
+- Each plan gets its own branch and PR. A plan whose earlier plan is not merged yet is stacked:
+  its branch starts from that plan's branch, and its PR targets it. Plans merge in order. The PR text starts with the plan's name, such as
   `SET-P1`.
 - A PR implements its plan's slice and nothing visible beyond it. It adds no stubs in the UI for
   later plans. Its text states the temporary restrictions it carries.
@@ -133,7 +134,7 @@ names.
   `docs:`, a plan PR is usually `feat:`.
 - release-please opens the release PR. Merge it only once every plan of the spec in progress is
   merged, then mark the spec `shipped`.
-- The `ck-spec` skill runs the design and planning steps, and `ck-exec` runs a plan or a fix
+- The `ck-spec` skill runs the design and planning steps, and `ck-exec` runs the plans or a fix
   (`.claude/skills/`).
 - A plan PR also follows the checks in AGENTS.md: lint, unit tests, the end-to-end test in a
   headless GNOME Shell, and screenshots for any visible change.

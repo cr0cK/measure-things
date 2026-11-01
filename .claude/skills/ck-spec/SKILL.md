@@ -32,8 +32,9 @@ This skill only adds the order of operations.
   already taken. Check `docs/specs/` and the open spec PRs.
 - Confirm the code with the user through AskUserQuestion, with two or three options. A code is
   never renamed afterwards.
-- Create the branch `docs/<code>-spec`, lowercase, in its worktree,
-  `.claude/worktrees/docs-<code>-spec`, from `origin/main`. Never work in the main checkout.
+- Create the branch `docs/<code>-spec`, lowercase, from `origin/main`, in its worktree under the
+  main checkout, `$(git rev-parse --path-format=absolute --git-common-dir)/../.claude/worktrees/docs-<code>-spec`.
+  Reuse it when it exists. Never work in the main checkout.
 - Start the file with its state: `code`, `status: draft`, and `version` (the next minor version
   unless the user says otherwise), plus `builds-on` when it extends a spec.
 
@@ -83,7 +84,8 @@ most 25 findings, each labeled **high**, **medium**, or **low**:
 
 Arbitrate each finding against the code and the platform. Fix it in the spec or the plan, or
 reject it with a reason. Summarize the verdict in the PR, in a `<details>` block, naming the
-reviewer that ran. Then wait for CI to be green before asking the owner to approve.
+reviewer that ran. Then wait for CI to be green before asking the owner to approve: fix a
+failure at its root cause, rerun once a failure that is not the PR's, and report the rest.
 
 ## 6. Merge
 
