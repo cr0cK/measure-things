@@ -237,6 +237,9 @@ The images are mockups. Where an image and the text disagree, the text wins.
   - `G` toggles the set's grid.
   - `Ctrl`+arrows and a secondary-button drag move the mockup. `[` and `]` change its opacity.
   - `Esc` cancels a gesture in progress, otherwise leaves edit mode.
+- Area measuring and snapping read a still capture of the screen, taken when edit mode starts.
+  Content that changes afterwards, such as a video, is read as it was then. A new capture is
+  taken when the target view's geometry changes (see [Lifecycle](#lifecycle)).
 - Edit mode and the color picker capture the screen without the extension's views and badges,
   and restore them on cancel or failure.
 

@@ -157,7 +157,7 @@ frames and the sandbox shell never finishes starting up; use the headless shell 
 - Specs and implementation plans follow [docs/specs/README.md](docs/specs/README.md): a spec is
   named by a code such as `SET`, designed by editing it in its PR, and delivered in plans
   `SET-P1`, `SET-P2`, and so on, one PR each.
-- A user-visible change updates README.md and the spec of the version in progress in the same
+- A user-visible change updates README.md and every spec whose rules it changes, in the same
   PR. When it changes what the overlay, the menu, the picker, or the preferences look like, run
   `scripts/screenshots.sh`, look at the new images, and commit them. Source, docs, and UI strings
   are in English.

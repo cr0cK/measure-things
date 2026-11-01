@@ -67,8 +67,8 @@ ImageMagick.
 - Use GNOME Shell ES modules and GSettings for extension preferences.
 - Keep logic that can live without GNOME APIs in the pure modules (`src/geometry.js`,
   `src/format.js`), with unit tests.
-- Update README.md and the relevant spec in docs/specs/ when a change affects the user-visible
-  contract.
+- Update README.md and every spec in docs/specs/ whose rules a change affects. New features are
+  designed and delivered as described in [docs/specs/README.md](docs/specs/README.md).
 
 ## Commits and pull requests
 

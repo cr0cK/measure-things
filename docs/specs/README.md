@@ -7,6 +7,8 @@ specific to this repository is in [This project](#this-project) at the end.
 
 - A **spec** is the product contract for one coherent body of work. It describes what the user
   sees and what the system guarantees, not how the code is organized.
+- Each spec has an **owner**, who approves it and reviews its plans' PRs: the project maintainer,
+  unless the spec names someone else.
 - Each spec has a **code**: three uppercase letters naming its topic, plus a digit only when the
   code is already taken, such as `SET` or `SET2`. A code is never reused or renamed.
 - The spec lives in `docs/specs/<CODE>.md`. Its images live in `docs/specs/images/`, named
@@ -25,9 +27,9 @@ specific to this repository is in [This project](#this-project) at the end.
 
 ## Designing
 
-- Design a spec in a `docs` PR that adds it. Iterate by editing the spec in that PR. Discussion
-  can happen anywhere, but decisions only count once they are written in the spec. They don't
-  count in an issue thread or in a review comment.
+- Design a spec in a dedicated PR that adds it, with no code. Iterate by editing the spec in that
+  PR. Discussion can happen anywhere, but decisions only count once they are written in the spec.
+  They don't count in an issue thread or in a review comment.
 - Before the spec merges, a reviewer who did not write it reviews the spec and its plan
   adversarially. The review looks for:
   - contradictions;
@@ -45,22 +47,32 @@ specific to this repository is in [This project](#this-project) at the end.
 - The plans live in one tracking issue, titled with the spec's code, which links the spec. For
   each plan, the issue gives:
   - its scope, as the parts of the spec it implements;
-  - any temporary restriction, and the plan that lifts it;
+  - any temporary restriction: a behavior of the spec that the plan leaves out or simplifies, and
+    the later plan that delivers it. The spec always describes the final behavior;
   - its acceptance: tests, checks, and measurements;
   - for a risky plan, a throwaway prototype with pass/fail criteria, which runs first.
-- The spec wins over the plan. When they disagree, fix the plan.
+- Apart from those stated restrictions, the spec wins over the plan. When they disagree, fix the
+  plan.
 
 ## Implementing
 
 - Each plan gets its own branch and PR. The PR text starts with the plan's name, such as
   `SET-P1`.
 - A PR implements its plan's slice and nothing visible beyond it. It adds no stubs in the UI for
-  later plans.
+  later plans. Its text states the temporary restrictions it carries.
+- Plan PRs reference the tracking issue without closing it. Only the last plan's PR closes it.
 - A deviation from the spec is a spec change in the same PR, stated in the PR text.
 - Every user-visible behavior the PR adds gets an automated test.
 - The spec's owner reviews each plan's PR before it merges.
-- Once the last plan merges, the spec describes shipped behavior. A later change to that behavior
-  updates the spec, or a new spec replaces that part of it.
+- A spec ships with the release that contains its last plan. No release is published while a spec
+  is partly merged, so a spec ships in one version.
+
+## Changing a shipped spec
+
+- A change to shipped behavior updates every spec whose rules it changes, in the same PR. The
+  spec keeps its title, and a line at its end records each version that amended it.
+- A new spec that replaces part of an older one says which parts in its first paragraph. The
+  older spec gets a line at the top pointing to it, and its replaced rules are removed.
 
 ## Review labels
 
@@ -73,5 +85,7 @@ names.
   version.
 - Tracking issues and PRs are on GitHub. PR titles follow Conventional Commits: a spec PR is
   `docs:`, a plan PR is usually `feat:`.
+- release-please opens the release PR. Merge it only once every plan of the spec in progress is
+  merged.
 - A plan PR also follows the checks in AGENTS.md: lint, unit tests, the end-to-end test in a
   headless GNOME Shell, and screenshots for any visible change.
