@@ -1,4 +1,7 @@
-# Measure Things — v0.3 specification
+# Measure Things — SET specification (v0.3)
+
+Spec code: `SET`, window-scoped helpers in saved sets, planned for v0.3. It builds on `PIX`. Its
+implementation plans are `SET-P1` to `SET-P4`, one PR each, described in issue #8.
 
 ## Goal
 
@@ -8,7 +11,7 @@ a window, or to a zone of it, they are kept in saved sets, and one set can show 
 or views at once. Comparing two versions of a page, side by side in two windows or in the two views
 of a Chrome split view, then shows layout regressions at a glance.
 
-![Two views of one Chrome window, each with its own zone, showing the same helpers](images/v0.3-split-view.png)
+![Two views of one Chrome window, each with its own zone, showing the same helpers](images/SET-split-view.png)
 
 The images are mockups. Where an image and the text disagree, the text wins.
 
@@ -27,7 +30,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - **Copy**: any other view of the same set. Copies last for the session and are never saved.
   A copy is **linked** or **unlinked**.
 
-![Sets, the main view, and copies](images/v0.3-sets-model.png)
+![Sets, the main view, and copies](images/SET-sets-model.png)
 
 ## Sets
 
@@ -118,7 +121,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
   linked copy, the set leaves the screen, and its unlinked copies leave with it.
 - Undo history belongs to the set: the main view and its linked copies share it. An unlinked copy
   starts its own when it is unlinked. Relinking or removing the copy drops it. See
-  **Undo** under [Edit mode](#edit-mode) for what it covers.
+  [Undo](#undo) for what it covers.
 
 ## Rendering
 
@@ -173,7 +176,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
   zone's visible part.
 - Zones are session-only, like views.
 
-![Framing the right view: a new copy starts on the whole window, its left edge is dragged and snaps to the divider](images/v0.3-zone-framing.png)
+![Framing the right view: a new copy starts on the whole window, its left edge is dragged and snaps to the divider](images/SET-zone-framing.png)
 
 ## Helpers
 
@@ -234,17 +237,23 @@ The images are mockups. Where an image and the text disagree, the text wins.
   - `G` toggles the set's grid.
   - `Ctrl`+arrows and a secondary-button drag move the mockup. `[` and `]` change its opacity.
   - `Esc` cancels a gesture in progress, otherwise leaves edit mode.
-- **Undo**: `Ctrl+Z` undoes the last change of the target view's set, or of the
-  target copy when it is unlinked. `Ctrl+Shift+Z` and `Ctrl+Y` redo it.
-  - Undo covers the set's content only: helpers, grid, mockup, chips, color, zoom, name, and
-    tolerance. Each commit that changes it is one step: a gesture, a key, **Clear helpers**,
-    **Find helpers**, **Set settings** saved.
-  - Session state is not undoable: zones, linking, adding or removing views, hiding, loading, and
-    **Save as new set…**. Renaming and deleting from the library are not undoable either.
-  - Undoing a rename to a name that has been taken since gets a numeric suffix.
-  - A history keeps 100 states and lasts for the session.
+- Area measuring and snapping read a still capture of the screen, taken when edit mode starts.
+  Content that changes afterwards, such as a video, is read as it was then. A new capture is
+  taken when the target view's geometry changes (see [Lifecycle](#lifecycle)).
 - Edit mode and the color picker capture the screen without the extension's views and badges,
   and restore them on cancel or failure.
+
+## Undo
+
+- `Ctrl+Z` undoes the last change of the target view's set, or of the target copy when it is
+  unlinked. `Ctrl+Shift+Z` and `Ctrl+Y` redo it.
+- Undo covers the set's content only: helpers, grid, mockup, chips, color, zoom, name, and
+  tolerance. Each commit that changes it is one step: a gesture, a key, **Clear helpers**,
+  **Find helpers**, **Set settings** saved.
+- Session state is not undoable: zones, linking, adding or removing views, hiding, loading, and
+  **Save as new set…**. Renaming and deleting from the library are not undoable either.
+- Undoing a rename to a name that has been taken since gets a numeric suffix.
+- A history keeps 100 states and lasts for the session.
 
 ## Corner badge
 
@@ -257,7 +266,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
   click outside, or an action.
 - The badge menu is the only place where a set is changed, apart from editing helpers.
 
-![The badge menu of a main view, with a Find helpers confirmation, and of a copy](images/v0.3-badge.png)
+![The badge menu of a main view, with a Find helpers confirmation, and of a copy](images/SET-badge.png)
 
 ### Main view badge menu
 
@@ -283,7 +292,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
 
 The panel menu manages the sets: which ones are on screen, and the library.
 
-![The panel menu](images/v0.3-menu.png)
+![The panel menu](images/SET-menu.png)
 
 - **Edit helpers** and **Pick color**, with their shortcuts.
 - **On screen**: one row per set on screen. Up to 5 rows show, then the list scrolls. Each row
@@ -311,7 +320,7 @@ The panel menu manages the sets: which ones are on screen, and the library.
 
 ### Loading a set
 
-![Loading a set onto a window](images/v0.3-load-set.png)
+![Loading a set onto a window](images/SET-load-set.png)
 
 - The menu closes, the pointer becomes a crosshair, and the window under it is highlighted. An
   on-screen hint reads `Click a window to show “<set>” · Esc cancels`.
@@ -323,7 +332,7 @@ The panel menu manages the sets: which ones are on screen, and the library.
 
 ### Deleting a set
 
-![Confirmation before deleting a set that is on screen](images/v0.3-delete-set.png)
+![Confirmation before deleting a set that is on screen](images/SET-delete-set.png)
 
 - A dialog asks `Delete “<set>”?`. When the set is on screen, it says how many views will leave.
 - **Delete** moves the file to the trash. Its main view and copies leave the screen at once. Its
@@ -331,7 +340,7 @@ The panel menu manages the sets: which ones are on screen, and the library.
 
 ## Set settings
 
-![The Set settings dialog](images/v0.3-set-settings.png)
+![The Set settings dialog](images/SET-set-settings.png)
 
 **Set settings…** opens a modal dialog in the shell:
 
@@ -414,7 +423,7 @@ The panel menu manages the sets: which ones are on screen, and the library.
 
 ## Preferences
 
-![The preferences](images/v0.3-preferences.png)
+![The preferences](images/SET-preferences.png)
 
 The preferences only customize the extension. They hold no set content.
 

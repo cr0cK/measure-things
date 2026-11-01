@@ -2,7 +2,9 @@
 
 ### Why
 
-<!-- The goal, the trigger, or the bug this PR addresses. Link issues with `Closes #123`. -->
+<!-- The goal, the trigger, or the bug this PR addresses. Link issues with `Closes #123`.
+     A plan PR starts with its plan name, such as `SET-P1`, and references its tracking issue
+     without closing it, except for the spec's last plan. -->
 
 ### What changes
 
@@ -14,4 +16,4 @@
 - [ ] `make check` passes
 - [ ] `npm run e2e` passes, with a new check for user-visible changes
 - [ ] Tried in GNOME Shell (`scripts/sandbox.sh` or a real session), for user-visible changes
-- [ ] `CHANGELOG.md` is left to release-please; README and `docs/specs/v*.md` are updated when the user-visible contract changes
+- [ ] `CHANGELOG.md` is left to release-please; README and every spec in `docs/specs/` whose rules change are updated

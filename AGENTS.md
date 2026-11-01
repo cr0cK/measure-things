@@ -24,7 +24,7 @@ new `src/*.js` modules on its own.
 | `src/history.js` | Undo and redo history (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.measure-things` |
 | `tests/` | `node --test` suites for the pure modules |
-| `docs/specs/v*.md` | Product contracts, one per minor version |
+| `docs/specs/` | Product contracts, one per spec code, and the spec process in its README.md |
 | `scripts/headless.sh` | Shared headless GNOME Shell harness: Eval, virtual input, screenshots |
 | `scripts/e2e.sh` | End-to-end test of the packed extension in a headless shell |
 | `scripts/screenshots.sh` | Regenerates `docs/screenshots/` |
@@ -154,11 +154,11 @@ frames and the sandbox shell never finishes starting up; use the headless shell 
 - release-please runs as a GitHub App (`RELEASE_APP_CLIENT_ID` variable,
   `RELEASE_APP_PRIVATE_KEY` secret), not with GITHUB_TOKEN: GitHub holds `pull_request`
   workflows on PRs opened by GITHUB_TOKEN for manual approval.
-- Design a new minor version in a `docs` PR that adds its `docs/specs/v*.md`, and iterate on the
-  design in that PR's review, not in an issue. Once the spec is merged, the implementation issue
-  holds only the delivery plan and links the spec.
-- A user-visible change updates README.md and the current `docs/specs/v*.md` in the same PR. When
-  it changes what the overlay, the menu, the picker, or the preferences look like, run
+- Specs and implementation plans follow [docs/specs/README.md](docs/specs/README.md): a spec is
+  named by a code such as `SET`, designed by editing it in its PR, and delivered in plans
+  `SET-P1`, `SET-P2`, and so on, one PR each.
+- A user-visible change updates README.md and every spec whose rules it changes, in the same
+  PR. When it changes what the overlay, the menu, the picker, or the preferences look like, run
   `scripts/screenshots.sh`, look at the new images, and commit them. Source, docs, and UI strings
   are in English.
 - A defect found outside the task at hand becomes a GitHub issue with its reproduction, not a
