@@ -8,7 +8,7 @@ import * as Dialog from 'resource:///org/gnome/shell/ui/dialog.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import {notify} from './manager.js';
 import {chooseImage} from './portal.js';
-import {DENSITY_RANGE, GRID_RANGES, OPACITY_RANGE, PALETTE, ZOOM_RANGE} from './sets.js';
+import {DENSITY_RANGE, GRID_RANGES, MAX_NAME_LENGTH, OPACITY_RANGE, PALETTE, ZOOM_RANGE} from './sets.js';
 
 // Open dialogs, which disabling the extension closes without saving.
 const openDialogs = new Set();
@@ -67,6 +67,7 @@ export function askName({title, name, actionLabel}) {
     return runDialog((dialog, finish) => {
         dialog.contentLayout.add_child(new Dialog.MessageDialogContent({title}));
         const entry = addEntry(dialog.contentLayout, name);
+        entry.clutter_text.max_length = MAX_NAME_LENGTH;
         const accept = () => {
             if (entry.text.trim())
                 finish(entry.text.trim());
@@ -118,6 +119,7 @@ export function editSetSettings(model, {onChooserOpen}) {
         dialog.contentLayout.add_child(layout);
 
         const nameEntry = addEntry(new St.BoxLayout(), model.name);
+        nameEntry.clutter_text.max_length = MAX_NAME_LENGTH;
         addField(layout, 'Name', nameEntry.get_parent());
 
         layout.add_child(new St.Label({text: 'Display', style_class: 'measure-things-section'}));

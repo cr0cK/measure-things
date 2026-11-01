@@ -318,9 +318,10 @@ export class Manager {
 
     /**
      * Saves the current content of a main view's set under a new name, and switches the view to
-     * the new set with its undo history. The old set keeps what its file last held.
+     * the new set with its undo history, at once, so later commits write the new set. The old
+     * set keeps what its file last held.
      */
-    async saveAsNew(model, name) {
+    saveAsNew(model, name) {
         name = uniqueName(name.trim(), this.takenNames());
         const set = {
             id: GLib.uuid_string_random(),
@@ -330,14 +331,12 @@ export class Manager {
             migrated: false,
             content: JSON.parse(JSON.stringify(model.content)),
         };
-        if (!await this.store.write(set)) {
-            notify(`Could not save “${name}”.`);
-            return;
-        }
-        if (!this.models.includes(model))
-            return;
         Object.assign(model, {id: set.id, name, revision: 0, edited: set.edited, migrated: false});
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
+        this.store.write(set).then(written => {
+            if (!written)
+                notify(`Could not save “${name}”.`);
+        });
         model.view?.sync();
         this._changed();
     }

@@ -30,8 +30,15 @@ export function chooseImage(title, cancellable) {
                 const uri = response === 0 ? results.uris?.deepUnpack()[0] : null;
                 finish(resolve, uri ? Gio.File.new_for_uri(uri).get_path() : null);
             });
-        if (cancellable)
-            cancelId = cancellable.connect(() => finish(resolve, null));
+        // Gio.Cancellable.disconnect() from the handler itself would wait for it forever.
+        if (cancellable) {
+            cancelId = cancellable.connect(() => {
+                cancelId = 0;
+                bus.call('org.freedesktop.portal.Desktop', handle, 'org.freedesktop.portal.Request',
+                    'Close', null, null, Gio.DBusCallFlags.NONE, -1, null, null);
+                finish(resolve, null);
+            });
+        }
         const options = {
             handle_token: new GLib.Variant('s', token),
             modal: new GLib.Variant('b', true),

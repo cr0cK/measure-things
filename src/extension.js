@@ -52,7 +52,7 @@ export default class MeasureThingsExtension extends Extension {
                 this._closeMenu();
                 this._pickColor();
             },
-            'grid-shortcut': () => this._picker || this._toggleFocusedGrid(),
+            'grid-shortcut': () => this._picker || this._overlay.dragging || this._toggleFocusedGrid(),
         };
         for (const name of SHORTCUTS) {
             Main.wm.addKeybinding(
@@ -334,7 +334,7 @@ export default class MeasureThingsExtension extends Extension {
             actionLabel: 'Save',
         });
         if (name && this._manager?.models.includes(model))
-            await this._manager.saveAsNew(model, name);
+            this._manager.saveAsNew(model, name);
     }
 
     async _pickColor() {

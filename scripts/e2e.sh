@@ -452,6 +452,16 @@ expect "$E2E.model('Other').content.grid.visible + ' ' + $E2E.view('Other')._gri
 press_keys Super_L Shift_L g
 expect "$E2E.model('Other').content.grid.visible + ' ' + $E2E.view('Other')._grid.get_n_children()" 'true 6' \
     'the grid shortcut shows it again'
+press_keys Super_L Shift_L m
+pointer_move 1150 420
+pointer_button PRESSED
+pointer_move 1200 440
+press_keys Super_L Shift_L g
+press_keys Escape
+pointer_button RELEASED
+expect "$E2E.model('Other').content.grid.visible + ' ' + $E2E.helpers('Other') + ' ' + $E2E.file('$PAGE').grid.visible" \
+    'true R 120,110 201x170 | V 510 true' 'the grid shortcut does nothing during a drag'
+press_keys Escape
 
 shell_eval "Main.extensionManager.disableExtension('$UUID')" >/dev/null
 wait_for "Main.extensionManager.lookup('$UUID').state !== 1"

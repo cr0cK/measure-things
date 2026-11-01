@@ -13,7 +13,7 @@ export const ZOOM_RANGE = [25, 500];
 export const GRID_RANGES = {columns: [1, 24], gutter: [0, 400], margin: [0, 800], maxWidth: [0, 10000]};
 export const OPACITY_RANGE = [5, 100];
 export const DENSITY_RANGE = [1, 4];
-const MAX_NAME_LENGTH = 200;
+export const MAX_NAME_LENGTH = 200;
 const ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
@@ -150,15 +150,20 @@ export function nextUntitledName(names) {
     return `Untitled ${highest + 1}`;
 }
 
-/** The name itself when free, otherwise the name with the first free numeric suffix from 2. */
+/**
+ * The name itself when free, otherwise the name with the first free numeric suffix from 2, cut
+ * so that it fits MAX_NAME_LENGTH, as files with longer names do not load.
+ */
 export function uniqueName(name, takenNames) {
     const taken = new Set(takenNames);
-    if (!taken.has(name))
-        return name;
+    const fitting = name.slice(0, MAX_NAME_LENGTH).trim();
+    if (!taken.has(fitting))
+        return fitting;
     let suffix = 2;
-    while (taken.has(`${name} ${suffix}`))
+    const withSuffix = () => `${name.slice(0, MAX_NAME_LENGTH - ` ${suffix}`.length).trim()} ${suffix}`;
+    while (taken.has(withSuffix()))
         suffix++;
-    return `${name} ${suffix}`;
+    return withSuffix();
 }
 
 /** The first palette color that no set on screen uses, or the first one when all are. */
