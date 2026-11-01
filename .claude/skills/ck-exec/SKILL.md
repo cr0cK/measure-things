@@ -88,7 +88,7 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    | 2 | A worker is running on it | Nothing, unless step 2 has information for it |
    | 2b | An open PR whose head no review in the ledger covers: from before the process, or a lost ledger | With the plan `approved` on main, [adopt](#adopted-prs) it. Otherwise nothing: the report names `ck-approve <plan>` |
    | 3 | `blocked` | With a `**Resolved:` reply on its flag, the plan `approved` on main again, and the plans below restacked on main with no worker running on them: restack it on its base, which brings the spec change, set it back to `executing` or `"pr-opened #<PR>"`, and dispatch its worker. Otherwise nothing |
-   | 4 | Worker done, and any of these missing: the reviewed SHA on the remote, the PR, the `"pr-opened #<PR>"` state | [Push](#push-and-pr) the reviewed SHA, open the PR, and commit the state, skipping each step already done, so an interrupted tick finishes it |
+   | 4 | A worker report not yet published, with any of these missing: the reviewed SHA on the remote, the PR, a `"pr-opened #<PR>"` or `"done #<PR>"` state | [Push](#push-and-pr) the reviewed SHA, open the PR, and commit the state, skipping each step already done, so an interrupted tick finishes it. The ledger then marks the report published |
    | 5 | Its base moved: the base plan merged, the base branch has commits past the ledger's base SHA, the PR conflicts, or, for the lowest open plan, main changed the spec past its base | Dispatch a [restack](#stacked-prs) worker |
    | 6 | Unhandled review comments, a CI failure, or information for it | Dispatch an iteration worker |
    | 7 | CI pending | Nothing |
@@ -178,7 +178,7 @@ soon as it is green, without waiting for the owner. The tick merges a PR only wh
 hold:
 
 - its state is `"done #<PR>"`, and every check on its head is green;
-- the plan is still `approved` on main. A spec change that set it back to `todo` holds it until
+- for a plan PR, the plan is still `approved` on main. A spec change that set it back to `todo` holds it until
   ck-approve stamps it again, whatever its branch says;
 - its base is main: the plan below is merged, and the PR is restacked on it;
 - the head is the reviewed SHA, or that SHA followed by state commits only;
