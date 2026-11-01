@@ -71,13 +71,13 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    worker. An issue about a merged plan is a fix: name it in the report for its own ck-exec run.
 3. **Act** on each plan in delivery order, on the first row that matches. Rows 3 to 10 apply only
    to a plan that has a branch; information for a plan without one waits in the ledger for its
-   plan worker. A fix is one unit with no plan state: rows 11 and 12 do not gate it, and its
-   branch is created at the first tick.
+   plan worker. A fix is one unit with no plan state: rows 11 and 12 do not gate it, and the
+   first tick creates its branch and dispatches the [fix worker](#fix-worker).
 
    | # | State | Action |
    |---|---|---|
    | 1 | PR merged | Remove its worktree and local branch. The plan above restacks (row 5) |
-   | 1b | PR closed without a merge | The owner turned it down: stop this plan and the plans above, and report it. They resume only when the user runs ck-exec on the plan again |
+   | 1b | PR closed without a merge | The owner turned it down: stop this plan and the plans above, and report it. Running ck-exec on the plan again starts it over: the tick deletes the old branch and worktree, and row 11 builds a new PR |
    | 2 | A worker is running on it | Nothing, unless step 2 has information for it |
    | 3 | `blocked` | With a `**Resolved:` reply on its flag and the plan `approved` on main again: restack it on its base, which brings the spec change, set it back to `executing` or `"pr-opened #<PR>"`, and dispatch its worker. Otherwise nothing |
    | 4 | Worker done, and its work not yet pushed, in a PR, and in `"pr-opened #<PR>"` | [Push](#push-and-pr) the reviewed SHA, open the PR, and commit the state, skipping each step already done, so an interrupted tick finishes it |
