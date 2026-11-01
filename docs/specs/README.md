@@ -38,8 +38,8 @@ version: v0.3           # the minor release series it ships in, vX.Y
 builds-on: PIX          # optional: the spec it extends
 tracking: "#8"          # the tracking issue, once there are plans
 plans:                  # in delivery order
-  SET-P1: "done #12"    # `todo`, or `"done #<PR>"` (quoted) once its PR is merged
-  SET-P2: todo
+  SET-P1: "done #12"    # see the plan states below; `#` values are quoted
+  SET-P2: approved
 owner: someone          # optional: the project maintainer when absent
 ---
 ```
@@ -54,13 +54,27 @@ replaced-by: XYZ        # the spec that replaced part of it
 | Status | Meaning | Set by |
 |---|---|---|
 | `draft` | The spec PR is open, and the design is being written | The PR that adds the spec |
-| `approved` | The owner approved and merged the spec. No plan is merged yet | The spec PR's last commit, once the owner approves |
+| `approved` | A gap read found nothing to guess, and the owner approved. No plan is merged yet | The approval, on the spec PR's last commit |
 | `in-progress` | Some plans are merged, not all | The first plan's PR |
 | `implemented` | Every plan is merged, and the release isn't out yet | The last plan's PR |
 | `shipped` | The release that contains the last plan is out | A small PR right after the release |
 
-- A plan's PR changes its own plan from `todo` to `"done #<PR>"`, and the spec's status, in its
-  own diff. They become true when it merges.
+Each plan has its own state, which tells an agent where the plan stands and where to resume
+after an interruption:
+
+| Plan state | Meaning | Set by, and where |
+|---|---|---|
+| `todo` | Written, not yet approved | The spec PR, or a spec change that reopens the plan, on main |
+| `approved` | A gap read found nothing to guess. Implementation may start | The approval, on main or the spec PR |
+| `executing` | Being implemented on its branch | The plan's branch, first commit |
+| `blocked` | Implementation hit a gap only the spec can close, flagged on the tracking issue | The plan's branch |
+| `"pr-opened #<PR>"` | The PR is open: in review, CI, or iteration | The plan's branch |
+| `"done #<PR>"` | Ready to merge; true once it merges | The plan's branch, last commit |
+
+- The in-flight states, `executing` to `"done #<PR>"`, live only on the plan's branch. Main goes
+  from `approved` to `"done #<PR>"` when the PR merges. The plan's PR also sets the spec's status.
+- A spec change that alters a plan's rules sets that plan back to `todo`, so it is approved
+  again.
 - Only `shipped` specs take `amended` and `replaced-by`.
 - Specs from before this process have no plans.
 
@@ -69,7 +83,7 @@ replaced-by: XYZ        # the spec that replaced part of it
 - Design a spec in a dedicated PR that adds it, with no code. Iterate by editing the spec in that
   PR. Discussion can happen anywhere, but decisions only count once they are written in the spec.
   They don't count in an issue thread or in a review comment.
-- Before the spec merges, a reviewer who did not write it reviews the spec and its plan
+- While the spec is designed, a reviewer who did not write it reviews the spec and its plan
   adversarially. The review looks for:
   - contradictions;
   - ambiguities that force guessing;
@@ -77,7 +91,13 @@ replaced-by: XYZ        # the spec that replaced part of it
   - plans that depend on later plans, or have no way to verify them.
 
   Fix the findings in the spec and the plan, or reject them with a reason.
-- The spec merges when its owner approves it. Its last commit sets its status to `approved`.
+- Before anything is implemented, a gap read looks for every point where an implementer would
+  have to guess: the spec, the specs it builds on, the plans, and the code they touch, in full.
+  With no gap, the spec or plan is stamped `approved`. Each gap goes back to the design, and the
+  plan stays `todo`. Implementation never questions the owner; it only starts once a plan is
+  `approved`.
+- The owner's approval is the stamp. For a spec in design, its last commit sets `approved`, and
+  the spec merges.
 
 ## Plans
 
@@ -95,8 +115,8 @@ replaced-by: XYZ        # the spec that replaced part of it
 
 ## Implementing
 
-- A plan starts only when its spec is `approved` or `in-progress`, and every earlier plan is
-  `done` or has its PR open.
+- A plan starts only when it is `approved` on main, its spec is `approved` or `in-progress`, and
+  every earlier plan is merged or has its PR open.
 - Each plan gets its own branch and PR. A plan whose earlier plan is not merged yet is stacked:
   its branch starts from that plan's branch, and its PR targets it. Plans merge in order. The PR text starts with the plan's name, such as
   `SET-P1`.
@@ -134,7 +154,7 @@ names.
   `docs:`, a plan PR is usually `feat:`.
 - release-please opens the release PR. Merge it only once every plan of the spec in progress is
   merged, then mark the spec `shipped`.
-- The `ck-spec` skill runs the design and planning steps, and `ck-exec` runs the plans or a fix
-  (`.claude/skills/`).
+- The skills in `.claude/skills/` run the process: `ck-spec` designs and unblocks, `ck-approve`
+  runs the gap read and stamps, and `ck-exec` implements approved plans, a fix, or an issue.
 - A plan PR also follows the checks in AGENTS.md: lint, unit tests, the end-to-end test in a
   headless GNOME Shell, and screenshots for any visible change.
