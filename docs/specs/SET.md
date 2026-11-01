@@ -1,11 +1,11 @@
 ---
 code: SET
-status: approved
+status: in-progress
 version: v0.3
 builds-on: PIX
 tracking: "#8"
 plans:
-  SET-P1: todo
+  SET-P1: "done #12"
   SET-P2: todo
   SET-P3: todo
   SET-P4: todo
