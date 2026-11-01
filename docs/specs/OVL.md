@@ -1,4 +1,6 @@
-# Measure Things — v0.1 specification
+# Measure Things — OVL specification (v0.1)
+
+Spec code: `OVL`, the helper overlay, shipped in v0.1.
 
 ## Goal
 
