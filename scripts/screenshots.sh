@@ -12,6 +12,23 @@ headless_seed() {
     # A plain background keeps the images small and the eye on what is measured.
     gsettings set org.gnome.desktop.background picture-options "'none'"
     gsettings set org.gnome.desktop.background primary-color "'#3d3846'"
+    # Two saved sets, so the menu shows a library.
+    python3 - "$XDG_DATA_HOME/measure-things/sets" <<'PY'
+import json, os, sys, time
+folder = sys.argv[1]
+os.makedirs(folder, exist_ok=True)
+for number, (name, days) in enumerate([('Pricing page', 1.5), ('Checkout', 4.2)], 1):
+    set_id = f'00000000-0000-4000-8000-00000000000{number}'
+    edited = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() - days * 86400))
+    with open(os.path.join(folder, f'{set_id}.json'), 'w') as file:
+        json.dump({
+            'schema': 1, 'id': set_id, 'name': name, 'revision': 1, 'edited': edited,
+            'color': '#2ec2d6', 'zoom': 100, 'helpersVisible': True, 'tolerance': 'medium',
+            'grid': {'visible': False, 'columns': 12, 'gutter': 24, 'margin': 24, 'maxWidth': 0},
+            'mockup': {'file': '', 'visible': False, 'x': 0, 'y': 0, 'opacity': 50, 'density': 1},
+            'helpers': [{'kind': 'vertical', 'x': 120}],
+        }, file)
+PY
 }
 if ! command -v magick >/dev/null; then
     echo "Missing magick (ImageMagick)." >&2
@@ -25,28 +42,38 @@ gnome-extensions prefs "$UUID"
 PREFS="global.display.list_all_windows().find(w => w.get_wm_class() === 'org.gnome.Shell.Extensions')"
 wait_for "!!$PREFS" 120
 shell_eval "$PREFS.activate(global.get_current_time())" >/dev/null
-shell_eval "$PREFS.move_resize_frame(true, 280, 10, 720, 780)" >/dev/null
-wait_for "$PREFS.has_focus() && $PREFS.get_frame_rect().x === 280"
+# The window can still be placed after it shows: move it until it stays.
+wait_for "$PREFS.get_compositor_private()?.visible && $PREFS.has_focus()"
+for _ in $(seq 10); do
+    shell_eval "$PREFS.move_resize_frame(true, 280, 30, 720, 680)" >/dev/null
+    sleep 0.5
+    [[ $(shell_eval "$PREFS.get_frame_rect().x === 280 && $PREFS.get_frame_rect().width === 720") == true ]] && break
+done
 sleep 1.5
 gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell/Screenshot \
     --method org.gnome.Shell.Screenshot.ScreenshotWindow true false false \
     "$OUT/preferences.png" >/dev/null
 
-# Measure the preferences window: its Display group, with guides on the card edges.
+# Measure the preferences window: its Display group, with guides on the card edges. The window
+# ends above the hint bar, so its badge shows.
 shell_eval "$OVERLAY.enterEdit()" >/dev/null
 wait_for "!!$OVERLAY._snapshot"
-pointer_drag 362 120 917 339
+# Without snapping, which the card's rounded corners would pull inward.
+key_state Control_L PRESSED
+pointer_drag 362 140 917 249
+key_state Control_L RELEASED
 pointer_move 362 600
 press_keys v
 pointer_move 917 600
 press_keys v
-pointer_move 600 120
+pointer_move 600 140
 press_keys h
-pointer_move 600 339
+pointer_move 600 249
 press_keys h
-# Back to the rectangle, to show its handles and position.
+# Back to the rectangle, to show its handles and position, with the pointer still on the window:
+# leaving it clears the selection.
 press_keys Tab
-pointer_move 1120 640
+pointer_move 960 600
 sleep 0.5
 screenshot "$OUT/edit.png"
 press_keys Escape
@@ -56,22 +83,23 @@ shell_eval "$EXTENSION._indicator.menu.open()" >/dev/null
 sleep 0.8
 screenshot "$WORK/menu.png"
 shell_eval "$EXTENSION._indicator.menu.close()" >/dev/null
-magick "$WORK/menu.png" -crop 400x460+880+0 +repage "$OUT/menu.png"
+magick "$WORK/menu.png" -crop 400x560+880+0 +repage "$OUT/menu.png"
 
 # _pickColor() resolves only when the picker closes, so do not wait for it.
 shell_eval "$EXTENSION._pickColor(); null" >/dev/null
-pointer_move 872 201
+pointer_move 875 340
 wait_for "!!$EXTENSION._picker?._label.text"
 sleep 0.5
 screenshot "$WORK/picker.png"
 press_keys Escape
-magick "$WORK/picker.png" -crop 400x300+700+90 +repage "$OUT/picker.png"
+magick "$WORK/picker.png" -crop 400x300+680+220 +repage "$OUT/picker.png"
 
 # Measure the area under the pointer, without the helpers: the size of a preferences row.
-shell_eval "$OVERLAY.clear()" >/dev/null
+shell_eval "const manager = $EXTENSION._manager;
+    manager.models.slice().forEach(model => manager.removeFromScreen(model))" >/dev/null
 shell_eval "$OVERLAY.enterEdit()" >/dev/null
 wait_for "!!$OVERLAY._snapshot"
-pointer_move 700 250
+pointer_move 700 340
 press_keys d
 wait_for "$OVERLAY._areaGroup.visible"
 sleep 0.5
