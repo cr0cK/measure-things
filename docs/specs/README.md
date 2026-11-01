@@ -87,5 +87,7 @@ names.
   `docs:`, a plan PR is usually `feat:`.
 - release-please opens the release PR. Merge it only once every plan of the spec in progress is
   merged.
+- The `ck-spec` skill runs the design and planning steps, and `ck-exec` runs a plan or a fix
+  (`.claude/skills/`).
 - A plan PR also follows the checks in AGENTS.md: lint, unit tests, the end-to-end test in a
   headless GNOME Shell, and screenshots for any visible change.

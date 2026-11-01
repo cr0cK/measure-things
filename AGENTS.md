@@ -25,6 +25,7 @@ new `src/*.js` modules on its own.
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.measure-things` |
 | `tests/` | `node --test` suites for the pure modules |
 | `docs/specs/` | Product contracts, one per spec code, and the spec process in its README.md |
+| `.claude/skills/` | `ck-spec` designs a spec and its plans, `ck-exec` implements a plan or a fix |
 | `scripts/headless.sh` | Shared headless GNOME Shell harness: Eval, virtual input, screenshots |
 | `scripts/e2e.sh` | End-to-end test of the packed extension in a headless shell |
 | `scripts/screenshots.sh` | Regenerates `docs/screenshots/` |
