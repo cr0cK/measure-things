@@ -1,7 +1,20 @@
-# Measure Things — SET specification (v0.3)
+---
+code: SET
+status: approved
+version: v0.3
+builds-on: PIX
+tracking: "#8"
+plans:
+  SET-P1: todo
+  SET-P2: todo
+  SET-P3: todo
+  SET-P4: todo
+---
 
-Spec code: `SET`, window-scoped helpers in saved sets, planned for v0.3. It builds on `PIX`. Its
-implementation plans are `SET-P1` to `SET-P4`, one PR each, described in issue #8.
+# Measure Things — SET specification
+
+Window-scoped helpers in saved sets, with a main view and session copies per set. The plans are
+described in the tracking issue.
 
 ## Goal
 

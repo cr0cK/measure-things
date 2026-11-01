@@ -1,6 +1,13 @@
-# Measure Things — OVL specification (v0.1)
+---
+code: OVL
+status: shipped
+version: v0.1
+---
 
-Spec code: `OVL`, the helper overlay, shipped in v0.1.
+# Measure Things — OVL specification
+
+The helper overlay: guides, rectangles, the column grid, and the color picker, drawn above every
+window. It predates the spec process, so it has no plans.
 
 ## Goal
 
