@@ -7,8 +7,8 @@ specific to this repository is in [This project](#this-project) at the end.
 
 - A **spec** is the product contract for one coherent body of work. It describes what the user
   sees and what the system guarantees, not how the code is organized.
-- Each spec has an **owner**, who approves it and its plans, and can hold any plan's PR: the project maintainer,
-  unless the spec names someone else.
+- Each spec has an **owner**, who approves it and its plans, and can hold any plan's PR: the
+  project maintainer, unless the spec names someone else.
 - Each spec has a **code**: three uppercase letters naming its topic, plus a digit only when the
   code is already taken, such as `SET` or `SET2`. A code is never reused or renamed.
 - The spec lives in `docs/specs/<CODE>.md`. Its images live in `docs/specs/images/`, named
