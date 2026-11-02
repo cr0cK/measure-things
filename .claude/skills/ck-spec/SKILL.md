@@ -25,7 +25,7 @@ This skill only adds the order of operations.
 | **Amend** | A shipped spec's text needs correcting, without a code change | A spec PR. A small change with code, or a defect, goes to ck-exec's fix mode. A change that needs plans is a **New** spec that builds on the shipped one |
 | **Replace** | A new spec takes over part of an older one | A new spec. The older one keeps its rules until the new spec's last plan PR removes them and sets `replaced-by` |
 | **Ship** | The release containing a spec's last plan is out | A small `docs` PR that sets the spec `shipped` |
-| **Design change** | ck-approve handed over an answer that reshapes the plans, or a `**Blocked:` flag needs one | A `docs` PR to the spec, and the plans in the tracking issue |
+| **Design change** | ck-approve handed over an answer that reshapes the plans | A `docs` PR to the spec, and the plans in the tracking issue |
 | **Adopt** | A spec without a front matter or plans, or with a plan PR opened before the process | A `docs` PR that adds the state and the plans |
 
 ## 2. New spec: the code
@@ -99,9 +99,8 @@ failure at its root cause, rerun once a failure that is not the PR's, and report
 
 ## 7. Design changes from approval or implementation
 
-ck-approve questions the user on gaps and resolves most of them itself. It hands over to ck-spec
-when an answer reshapes the plans, and ck-exec's rare `**Blocked:` flags reach ck-spec the same
-way.
+ck-approve questions the user on gaps, fatal blockers, and outbox entries, and resolves most of
+them itself. It hands over to ck-spec when an answer reshapes the plans.
 
 - Take the decisions with the user, one question at a time, and write them into the spec, and
   into the plans in the tracking issue when their scope, order, restrictions, or acceptance
@@ -127,8 +126,8 @@ Adopting existing work.
 - **Amend**: edit the rules in place, and add the coming version to `amended` in its state.
 - **Replace**: the new spec says, in its first paragraph, which parts it replaces. The older spec
   keeps them for now. The new spec's last plan PR removes them and sets `replaced-by`.
-- **Ship**: once the release that contains the last plan is published, set `status: shipped` in a
-  small `docs` PR. Check that the released tag, `vX.Y.Z`, belongs to the spec's `version` series,
+- **Ship**: once the release that contains the last plan is published, and the spec is
+  `implemented`, which needs an empty outbox, set `status: shipped` in a small `docs` PR. Check that the released tag, `vX.Y.Z`, belongs to the spec's `version` series,
   `vX.Y`.
 
 ## Report

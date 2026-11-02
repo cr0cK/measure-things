@@ -40,6 +40,8 @@ tracking: "#8"          # the tracking issue, once there are plans
 plans:                  # in delivery order
   SET-P1: "done #12"    # see the plan states below; `#` values are quoted
   SET-P2: approved
+outbox:                 # decisions implementation took on spec gaps, see Outbox below
+  SET-O1: open          # `open`, or `"fix #<issue>"` once the owner rejected it
 owner: someone          # optional: the project maintainer when absent
 ---
 ```
@@ -56,7 +58,7 @@ replaced-by: XYZ        # the spec that replaced part of it
 | `draft` | The spec PR is open, and the design is being written | The PR that adds the spec |
 | `approved` | A gap read found nothing to guess, and the owner approved. No plan is merged yet | The approval, on the spec PR's last commit |
 | `in-progress` | Some plans are merged, not all | The first plan's PR |
-| `implemented` | Every plan is merged, and the release isn't out yet | The last plan's PR |
+| `implemented` | Every plan is merged, the outbox is empty, and the release isn't out yet | The outbox review, once the last entry is arbitrated |
 | `shipped` | The release that contains the last plan is out | A small PR right after the release |
 
 Each plan has its own state, which tells an agent where the plan stands and where to resume
@@ -67,7 +69,7 @@ after an interruption:
 | `todo` | Written, not yet approved | The spec PR, or a spec change that reopens the plan, on main |
 | `approved` | A gap read found nothing to guess. Implementation may start | The approval, on main or the spec PR |
 | `executing` | Being implemented on its branch | The plan's branch, first commit |
-| `blocked` | Implementation hit a gap only the spec can close, flagged on the tracking issue | The plan's branch |
+| `blocked` | Implementation hit a fatal blocker, flagged on the tracking issue | The plan's branch |
 | `"pr-opened #<PR>"` | The PR is open: in review, CI, or iteration | The plan's branch |
 | `"done #<PR>"` | Reviewed and ready to merge; true once it merges | The plan's branch, last commit |
 
@@ -96,9 +98,8 @@ after an interruption:
   have to guess: the spec, the specs it builds on, the plans, and the code they touch, in full.
   The owner answers each gap, and each answer is written into the spec. With no gap left, the
   spec or plan is stamped `approved`; a gap the owner leaves open keeps its plan `todo`.
-- The owner is questioned while the spec is designed and approved, never during implementation.
-  An `approved` plan has no blocker left; a gap found later is the exception, and goes back to
-  approval.
+- The owner is questioned while the spec is designed, while it is approved, and when its outbox
+  is arbitrated, never during implementation. An `approved` plan has no blocker left.
 - The owner's approval is the stamp. For a spec in design, its last commit sets `approved`, and
   the spec merges.
 
@@ -135,7 +136,25 @@ after an interruption:
   is green, the PR merges, in plan order. The owner can still hold a PR by requesting changes on
   it, or with a comment, until an iteration handles it.
 - A spec ships with the release that contains its last plan. No release is published while a spec
-  is partly merged, so a spec ships in one version.
+  is partly merged or its outbox is not empty, so a spec ships in one version.
+
+## Outbox
+
+Implementation does not stop on a gap the approval missed. It decides, with a reviewer who
+challenges the choice, and records the decision in the spec's outbox for the owner to arbitrate.
+
+- An entry is `<CODE>-O<n>`, numbered in order. The front matter's `outbox` holds its state; the
+  spec's last section, `## Outbox`, holds the plan, the gap, the options, the decision, why, and
+  the reviewer's verdict. It arrives on main with its plan's PR.
+- The owner arbitrates each entry, at any time, by interview:
+  - accepted: the decision is rewritten as rules where it belongs in the spec, and the entry is
+    removed;
+  - rejected: the owner's rule is written into the spec, and the entry becomes
+    `"fix #<issue>"`, an issue for the code change. The fix's PR removes the entry. While the
+    plan's PR is still open, the change is made in that PR instead.
+- The spec becomes `implemented` only once every plan is merged and the outbox is empty.
+- Only a fatal blocker stops a plan: every option breaks the spec or a later plan, or a
+  prototype fails with no fallback that keeps the spec's goal.
 
 ## Changing a shipped spec
 
@@ -172,7 +191,8 @@ names.
   `docs:`, a plan PR is usually `feat:`.
 - release-please opens the release PR. Merge it only once every plan of the spec in progress is
   merged, then mark the spec `shipped`.
-- The skills in `.claude/skills/` run the process: `ck-spec` designs and unblocks, `ck-approve`
-  runs the gap read and stamps, and `ck-exec` implements approved plans, a fix, or an issue.
+- The skills in `.claude/skills/` run the process: `ck-spec` designs and adopts, `ck-approve`
+  runs the gap read, stamps, and arbitrates the outbox, and `ck-exec` implements approved plans,
+  a fix, or an issue.
 - A plan PR also follows the checks in AGENTS.md: lint, unit tests, the end-to-end test in a
   headless GNOME Shell, and screenshots for any visible change.

@@ -1,6 +1,6 @@
 ---
 name: ck-exec
-description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and squash-merges each PR in order once it is green. Never questions the user; a rare spec gap goes back to ck-approve. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
+description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and squash-merges each PR in order once it is green. Never questions the user: it decides spec gaps with a reviewer and records them in the spec's outbox, and stops only on a fatal blocker. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
 ---
 
 # ck-exec: implement a spec's plans, a fix, or an issue
@@ -8,11 +8,12 @@ description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as sta
 `docs/specs/README.md` is the process, with the spec and plan states. Read it first. Where it and
 this skill disagree, it wins. AGENTS.md gives the project's checks, commands, and pitfalls.
 
-**ck-exec never questions the user.** The user was questioned while the spec was designed and
-approved, so an `approved` plan has no blocker left. ck-exec takes every implementation call
-itself and reports it. A gap found anyway (an ambiguity, a contradiction, a failed prototype, a
-product choice) is the exception: it is flagged and goes back to approval, as
-[Spec gaps](#spec-gaps) says.
+**ck-exec never questions the user, and it does not stop.** The user was questioned while the
+spec was designed and approved, so an `approved` plan has no blocker left. ck-exec takes every
+implementation call itself. A gap found anyway (an ambiguity, a contradiction, a product choice)
+is decided with a reviewer and recorded in the spec's outbox for the owner to arbitrate, as
+[Gaps and the outbox](#gaps-and-the-outbox) says. Only a [fatal blocker](#fatal-blockers) stops a
+plan, and it is the worst case.
 
 ## Start
 
@@ -101,7 +102,8 @@ Idempotent: a tick that finds nothing to do changes nothing and reports one line
    At most one plan worker runs at a time, so plans are implemented in order. Iterations and
    restacks of open PRs run alongside it, at most one worker per branch.
 4. **End**: when every plan of the spec, or the fix, is merged, remove the ledger and end the
-   loop. The release PR is not ck-exec's: the report says the spec is ready for it.
+   loop. The last report names `ck-approve <CODE>`, which arbitrates the outbox and sets the spec
+   `implemented`. The release PR is not ck-exec's.
 5. **Report**, in a few lines: what changed since the last tick, each plan's state, the PRs
    merged, and the flags waiting for ck-spec or ck-approve.
 
@@ -113,13 +115,14 @@ files to read, the information from the ledger, and what it must return.
 
 - It works only in its worktree, and commits its work there.
 - It never pushes, never opens or edits a PR, never changes the plan state, and never asks the
-  user. It takes every implementation call itself and reports it. A gap only the spec can close
-  ends its run blocked, with the gap stated: what the spec says, why it cannot be implemented as
-  written, and the options.
+  user. It takes every implementation call itself and reports it. A gap the spec leaves open is
+  decided and recorded in the [outbox](#gaps-and-the-outbox); only a
+  [fatal blocker](#fatal-blockers) ends its run blocked.
 - Before it reports done, it gets the [review](#adversarial-review) of its commits and arbitrates
   it.
-- It returns: done or blocked, the gap when blocked, the reviewed SHA, the review verdict, the
-  checks run with their results, the implementation calls it took, and the spec changes it made.
+- It returns: done or blocked, the blocker when blocked, the reviewed SHA, the review verdict,
+  the checks run with their results, the implementation calls it took, the outbox entries it
+  added, and the spec changes it made.
 
 ### Worktrees
 
@@ -160,12 +163,13 @@ The tick pushes and opens PRs; workers never do.
   plan below as its base.
 - A plan PR's body starts with `<CODE>-Pn of #<issue>`, then `Stacked on #<PR>` when it is
   stacked. It uses `Refs #<issue>`, and `Closes` only for the spec's last plan and the issues
-  routed to this plan. It lists the temporary restrictions, the implementation calls, the spec
-  changes, the prototype verdict, and, in a `<details>` block, the review verdict with the
+  routed to this plan. It lists the temporary restrictions, the implementation calls, the outbox
+  entries it adds, the spec changes, the prototype verdict, and, in a `<details>` block, the review verdict with the
   reviewer that ran.
 - A fix PR names the spec rules it follows or changes, and closes its issue.
 - Once a plan PR's number is known, the tick commits `"pr-opened #<PR>"`, with the spec's status
-  set to `in-progress`, or `implemented` for the last plan, and pushes it.
+  set to `in-progress`, and pushes it. Only ck-approve sets `implemented`, once the outbox is
+  empty.
 - CI: each tick reads `gh pr checks` on the head. A failure that is not the code's (runner,
   network) gets one rerun, then becomes an operational blocker, named in every report until a
   rerun passes. Any other failure goes to an iteration worker, which fixes its root cause.
@@ -202,22 +206,46 @@ the branch of the plan below, and its PR targets it.
   `git rebase --onto origin/main <ledger's base SHA> <branch>`, which drops them.
 - The front matter conflicts on almost every restack, since each branch changes its own plan's
   line. Resolve it mechanically: each plan's line comes from its own branch, or from main once
-  merged. That resolution needs no review; any other conflict resolution does.
+  merged, and the outbox keeps every entry from both sides, renumbering a duplicate number on the
+  branch being restacked. That resolution needs no review; any other conflict resolution does.
 - The tick force-pushes a restack with `--force-with-lease`.
 
-### Spec gaps
+### Gaps and the outbox
 
-- A worker blocked on a gap stops its plan. It moves the commits it has not had reviewed to a
-  local branch `wip/<branch>`, and resets its branch to the last pushed head; the plan's next
-  worker starts from that work. The tick then commits and pushes `blocked` on the plan's branch, and posts the gap on the tracking issue, starting with `**Blocked: <CODE>-Pn**`. The
-  plans above it wait; the open PRs below go on.
+An `approved` plan should have no gap left. When a worker finds one anyway, it decides, and the
+decision goes to the spec's outbox for the owner to arbitrate later. ck-exec does not stop for it.
+
+- **Decide**: the worker lists the options, picks the one that keeps closest to the spec and
+  costs the later plans least, and has the reviewer challenge that choice before it builds on it,
+  with the gap, the options, and its pick. It then implements the choice that survives.
+- **Record**: in the spec, on its branch, it adds an outbox entry `<CODE>-O<n>`, the next free
+  number: open in the front matter's `outbox`, and detailed in the spec's `## Outbox` section,
+  with the plan, the gap, the options, the decision, why, and the reviewer's verdict. The spec's
+  rules stay as they are; the entry says where they fall short.
+- **Report**: the PR text lists the outbox entries it adds. ck-approve arbitrates them with the
+  owner, at any time; the spec cannot become `implemented` until the outbox is empty.
+- An outbox entry the owner rejects while its plan's PR is still open comes back to the tick as
+  information for that plan, and an iteration applies the owner's rule. Once the plan has merged,
+  it is a fix.
+
+### Fatal blockers
+
+The worst case, and the only one where ck-exec stops: every option breaks the spec or a later
+plan, or a prototype fails with no fallback that keeps the spec's goal.
+
+- The worker moves the commits it has not had reviewed to a local branch `wip/<branch>`, resets
+  its branch to the last pushed head, and reports the blocker with what it tried. The plan's next
+  worker starts from that work.
+- The tick commits and pushes `blocked` on the plan's branch, and posts the blocker on the
+  tracking issue, starting with `**Blocked: <CODE>-Pn**`. The plans above it wait; the open PRs
+  below go on.
 - The report tells the user to run `ck-approve <CODE>-Pn`. It asks the user, writes the answer
   into the spec, stamps the plan `approved` again, and replies `**Resolved: <CODE>-Pn**` to the
-  flag, handing over to ck-spec first when the answer reshapes the plans. The spec change is on main, so row 5 first restacks the
-  stack from its lowest open plan, bottom up, and row 3 then resumes the blocked plan on a base
-  that carries it.
-- A blocked fix posts its flag on its issue and ends its loop. Once the spec answers it, run
-  ck-exec on the issue again.
+  flag, handing over to ck-spec first when the answer reshapes the plans. The spec change is on
+  main, so row 5 first restacks the stack from its lowest open plan, bottom up, and row 3 then
+  resumes the blocked plan on a base that carries it.
+- A fix blocked this way posts its flag on its issue and ends its loop. Once the spec answers it,
+  run ck-exec on the issue again.
 
 ### Adopted PRs
 
@@ -236,7 +264,8 @@ written when it opened. Once its plan is `approved` on main, the tick adopts it:
    the tracking issue; the PRs of the earlier plans.
 2. **Prototype first**, when the plan has one. It is throwaway and never committed.
    - Report each criterion as pass or fail, with its evidence.
-   - A failed criterion, or a fallback to choose, is a gap: stop blocked.
+   - A fallback to choose is a gap: decide it and record it in the outbox. A failed criterion with
+     no fallback that keeps the spec's goal is a fatal blocker.
 3. **Implement the plan's slice only.**
    - Keep the temporary restrictions the plan states, and leave later plans out entirely: no UI
      stubs, no dead settings.
@@ -245,7 +274,8 @@ written when it opened. Once its plan is `approved` on main, the tick adopts it:
    - When the code has to differ from the spec, edit the spec in the same branch, and report it
      for the PR text.
    - A point with one sensible reading is an implementation call: take it, and report it. A
-     product choice is a gap: stop blocked.
+     product choice the spec leaves open is a gap: decide it with the reviewer, and record it in
+     the outbox.
 5. **Tests**: every user-visible behavior the plan adds gets an automated test. Run every check
    AGENTS.md requires, and look at screenshots of any visible change.
 6. **Commit and review**, as [Adversarial review](#adversarial-review) says, then report.
@@ -264,9 +294,12 @@ For a defect, or a small behavior change the user asked for, on branch `fix/<slu
 3. **Classify**:
    - The code breaks the spec: fix the code, and add a regression test.
    - The spec is silent or wrong: the fix is also a spec change. When the right behavior is a
-     product choice, stop blocked. Otherwise update every spec whose rules change, and add the
+     product choice, decide it with the reviewer and record it in that spec's outbox. Otherwise
+     update every spec whose rules change, and add the
      version the fix will ship in to each shipped spec's `amended` list.
    - A small behavior change the user asked for: same as a spec change.
+   - An outbox entry the owner rejected (`"fix #<issue>"`): apply the rule the owner wrote, and
+     remove the entry from the front matter and the `## Outbox` section.
    - A defect outside the work at hand: follow AGENTS.md, which makes it an issue with its
      reproduction, and stop there.
 4. **Checks, commit, and review**, as for a plan, then report.
