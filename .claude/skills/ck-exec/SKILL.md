@@ -206,8 +206,9 @@ the branch of the plan below, and its PR targets it.
   `git rebase --onto origin/main <ledger's base SHA> <branch>`, which drops them.
 - The front matter conflicts on almost every restack, since each branch changes its own plan's
   line. Resolve it mechanically: each plan's line comes from its own branch, or from main once
-  merged. The outbox is the base's, plus the entries the restacked branch added itself: an entry
-  the base removed stays removed. That resolution needs no review; any other conflict resolution
+  merged. The outbox is the base's, with the restacked branch's own changes applied on top: the
+  entries it added, and the ones it removed, such as a fix closing its `"fix #<issue>"` entry. An
+  entry the base removed stays removed. That resolution needs no review; any other conflict resolution
   does.
 - The tick force-pushes a restack with `--force-with-lease`.
 
