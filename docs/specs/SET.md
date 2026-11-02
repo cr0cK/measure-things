@@ -95,9 +95,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
     with a notice that counts the local changes lost.
   - A commit whose file no longer exists, before its removal has settled, is dropped and never
     recreates the file: the set is removed as above. GIO's replace recreates a missing file even
-    with an etag, so each write first checks that the file exists. A file recreated in the
-    window left between that check and the write is read as an import; an ID the shell deleted
-    stays covered by its tombstone.
+    with an etag, so each write to a file already read or written first checks that it still
+    exists. A first write creates the file, and the sets folder when it is missing. Once a
+    removal has settled, a file that comes back is judged as an import, never as the shell's own
+    write, whatever its text; an ID the shell deleted stays covered by its tombstone.
 - When a set is replaced, removed, or made unavailable, every dialog and menu open for it closes
   without applying: **Set settings**, rename, the delete confirmation, the **Save as new set…**
   name dialog, and its badge menu. A file chooser answer that arrives later is ignored. Rename and
@@ -113,6 +114,9 @@ The images are mockups. Where an image and the text disagree, the text wins.
   defined by the set codec.
 - A set has at most 1,000 helpers, and its file at most 1 MiB. An action that would go past a
   limit is refused with a notice. The limits apply to every commit, an unlinked copy's included.
+- A name is trimmed of surrounding whitespace, and cut to 200 characters; a name of whitespace
+  only counts as empty. A numeric suffix shortens the name before it, so the whole stays within
+  200 characters.
 - Two sets never share a name. A name that is already taken gets a numeric suffix, `Project A 2`,
   when a set is created, renamed, or found in the folder. Among files found with the same name,
   the one edited earliest keeps it, then the lower ID. A suffix given to a file found in the
@@ -154,9 +158,9 @@ The images are mockups. Where an image and the text disagree, the text wins.
   confirmation comes first, in place: *Keep* leaves the copy unlinked and unchanged, *Discard*
   drops its changes and the copy shows the set again.
 - **Save as new set…** asks for a name in a dialog, prefilled with the set's name followed by a
-  numeric suffix. An empty name keeps the prefilled one. The views switch to the new set at once, so later commits go to it, then its
-  file is written. If the write fails, the new set stays in memory as `not saved` (see
-  [Lifecycle](#lifecycle)), and the next commit tries again.
+  numeric suffix. An empty name keeps the prefilled one. The views switch to the new set at once, so
+  later commits go to it, then its file is written. If the write fails, the new set stays in memory
+  as `not saved` (see [Lifecycle](#lifecycle)), and the next commit tries again.
   - On an unlinked copy, the copy becomes the main view of the new set, with its content and its
     undo history. The original set and its other views don't change.
   - On the main view, the set's current content is saved under the new name. The main view, its
@@ -184,8 +188,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - Views go on normal, dialog, modal dialog, and utility windows; edit mode targets, the grid
   shortcut, and loading use that one list. Popup menus, dropdown menus, combo boxes, tooltips,
   menus, and override-redirect windows block the windows below them. Every other window type,
-  such as docks, the desktop, toolbars, and splash screens, is transparent to targeting. Wayland windows are supported. XWayland windows work
-  on a best-effort basis and are not verified.
+  such as docks, the desktop, toolbars, and splash screens, is transparent to targeting. Only
+  native popup menus (`xdg_popup`) blocking is verified; the other blocking types and
+  override-redirect windows come from XWayland. Wayland windows are supported. XWayland windows
+  work on a best-effort basis and are not verified.
 - A view draws its helpers inside its window, as children of the window's actor, clipped to its
   zone. Helpers move with the window. Windows in front hide them. They follow the window across
   workspaces, and hide while it is minimized. No line crosses the whole screen any more.
@@ -200,16 +206,17 @@ The images are mockups. Where an image and the text disagree, the text wins.
 
 ## Coordinates and units
 
-- Helper geometry is stored in CSS pixels, relative to the top-left corner of the zone, at the
-  set's browser zoom. A view converts it to stage pixels with the zoom and, in physical layout
-  mode, the scale Mutter draws its window at: the highest scale among the monitors the window
-  frame touches, so a window across two monitors uses the higher one. A set therefore looks the same on any
-  window, monitor, or scale, and changing the set's zoom rescales its helpers around the zone's
-  corner, as the page does.
+- Helper geometry is stored in CSS pixels, relative to the top-left corner of the zone, at the set's
+  browser zoom. A view converts it to stage pixels with the zoom and, in physical layout mode, the
+  scale Mutter draws its window at: the highest scale among the monitors the window frame touches,
+  so a window across two monitors uses the higher one. A set therefore looks the same on any window,
+  monitor, or scale, and changing the set's zoom rescales its helpers around the zone's corner, as
+  the page does.
 - Positions in labels, the readout, and `Ctrl+C` are relative to the zone's top-left corner.
   Sizes and distances use the display unit.
-- **CSS pixels** (default): CSS pixels at the set's browser zoom. **Device pixels**: physical
-  screen pixels, at the scale Mutter draws the view's window at, as above, in both layout modes. Values are rounded to two decimals, without trailing zeros.
+- **CSS pixels** (default): CSS pixels at the set's browser zoom. **Device pixels**: physical screen
+  pixels, at the scale Mutter draws the view's window at, as above, in both layout modes. Values are
+  rounded to two decimals, without trailing zeros.
 - Layout mode comes from Mutter's `scale-monitor-framebuffer` feature, as in v0.2.
 - Interaction steps and tolerances stay in stage pixels, as in v0.2: arrow nudges (1, or 10 with
   `Shift`), the 3-pixel drag threshold, the 4-pixel edge and handle boxes, the 6-pixel snapping
@@ -227,10 +234,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - While an edge is dragged, the zone stays within the window frame and at least 40 × 40 stage
   pixels, or the whole frame when the window is smaller.
 - A fixed zone is stored in the window actor's units, stage pixels divided by k, the scale of the
-  actor's children: 1 in logical layout mode, the window's geometry scale in physical layout
-  mode. It is rounded to whole stage pixels when the drag ends, so it stays on the content when the window
-  changes scale or monitor. Its corner goes through the same transform as the helpers. The
-  40 × 40 minimum and snapping stay in stage pixels.
+  actor's children: 1 in logical layout mode, the window's geometry scale in physical layout mode.
+  It is rounded to whole stage pixels when the drag ends, so it stays on the content when the window
+  changes scale or monitor. Its corner goes through the same transform as the helpers. The 40 × 40
+  minimum and snapping stay in stage pixels.
 - A fixed zone keeps its stored position and size, relative to the window's top-left corner, when
   the window is resized or a split view's divider moves. What shows, and what edit mode targets,
   is its intersection with the window frame. When that intersection is empty, the view shows
@@ -278,13 +285,17 @@ The images are mockups. Where an image and the text disagree, the text wins.
   and coinciding edges belong to the view being worked on.
 - A zone edge is grabbed only once the pointer has moved 3 pixels from the press. A press on an
   edge released before that acts as a press on what lies under the edge: a helper, or the zone.
-- A press on a helper, a badge, or a zone edge latches its view as the target until the next press
-  elsewhere, or until the pointer leaves the window.
+- A press on a helper, a badge, or a zone edge latches a view as the target until the next press
+  elsewhere, or until the pointer leaves the window: the view of what the press acts on, so a
+  press on an edge released before 3 pixels latches the view of the helper under it, or else the
+  zone targeting picks.
+- While the pointer is outside the latched view's visible zone, `H`, `V`, `D`, and `Enter` do
+  nothing, and the readout shows nothing.
 - A point of a window that no zone covers targets the window alone. There, drawing, `H`, `V`,
   `Enter` on a measured area, and `G` create a set (see [New sets](#new-sets)), `D` measures
   areas within the window frame, `A` adds a copy, and the other keys do nothing.
-- The selection belongs to one view. When the target changes to another view, latching
-  included, the selection is cleared. Copy, nudge, delete, and `Tab` act on the target view's selection only.
+- The selection belongs to one view. When the target changes to another view, latching included, the
+  selection is cleared. Copy, nudge, delete, and `Tab` act on the target view's selection only.
 - A gesture latches its view, set, helper, and coordinate transform when it starts, and keeps them
   until it ends. If the target window moves, resizes, changes scale, or changes monitor during the
   gesture, the gesture is cancelled, as with `Esc`.
@@ -300,8 +311,9 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - **Snapping**: a dragged guide, rectangle edge, corner of a new rectangle, or zone edge snaps to
   the nearest screen edge within 6 stage pixels. A screen edge is the boundary between two pixels
   whose colors differ by more than 12 on a channel. Vertical edges are searched on the pointer's
-  row, horizontal ones on its column: within the zone's visible part for helpers, within the
-  window frame for zone edges. Moving a whole rectangle does not snap. Holding `Ctrl` while dragging turns snapping off.
+  row, horizontal ones on its column: within the zone's visible part for helpers, within the window
+  frame for zone edges. Moving a whole rectangle does not snap. Holding `Ctrl` while dragging turns
+  snapping off.
 - **Measuring areas**: `D` toggles area measuring. The crosshair is replaced by the extent of the
   pixels that share the color under the pointer, along its row and column within the zone, with
   their width and height. `Enter` adds a rectangle on that area.
@@ -423,11 +435,13 @@ The panel menu manages the sets: which ones are on screen, and the library.
 ![Confirmation before deleting a set that is on screen](images/SET-delete-set.png)
 
 - A dialog asks `Delete “<set>”?`. When the set is on screen, it says how many views will leave.
-- **Delete** first stops every commit of the set, then moves the file to the trash. Once it is in
-  the trash, its main view and copies leave the screen, and its ID is remembered for the session,
-  so a late save never recreates it.
-- When the file cannot go to the trash, such as on a mount without one, nothing changes: the set
-  stays in the library and on screen, commits resume, and a notice says it could not be deleted.
+- **Delete** first holds the set's commits in memory, waits for its write queue to be idle,
+  remembers its ID for the session, so a late save never recreates it, then moves the file to the
+  trash. Once it is there, its main view and copies leave the screen. The folder event of that
+  trash is the shell's own, and shows no notice.
+- When the file cannot go to the trash, such as on a mount without one, nothing changes: the ID
+  is forgotten, the set stays in the library and on screen, the commits held meanwhile go out as
+  one write, and a notice says it could not be deleted.
 
 ## Set settings
 
@@ -447,14 +461,14 @@ The panel menu manages the sets: which ones are on screen, and the library.
   - opacity, 5% to 100%;
   - pixel density, 1x to 4x.
 - An invalid entry never blocks **Save**: numbers are rounded to whole numbers and clamped to
-  their range, an empty or
-  non-numeric number and an invalid hex color keep the previous value, an empty name keeps the
-  previous name, and a name already taken gets a numeric suffix.
+  their range, an empty or non-numeric number and an invalid hex color keep the previous value,
+  an empty name keeps the previous name, and a name already taken gets a numeric suffix.
 - While the file chooser is open, the dialog hides, releases its modal grab, and keeps its draft,
   and edit mode is left: the dialog's lightbox would cover the chooser. When the chooser closes,
-  the dialog shows and takes its grab back; edit mode stays left. Cancelling the
-  chooser, or a portal error, keeps the previous image; an error also shows a notice. Disabling
-  the extension closes the dialog without saving.
+  the dialog shows and takes its grab back; edit mode stays left. Cancelling the chooser, or a
+  portal error, keeps the previous image; an error also shows a notice. The extension's
+  shortcuts do nothing while the dialog or its chooser is open. Disabling the extension closes
+  the dialog without saving.
 - **Save** applies everything as one commit, and one undo step. Choosing a new image turns the
   **Mockup** chip on, as in v0.2. Removing it turns the chip off. **Cancel** changes nothing.
 
@@ -532,11 +546,11 @@ The panel menu manages the sets: which ones are on screen, and the library.
     it ran.
 
   The helpers and the history stay as they were. A new run cancels one in progress.
-- **Speed**: a run, from the capture to the commit, on a 3840 × 2160 zone at scale 1, completes
-  in 3 s at most, and the shell never stops responding for more than 100 ms at a time; 1 s is the
-  goal. Responsiveness is measured by a GLib timeout every 10 ms, as its largest gap. The zone may be read in bands
-  and downsampled for Low and Medium, only if they then give the same result as at full
-  resolution on every test image.
+- **Speed**: a run, from the capture to the commit, on a 3840 × 2160 zone at scale 1, completes in 3
+  s at most, and the shell never stops responding for more than 100 ms at a time; 1 s is the goal.
+  Responsiveness is measured by a GLib timeout every 10 ms in the shell, as its largest gap. The
+  zone may be read in bands and downsampled for Low and Medium, only if they then give the same
+  result as at full resolution on every test image.
 
 ## Color picker
 
@@ -615,6 +629,9 @@ The preferences only customize the extension. They hold no set content.
   add guides.
 - The panel menu's **Column grid**, **Mockup**, and **Show helpers** switches: each set's chips
   in its badge menu replace them.
+- The panel menu's **Clear helpers**: the badge menu's **Clear helpers** clears one set.
+- The **Stop editing** label of the panel menu's edit item: it reads **Edit helpers**, and the
+  edit shortcut or `Esc` leaves edit mode.
 - The grid on the primary monitor's work area when no window has focus: the grid belongs to a
   set's views.
 
@@ -669,20 +686,23 @@ Four plans, delivered in order. Notes shared by every plan:
 1. **Set codec**, a new pure module: parse, validate, and serialize a set, with schema version 1.
    It also handles the limits (1,000 helpers, 1 MiB), the rules for unreadable or newer files, the
    `Untitled N` numbering, and the numeric suffixes for names.
-2. **Storage**: the sets folder, with atomic writes serialized per file, and revisions; a
+2. **Storage**: the sets folder, with atomic writes through one queue per file, kept across a
+   disable and re-enable, that merges commits not started yet, and revisions; a
    `Gio.FileMonitor` on the folder that adds and removes sets in the library; unreadable or newer
    files shown as `unavailable`.
 3. **Views**: window-scoped rendering with the approach the prototype chose; targeting (topmost
    visible window, then the zone; blocking window types); gesture latching and the CSS ↔ stage
-   transform; selection per view; undo history per set; the rules of Lifecycle; automatic zones only, so hit
-   testing, `Tab` cycling, measuring, snapping, and gap labels are bounded to the window frame.
+   transform; selection per view; undo history per set; the rules of Lifecycle; automatic zones
+   only, so hit testing, `Tab` cycling, measuring, snapping, and gap labels are bounded to the
+   window frame.
 4. **New sets**: `Untitled N` on the first content action, the palette color, and autosave.
 5. **Panel menu**: Edit helpers, Pick color, **On screen** (eye, ✕, a click enters edit mode),
    **Sets** (load, rename, delete with trash and tombstone, including for sets on screen, and the
    trash failure rule), Open sets folder, Settings. The 5-row scrolling lists use `St.ScrollView`.
 6. **Badge** on the main view, with the chips, Set settings…, Save as new set…, and Clear helpers.
 7. **Set settings** dialog: a `ModalDialog` in the shell, with the portal file chooser.
-8. **Grid and mockup** per set and per view. `Super+Shift+G` acts on the focused window's set.
+8. **Grid and mockup** per set and per view, with the mockup's cache and file monitor.
+   `Super+Shift+G` acts on the focused window's set.
 9. **Preferences**: drop helper color, zoom, grid, mockup, and Show helpers, and add **Corner
    badges**.
 10. **Migration**: the v0.2 keys become `Untitled 1`, with a marker. The old keys stay for one
@@ -736,7 +756,8 @@ a window actor, with a clip. It must pass every criterion below, in the headless
 - End-to-end checks cover migration, drawing in a window, snapping, undo, the badge menu, Set
   settings with the file chooser, Save as new set…, the picker and the capture not sampling the
   helpers, the mockup, click-through, the panel menu (load, rename, delete to trash, the trash
-  failure), the grid shortcut, disable and enable, the preferences, and 125%.
+  failure), the grid shortcut, disable and enable, the preferences, and 125%; a native popup
+  menu blocking targeting; a mockup image replaced at the same path showing its new content.
 - The prototype criteria above, and the maintainer's scanout result recorded on the PR.
 
 **Technical notes**
@@ -843,20 +864,23 @@ and what it includes. If it fails with no fallback that keeps those numbers, SET
   image's ground truth: the rectangles and edges it drew, each labeled `block`, `card`, or
   `element`.
 - For each image and level, every ground-truth item of the level's classes is found within 1
-  pixel: Low the blocks, Medium the cards as well, High the elements as well. At most 20% of the
-  helpers a level finds match no ground-truth item.
+  pixel: Low the blocks, Medium the cards as well, High the elements as well. A guide matches an
+  edge item, and a rectangle a rectangle item. An edge item dropped because it lies on a found
+  rectangle's edge counts as found through that rectangle. Each image holds at most 30 items of
+  each kind, so the cap never hides one. At most 20% of the helpers a level finds match no
+  ground-truth item. Guide suppression and the 30/30 cap may drop at a higher level a helper a
+  lower level kept, so no containment between levels is required.
 - Each image's exact output per level is committed under `tests/` next to it, as a golden the
-  unit tests compare, to catch regressions. Guide suppression near rectangles and the
-  30/30 cap may drop at a higher level a helper a lower level kept, so no containment between
-  levels is required.
+  unit tests compare, to catch regressions.
 - Downsampled Low and Medium give the same result as at full resolution on every image.
 - End-to-end: one screenshot per level; a found guide equals the snapped one at 125%; no actor of
   the extension is sampled by the capture.
-- The finished detector meets the Speed rule at every level, on the busiest test image scaled to
-  3840 × 2160, on the maintainer's machine, measured as the rule says; the PR reports the
-  timings. It is not a CI gate. Each band's
-  readback through `composite_to_stream` is synchronous on the GPU, so the band size is what
-  keeps each stall under 100 ms.
+- The finished detector meets the Speed rule at every level, on the maintainer's machine: a
+  headless shell with a 3840 × 2160 virtual monitor at scale 1 shows the busiest test image in a
+  full-screen client window, and Eval runs Find helpers there with the 10 ms probe in the shell.
+  The PR reports the timings. It is not a CI gate. Each band's readback through
+  `composite_to_stream` is synchronous on the GPU, so the band size is what keeps each stall
+  under 100 ms.
 
 **Technical notes**: detection is noisy on shadows, gradients, text, and images. That is why it
 offers a confirmation and a one-step undo, and is tuned on test images.
