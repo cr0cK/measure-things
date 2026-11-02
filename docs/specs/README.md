@@ -41,7 +41,7 @@ plans:                  # in delivery order
   SET-P1: "done #12"    # see the plan states below; `#` values are quoted
   SET-P2: approved
 outbox:                 # decisions implementation took on spec gaps, see Outbox below
-  SET-O1: open          # `open`, or `"fix #<issue>"` once the owner rejected it
+  SET-P2-O1: open       # `open`, or `"fix #<issue>"` once the owner rejected it
 owner: someone          # optional: the project maintainer when absent
 ---
 ```
@@ -76,7 +76,7 @@ after an interruption:
 - The in-flight states, `executing` to `"done #<PR>"`, live only on the plan's branch. Main goes
   from `approved` to `"done #<PR>"` when the PR merges. The plan's PR also sets the spec's status.
 - A spec change that alters a plan's rules sets that plan back to `todo`, so it is approved
-  again.
+  again. An outbox arbitration does not: the owner has just decided those rules.
 - Only `shipped` specs take `amended` and `replaced-by`.
 - Specs and PRs from before this process are adopted, not refused: see
   [Adopting existing work](#adopting-existing-work).
@@ -127,7 +127,8 @@ after an interruption:
 - A PR implements its plan's slice and nothing visible beyond it. It adds no stubs in the UI for
   later plans. Its text states the temporary restrictions it carries.
 - Plan PRs reference the tracking issue without closing it. Only the last plan's PR closes it.
-- A deviation from the spec is a spec change in the same PR, stated in the PR text.
+- A deviation from the spec, or a gap the spec leaves open, is an outbox entry in the same PR,
+  stated in the PR text. The rules change only once the owner accepts it.
 - Every user-visible behavior the PR adds gets an automated test.
 - Before any of a PR's commits are pushed, a reviewer who did not write them reviews them
   adversarially. Each later push gets the same review of its new commits, unless they change
@@ -143,15 +144,18 @@ after an interruption:
 Implementation does not stop on a gap the approval missed. It decides, with a reviewer who
 challenges the choice, and records the decision in the spec's outbox for the owner to arbitrate.
 
-- An entry is `<CODE>-O<n>`, numbered in order. The front matter's `outbox` holds its state; the
-  spec's last section, `## Outbox`, holds the plan, the gap, the options, the decision, why, and
-  the reviewer's verdict. It arrives on main with its plan's PR.
+- An entry is named after where it was found, `<CODE>-Pn-O<k>` for a plan or
+  `<CODE>-F<issue>-O<k>` for a fix, numbered within it, so no two branches ever pick the same
+  name. The front matter's `outbox` holds its state; the spec's last section, `## Outbox`, holds
+  the gap, the options, the decision, why, and the reviewer's verdict. It arrives on main with
+  its PR.
 - The owner arbitrates each entry, at any time, by interview:
   - accepted: the decision is rewritten as rules where it belongs in the spec, and the entry is
     removed;
   - rejected: the owner's rule is written into the spec, and the entry becomes
-    `"fix #<issue>"`, an issue for the code change. The fix's PR removes the entry. While the
-    plan's PR is still open, the change is made in that PR instead.
+    `"fix #<issue>"`, an issue for the code change. The fix's PR removes the entry.
+- An entry whose PR is still open is arbitrated on that PR, and its branch makes the change, so
+  each entry has one writer: the PR's branch before the merge, main after.
 - The spec becomes `implemented` only once every plan is merged and the outbox is empty.
 - Only a fatal blocker stops a plan: every option breaks the spec or a later plan, or a
   prototype fails with no fallback that keeps the spec's goal.

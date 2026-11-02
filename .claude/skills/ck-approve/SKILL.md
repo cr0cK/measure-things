@@ -76,21 +76,25 @@ the stamp goes on. Then run the gap read again on what changed, until it finds n
 ## 5. Outbox review
 
 ck-exec decides the gaps it finds during implementation and records each as an outbox entry,
-`<CODE>-O<n>`, in the spec. Arbitrate the open ones, on `origin/main`, whenever the user runs
-ck-approve on the spec: during implementation, so a rejection lands while its plan's PR is still
-open, and in any case once every plan is merged.
+`<CODE>-Pn-O<k>` or `<CODE>-F<issue>-O<k>`, in the spec. Arbitrate the open ones whenever the user
+runs ck-approve on the spec: during implementation, which is cheaper, and in any case once every
+plan is merged. Read them from `origin/main` and from the spec on each open PR's branch.
 
 - Take the entries one at a time with AskUserQuestion: the gap, the options, the decision ck-exec
   took and why, the reviewer's verdict, and what the code does now. Offer accept first when the
   decision holds.
-- **Accepted**: rewrite the decision as rules where it belongs in the spec, and remove the entry
-  from the front matter and the `## Outbox` section.
-- **Rejected**: write the user's rule into the spec. When the plan's PR is still open, remove the
-  entry and post the rule on the PR as an owner comment, so ck-exec iterates on it. When the plan
-  has merged, open an issue for the fix that names the spec and the entry, and set the entry to
-  `"fix #<issue>"`; the fix's PR removes it.
-- One `docs: arbitrate the <CODE> outbox` PR carries the changes, reviewed adversarially when they
-  change rules, then merged on green CI, as in step 4.
+- **An entry on an open PR**: post the verdict on that PR as an owner comment, starting with
+  `**Outbox <entry>: accepted**` or `**Outbox <entry>: rejected**`, with the rule to write. The
+  PR's branch is the entry's only writer: ck-exec iterates on it, and the comment holds its merge
+  until then.
+- **An entry on main**, its PR merged:
+  - accepted: rewrite the decision as rules where it belongs in the spec, and remove the entry
+    from the front matter and the `## Outbox` section;
+  - rejected: write the user's rule into the spec, open an issue for the fix that names the spec
+    and the entry, and set the entry to `"fix #<issue>"`; the fix's PR removes it.
+
+  One `docs: arbitrate the <CODE> outbox` PR carries these, reviewed adversarially, then merged on
+  green CI, as in step 4. It sets no plan back to `todo`.
 - **`implemented`**: when every plan is merged and the outbox is empty, the same PR, or a small
   `docs: close <CODE>` one, sets the spec's status to `implemented`. Nothing else sets it.
 

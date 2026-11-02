@@ -206,8 +206,9 @@ the branch of the plan below, and its PR targets it.
   `git rebase --onto origin/main <ledger's base SHA> <branch>`, which drops them.
 - The front matter conflicts on almost every restack, since each branch changes its own plan's
   line. Resolve it mechanically: each plan's line comes from its own branch, or from main once
-  merged, and the outbox keeps every entry from both sides, renumbering a duplicate number on the
-  branch being restacked. That resolution needs no review; any other conflict resolution does.
+  merged. The outbox is the base's, plus the entries the restacked branch added itself: an entry
+  the base removed stays removed. That resolution needs no review; any other conflict resolution
+  does.
 - The tick force-pushes a restack with `--force-with-lease`.
 
 ### Gaps and the outbox
@@ -218,15 +219,18 @@ decision goes to the spec's outbox for the owner to arbitrate later. ck-exec doe
 - **Decide**: the worker lists the options, picks the one that keeps closest to the spec and
   costs the later plans least, and has the reviewer challenge that choice before it builds on it,
   with the gap, the options, and its pick. It then implements the choice that survives.
-- **Record**: in the spec, on its branch, it adds an outbox entry `<CODE>-O<n>`, the next free
-  number: open in the front matter's `outbox`, and detailed in the spec's `## Outbox` section,
-  with the plan, the gap, the options, the decision, why, and the reviewer's verdict. The spec's
-  rules stay as they are; the entry says where they fall short.
+- **Record**: in the spec, on its branch, it adds an outbox entry `<CODE>-Pn-O<k>`, or
+  `<CODE>-F<issue>-O<k>` for a fix, the next number within it: `open` in the front matter's
+  `outbox`, and detailed in the spec's `## Outbox` section, with the gap, the options, the
+  decision, why, and the reviewer's verdict. The spec's rules stay as they are; the entry says
+  where they fall short.
 - **Report**: the PR text lists the outbox entries it adds. ck-approve arbitrates them with the
   owner, at any time; the spec cannot become `implemented` until the outbox is empty.
-- An outbox entry the owner rejects while its plan's PR is still open comes back to the tick as
-  information for that plan, and an iteration applies the owner's rule. Once the plan has merged,
-  it is a fix.
+- While the PR is open, ck-approve arbitrates its entries with an owner comment on the PR. The
+  tick takes it as information, and an iteration applies it on the branch: an accepted entry
+  becomes rules and leaves the outbox; a rejected one becomes the owner's rule, the code follows
+  it, and the entry leaves the outbox. Once the PR has merged, ck-approve arbitrates on main, and
+  a rejection is a fix.
 
 ### Fatal blockers
 
@@ -271,11 +275,10 @@ written when it opened. Once its plan is `approved` on main, the tick adopts it:
      stubs, no dead settings.
    - Put new logic in pure, testable modules when the project has that pattern.
 4. **The spec stays true.**
-   - When the code has to differ from the spec, edit the spec in the same branch, and report it
-     for the PR text.
-   - A point with one sensible reading is an implementation call: take it, and report it. A
-     product choice the spec leaves open is a gap: decide it with the reviewer, and record it in
-     the outbox.
+   - A point with one sensible reading is an implementation call: take it, and report it.
+   - When the code has to differ from the spec, or the spec leaves a product choice open, that is
+     a gap: decide it with the reviewer, and record it in the outbox. The worker never rewrites the
+     rules itself; they change once the owner accepts the entry.
 5. **Tests**: every user-visible behavior the plan adds gets an automated test. Run every check
    AGENTS.md requires, and look at screenshots of any visible change.
 6. **Commit and review**, as [Adversarial review](#adversarial-review) says, then report.
@@ -293,11 +296,11 @@ For a defect, or a small behavior change the user asked for, on branch `fix/<slu
    issue names that is already merged points at the rules to amend, not at new plan work.
 3. **Classify**:
    - The code breaks the spec: fix the code, and add a regression test.
-   - The spec is silent or wrong: the fix is also a spec change. When the right behavior is a
-     product choice, decide it with the reviewer and record it in that spec's outbox. Otherwise
-     update every spec whose rules change, and add the
-     version the fix will ship in to each shipped spec's `amended` list.
-   - A small behavior change the user asked for: same as a spec change.
+   - The spec is silent or wrong: decide the behavior with the reviewer, fix the code, and record
+     the decision in that spec's outbox.
+   - A small behavior change the user asked for: the user decided it, so the fix is a spec change.
+     Update every spec whose rules change, and add the version the fix will ship in to each
+     shipped spec's `amended` list.
    - An outbox entry the owner rejected (`"fix #<issue>"`): apply the rule the owner wrote, and
      remove the entry from the front matter and the `## Outbox` section.
    - A defect outside the work at hand: follow AGENTS.md, which makes it an issue with its

@@ -116,7 +116,8 @@ Specs and plan PRs from before the process are adopted, as `docs/specs/README.md
 Adopting existing work.
 
 - Add the front matter from what the spec already says: `code`, a `status` that matches what is
-  merged and shipped, `version`, `builds-on`.
+  merged and shipped, `version`, `builds-on`. Never `implemented`: work fully merged but not
+  released is `in-progress` until ck-approve closes it.
 - For a spec with work left, write the plans into a tracking issue, and map each plan PR already
   open to its plan. Ask only what the spec's text leaves open.
 - One `docs` PR carries it, and the next step is `ck-approve <CODE>`.
