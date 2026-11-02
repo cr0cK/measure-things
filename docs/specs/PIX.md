@@ -8,7 +8,7 @@ builds-on: OVL
 # Measure Things — PIX specification
 
 Reading the screen's pixels: area measuring, snapping, the picker's loupe, and the mockup. It
-predates the spec process, so it has no plans.
+predates the spec delivery process, so it has no plans.
 
 ## Goal
 

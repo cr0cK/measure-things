@@ -1,12 +1,12 @@
 ---
 name: ck-spec
-description: Create or change a product spec and its delivery plans, following the repo's spec process in docs/specs/README.md. Picks a spec code, writes docs/specs/<CODE>.md and its mockups, iterates by editing the spec in its PR, runs an adversarial review, and writes the tracking issue with plans <CODE>-P1, <CODE>-P2, and so on. Trigger on "new spec", "spec this feature", "design X", "update the spec", "amend SET", "plan the implementation of X". NOT for implementing a plan or fixing code, which is ck-exec.
+description: Create or change a product spec and its delivery plans, following the repo's spec delivery process in docs/specs/README.md. Picks a spec code, writes docs/specs/<CODE>.md and its mockups, iterates by editing the spec in its PR, runs an adversarial review, and writes the tracking issue with plans <CODE>-P1, <CODE>-P2, and so on. Trigger on "new spec", "spec this feature", "design X", "update the spec", "amend SET", "plan the implementation of X". NOT for implementing a plan or fixing code, which is ck-exec.
 ---
 
 # ck-spec: design a spec and its plans
 
-`docs/specs/README.md` is the process. Read it first. Where it and this skill disagree, it wins.
-This skill only adds the order of operations.
+`docs/specs/README.md` is the spec delivery process. Read it first. Where it and this skill
+disagree, it wins. This skill only adds the order of operations.
 
 ## 0. Read
 
@@ -25,6 +25,8 @@ This skill only adds the order of operations.
 | **Amend** | A shipped spec's text needs correcting, without a code change | A spec PR. A small change with code, or a defect, goes to ck-exec's fix mode. A change that needs plans is a **New** spec that builds on the shipped one |
 | **Replace** | A new spec takes over part of an older one | A new spec. The older one keeps its rules until the new spec's last plan PR removes them and sets `replaced-by` |
 | **Ship** | The release containing a spec's last plan is out | A small `docs` PR that sets the spec `shipped` |
+| **Design change** | ck-approve handed over an answer that reshapes the plans | A `docs` PR to the spec, and the plans in the tracking issue |
+| **Adopt** | A spec without a front matter or plans, or with a plan PR opened before the process | A `docs` PR that adds the state and the plans |
 
 ## 2. New spec: the code
 
@@ -32,7 +34,9 @@ This skill only adds the order of operations.
   already taken. Check `docs/specs/` and the open spec PRs.
 - Confirm the code with the user through AskUserQuestion, with two or three options. A code is
   never renamed afterwards.
-- Create the branch `docs/<code>-spec`, lowercase, in a worktree.
+- Create the branch `docs/<code>-spec`, lowercase, from `origin/main`, in its worktree under the
+  main checkout, `$(git rev-parse --path-format=absolute --git-common-dir)/../.claude/worktrees/docs-<code>-spec`.
+  Reuse it when it exists. Never work in the main checkout.
 - Start the file with its state: `code`, `status: draft`, and `version` (the next minor version
   unless the user says otherwise), plus `builds-on` when it extends a spec.
 
@@ -81,25 +85,54 @@ most 25 findings, each labeled **high**, **medium**, or **low**:
 5. Behavior of the spec it builds on that was dropped or changed without being stated.
 
 Arbitrate each finding against the code and the platform. Fix it in the spec or the plan, or
-reject it with a reason. Summarize the verdict in the PR, in a `<details>` block.
+reject it with a reason. Summarize the verdict in the PR, in a `<details>` block, naming the
+reviewer that ran. Then wait for CI to be green before asking the owner to approve: fix a
+failure at its root cause, rerun once a failure that is not the PR's, and report the rest.
 
-## 6. Merge
+## 6. Approve and merge
 
-- The spec merges when its owner approves it, and not before. Its last commit before the merge
-  sets `status: approved`.
+- ck-spec never stamps `approved` and never merges a spec PR. When the owner is done with the
+  design, the next step is `ck-approve <CODE>`: it runs the gap read on the PR, then stamps and
+  merges it, or flags gaps on the PR, which come back into the design loop.
 - After the merge, update the issue's links to the main branch, and remove the worktree and the
   branch.
 
-## 7. Amend or replace a shipped spec
+## 7. Design changes from approval or implementation
+
+ck-approve questions the user on gaps, fatal blockers, and outbox entries, and resolves most of
+them itself. It hands over to ck-spec when an answer reshapes the plans.
+
+- Take the decisions with the user, one question at a time, and write them into the spec, and
+  into the plans in the tracking issue when their scope, order, restrictions, or acceptance
+  change.
+- One `docs` PR from `origin/main` carries the changes, reviewed adversarially as in step 5. It
+  sets every plan whose rules change back to `todo`.
+- Then the next step is `ck-approve` on those plans, which stamps and merges the PR, and replies
+  `**Resolved:` to the flags. That reply is what ck-exec watches for.
+
+## 8. Adopt existing work
+
+Specs and plan PRs from before the process are adopted, as `docs/specs/README.md` says under
+Adopting existing work.
+
+- Add the front matter from what the spec already says: `code`, a `status` that matches what is
+  merged and shipped, `version`, `builds-on`. Never `implemented`: work fully merged but not
+  released is `in-progress` until ck-approve closes it.
+- For a spec with work left, write the plans into a tracking issue, and map each plan PR already
+  open to its plan. Ask only what the spec's text leaves open.
+- One `docs` PR carries it, and the next step is `ck-approve <CODE>`.
+
+## 9. Amend or replace a shipped spec
 
 - **Amend**: edit the rules in place, and add the coming version to `amended` in its state.
 - **Replace**: the new spec says, in its first paragraph, which parts it replaces. The older spec
   keeps them for now. The new spec's last plan PR removes them and sets `replaced-by`.
-- **Ship**: once the release that contains the last plan is published, set `status: shipped` in a
-  small `docs` PR. Check that the released tag, `vX.Y.Z`, belongs to the spec's `version` series,
+- **Ship**: once the release that contains the last plan is published, and the spec is
+  `implemented`, which needs an empty outbox, set `status: shipped` in a small `docs` PR. Check that the released tag, `vX.Y.Z`, belongs to the spec's `version` series,
   `vX.Y`.
 
 ## Report
 
 The spec PR, the tracking issue, the review verdict (counts and the reviewer that actually ran),
-and what is left for the owner to decide.
+and what is left for the owner to decide. The next step is `ck-approve <CODE>`, or
+`ck-approve <CODE>-Pn` for the plans an unblock changed.

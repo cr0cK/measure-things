@@ -7,7 +7,7 @@ version: v0.1
 # Measure Things — OVL specification
 
 The helper overlay: guides, rectangles, the column grid, and the color picker, drawn above every
-window. It predates the spec process, so it has no plans.
+window. It predates the spec delivery process, so it has no plans.
 
 ## Goal
 
