@@ -3,6 +3,6 @@
 [default]
 extend-ignore-re = ["\\[[0-9a-f]{7}\\]\\(https://github\\.com/[^)]+/commit/[0-9a-f]{40}\\)"]
 
-# `<CODE>-Pn` names a spec's implementation plans in docs/specs/README.md and the skills.
+# `<CODE>-Pn` names a spec's implementation plans in the specs and their tracking issues.
 [default.extend-words]
 Pn = "Pn"
