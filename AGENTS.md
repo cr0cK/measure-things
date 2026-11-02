@@ -158,8 +158,9 @@ frames and the sandbox shell never finishes starting up; use the headless shell 
   plugin (`sdp:spec`, `sdp:approve`, `sdp:exec`), with the project settings in
   [docs/specs/README.md](docs/specs/README.md): a spec is named by a code such as `SET`, and
   delivered in plans `SET-P1`, `SET-P2`, and so on, one PR each.
-- A user-visible change updates README.md and every spec whose rules it changes, in the same
-  PR. When it changes what the overlay, the menu, the picker, or the preferences look like, run
+- A user-visible change updates README.md in the same PR. A plan PR never edits a spec: a gap
+  becomes an outbox entry. Any other change to shipped behavior updates every spec whose rules
+  it changes, in the same PR. When it changes what the overlay, the menu, the picker, or the preferences look like, run
   `scripts/screenshots.sh`, look at the new images, and commit them. Source, docs, and UI strings
   are in English.
 - A defect found outside the task at hand becomes a GitHub issue with its reproduction, not a
