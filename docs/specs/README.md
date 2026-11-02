@@ -1,7 +1,10 @@
-# Specs and plans
+# Spec delivery process
 
-How a feature goes from design to merged code. This process is project-agnostic: everything
-specific to this repository is in [This project](#this-project) at the end.
+How a feature goes from design to release: a spec is designed, a gap read approves it, its plans
+are implemented and merged as stacked PRs, the owner arbitrates the outbox of decisions taken
+during implementation, and the spec is then implemented and shipped. This process is
+project-agnostic: everything specific to this repository is in [This project](#this-project) at
+the end.
 
 ## Specs
 

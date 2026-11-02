@@ -1,11 +1,12 @@
 ---
 name: ck-approve
-description: Gate a spec, or one of its plans (<CODE> or <CODE>-Pn), before implementation, following the repo's spec process in docs/specs/README.md. Reads the spec, the specs it builds on, the plans, and the code they touch, in full, looking for every gap an implementer would have to guess at, and questions the user on each one, writing the answers into the spec. With no gap left, stamps the spec or plan `approved`, the state ck-exec requires before it starts. After implementation, arbitrates the spec's outbox (the decisions ck-exec took on gaps) by interview, and sets the spec `implemented` once it is empty. Also resolves ck-exec's fatal blockers, and adopts specs and plan PRs from before the process. Trigger on "approve SET", "approve SET-P2", "is SET ready", "gate SET-P1", "review the SET outbox", "close SET". NOT for designing or changing the spec, which is ck-spec, or implementing it, which is ck-exec.
+description: Gate a spec, or one of its plans (<CODE> or <CODE>-Pn), before implementation, following the repo's spec delivery process in docs/specs/README.md. Reads the spec, the specs it builds on, the plans, and the code they touch, in full, looking for every gap an implementer would have to guess at, and questions the user on each one, writing the answers into the spec. With no gap left, stamps the spec or plan `approved`, the state ck-exec requires before it starts. After implementation, arbitrates the spec's outbox (the decisions ck-exec took on gaps) by interview, and sets the spec `implemented` once it is empty. Also resolves ck-exec's fatal blockers, and adopts specs and plan PRs from before the process. Trigger on "approve SET", "approve SET-P2", "is SET ready", "gate SET-P1", "review the SET outbox", "close SET". NOT for designing or changing the spec, which is ck-spec, or implementing it, which is ck-exec.
 ---
 
 # ck-approve: the gate before and after implementation
 
-`docs/specs/README.md` is the process. Read it first. Where it and this skill disagree, it wins.
+`docs/specs/README.md` is the spec delivery process. Read it first. Where it and this skill
+disagree, it wins.
 
 ck-exec never questions the user, so every question a plan raises is answered here: before it
 starts, through the gap read, and after, through the outbox of decisions ck-exec took on its own.

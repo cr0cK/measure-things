@@ -1,12 +1,12 @@
 ---
 name: ck-spec
-description: Create or change a product spec and its delivery plans, following the repo's spec process in docs/specs/README.md. Picks a spec code, writes docs/specs/<CODE>.md and its mockups, iterates by editing the spec in its PR, runs an adversarial review, and writes the tracking issue with plans <CODE>-P1, <CODE>-P2, and so on. Trigger on "new spec", "spec this feature", "design X", "update the spec", "amend SET", "plan the implementation of X". NOT for implementing a plan or fixing code, which is ck-exec.
+description: Create or change a product spec and its delivery plans, following the repo's spec delivery process in docs/specs/README.md. Picks a spec code, writes docs/specs/<CODE>.md and its mockups, iterates by editing the spec in its PR, runs an adversarial review, and writes the tracking issue with plans <CODE>-P1, <CODE>-P2, and so on. Trigger on "new spec", "spec this feature", "design X", "update the spec", "amend SET", "plan the implementation of X". NOT for implementing a plan or fixing code, which is ck-exec.
 ---
 
 # ck-spec: design a spec and its plans
 
-`docs/specs/README.md` is the process. Read it first. Where it and this skill disagree, it wins.
-This skill only adds the order of operations.
+`docs/specs/README.md` is the spec delivery process. Read it first. Where it and this skill
+disagree, it wins. This skill only adds the order of operations.
 
 ## 0. Read
 

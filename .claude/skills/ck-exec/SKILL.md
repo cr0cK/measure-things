@@ -1,12 +1,13 @@
 ---
 name: ck-exec
-description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and squash-merges each PR in order once it is green. Never questions the user: it decides spec gaps with a reviewer and records them in the spec's outbox, and stops only on a fatal blocker. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
+description: Implement the approved plans of a spec (<CODE>-P1, -P2, …) as stacked PRs, one per plan, or fix a defect or an issue, following the repo's spec delivery process in docs/specs/README.md. Runs as a tick every 10 minutes that tracks each plan's state in the spec, delegates the work to background workers in their own worktrees, takes in new information, pushes only what an adversarial review has read, babysits CI, and squash-merges each PR in order once it is green. Never questions the user: it decides spec gaps with a reviewer and records them in the spec's outbox, and stops only on a fatal blocker. Trigger on "implement SET", "implement SET-P1", "exec SET-P2", "start the next plan", "work #42", "fix <bug>", "this behaves wrong". NOT for designing a spec, which is ck-spec, or approving one, which is ck-approve.
 ---
 
 # ck-exec: implement a spec's plans, a fix, or an issue
 
-`docs/specs/README.md` is the process, with the spec and plan states. Read it first. Where it and
-this skill disagree, it wins. AGENTS.md gives the project's checks, commands, and pitfalls.
+`docs/specs/README.md` is the spec delivery process, with the spec and plan states. Read it
+first. Where it and this skill disagree, it wins. AGENTS.md gives the project's checks,
+commands, and pitfalls.
 
 **ck-exec never questions the user, and it does not stop.** The user was questioned while the
 spec was designed and approved, so an `approved` plan has no blocker left. ck-exec takes every
