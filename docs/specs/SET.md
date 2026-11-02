@@ -1,22 +1,17 @@
 ---
 code: SET
-status: approved
+status: active
 version: v0.3
 builds-on: PIX
 tracking: "#8"
-plans:
-  SET-P1: approved
-  SET-P2: approved
-  SET-P3: approved
-  SET-P4: approved
 ---
 
 # Measure Things — SET specification
 
-Window-scoped helpers in saved sets, with a main view and session copies per set. The plans are
-described in the tracking issue. It replaces these sections of PIX: Layer, Helpers, Units, Edit
-mode, Column grid, Mockup, and Preferences, and the color picker's rule on hiding the layer. PIX
-keeps them until the last plan of SET removes them and sets PIX's `replaced-by`.
+Window-scoped helpers in saved sets, with a main view and session copies per set. It replaces
+these sections of PIX: Layer, Helpers, Units, Edit mode, Column grid, Mockup, and Preferences, and
+the color picker's rule on hiding the layer. PIX keeps them until SET is implemented; a spec PR
+then removes them and sets PIX's `replaced-by`.
 
 ## Goal
 
@@ -580,3 +575,219 @@ The preferences only customize the extension. They hold no set content.
 - Embedding mockup images in set files.
 - Snapping to other helpers, several mockups per set, and blend modes.
 - Keeping undo history across restarts.
+
+## Alternatives considered
+
+- **Copies as saved sets, with unlinking that forks a new `Untitled` set**: rejected. The library
+  filled with forks nobody asked for. A copy is session-only, and **Save as new set…** keeps its
+  changes on purpose.
+- **Set management in the preferences**: rejected. The menu manages the library, the badge
+  manages a set where it is shown, and the preferences only customize the extension.
+- **Duplicating set actions in the panel menu and the badge**: rejected, to keep one path per
+  action.
+- **A proposal mode for auto-detection**, with dashed proposals, `+`/`-`, and `Enter`: replaced by
+  **Find helpers**, a confirmation, and `Ctrl+Z`, which is simpler and as safe.
+- **A per-view offset** to absorb different browser toolbars: rejected, since copies apply to the
+  same type of window.
+- **A dedicated key to draw zones**: replaced by resizing the automatic whole-window zone, which
+  reuses resizing and snapping.
+- **Sets in a GSettings key**: rejected. Every commit would rewrite the whole collection.
+
+## Plans
+
+Four plans, delivered in order. Notes shared by every plan:
+
+- Read AGENTS.md first: the overlay, snapshot, and GJS pitfalls it lists still apply.
+- Keep new logic in pure modules that import nothing from `gi://`, so `node --test` covers it: the
+  set codec, zone geometry, the CSS ↔ stage transform, view targeting among zones, and detection.
+  `src/geometry.js` and `src/history.js` are the models. Every pure module gets unit tests in
+  `tests/`.
+- One model per set, in memory, shared by its main view and linked copies. Views render from it
+  and never own helper data, except an unlinked copy's local state.
+- The edit layer keeps a modal grab above everything for input (`Main.pushModal`,
+  `Shell.ActionMode.POPUP`). Only the drawing moves into the windows.
+- `PopupSwitchMenuItem.setToggleState()` emits `toggled`: compare with the model before acting, or
+  the shell freezes.
+- Each plan updates README.md, adds a check to `scripts/e2e.sh` for every user-visible behavior it
+  adds, and reruns `scripts/screenshots.sh` when the overlay, menu, or preferences change.
+
+### SET-P1: Foundation
+
+**Scope**
+
+1. **Set codec**, a new pure module: parse, validate, and serialize a set, with schema version 1.
+   It also handles the limits (1,000 helpers, 1 MiB), the rules for unreadable or newer files, the
+   `Untitled N` numbering, and the numeric suffixes for names.
+2. **Storage**: the sets folder, with atomic writes (`Gio.File.replace_contents`) and revisions; a
+   `Gio.FileMonitor` on the folder that adds and removes sets in the library; unreadable or newer
+   files shown as `unavailable`.
+3. **Views**: window-scoped rendering with the approach the prototype chose; targeting (topmost
+   visible window, then the zone; popups block); gesture latching and the CSS ↔ stage transform;
+   selection per view; undo history per set; the rules of Lifecycle; automatic zones only.
+4. **New sets**: `Untitled N` on the first content action, the palette color, and autosave.
+5. **Panel menu**: Edit helpers, Pick color, **On screen** (eye, ✕, a click enters edit mode),
+   **Sets** (load, rename, delete with trash and tombstone, including for sets on screen, and the
+   trash failure rule), Open sets folder, Settings. The 5-row scrolling lists use `St.ScrollView`.
+6. **Badge** on the main view, with the chips, Set settings…, Save as new set…, and Clear helpers.
+7. **Set settings** dialog: a `ModalDialog` in the shell, with the portal file chooser.
+8. **Grid and mockup** per set and per view. `Super+Shift+G` acts on the focused window's set.
+9. **Preferences**: drop helper color, zoom, grid, mockup, and Show helpers, and add **Corner
+   badges**.
+10. **Migration**: the v0.2 keys become `Untitled 1`, with a marker. The old keys stay for one
+    release.
+
+**Temporary restrictions**
+
+- One view per window: loading a set onto a window that already shows one replaces that view, and
+  its set leaves the screen. No copies, no fixed zones, no `A` key, no **Add a copy…**, no **Reset
+  zone**. SET-P2 delivers them.
+- External edits are ignored, and a commit simply overwrites the file. Files not named
+  `<id>.json` show as `unavailable`. A file removed while its set is shown only leaves the
+  library. A write failure or a missing mockup image only logs a warning, and the badge header
+  always reads `Main view · saved`. SET-P3 delivers the rules for all of them.
+- No **Find helpers** and no **Tolerance** in the badge. SET-P4 delivers them.
+
+**Prototype**, throwaway, not merged, run first. Render one guide and one rectangle as children of
+a window actor, with a clip. It must pass every criterion below, in the headless shell
+(`scripts/headless.sh`) unless stated otherwise. The PR text reports the results.
+
+- On a client-side-decorated window (GTK4, such as `gnome-text-editor`), a guide at CSS x = 100
+  from the window's top-left corner lands on the right device pixel: at 100% and at 125%; at
+  several window origins at 125%, fractional ones included; on a window straddling two monitors of
+  different scales. The frame → buffer → actor offset and the inherited scale are applied. The PR
+  documents how the helper transform matches the fractional placement correction that Mutter
+  applies to the window's surface container (`meta-window-actor-wayland.c`), which a sibling actor
+  does not inherit.
+- The helpers move with the window, hide with it when it is minimized or moved to another
+  workspace, and disappear when it closes, without a `JS ERROR`.
+- Native popup menus (`xdg_popup`) show above the helpers.
+- Edit mode's capture (`Shell.Screenshot.screenshot_stage_to_content`) and the color picker don't
+  sample the helpers, which are hidden for the paint and restored afterwards, on cancel too.
+- Outside edit mode, `global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, …)` never returns a
+  helper actor.
+- Fullscreen windows show the helpers.
+- **Manual check on real hardware**, by the maintainer: a fullscreen window with no view is scanned
+  out directly; attaching a view turns direct scanout off, and detaching it turns it back on. The
+  software-rendered CI can't show this. It gates the merge: SET-P1 merges only once the
+  maintainer's result is recorded on its PR.
+- **Fallback**: if the transform can't be made exact, or the scanout check fails, one layer per
+  window in `global.window_group`, restacked above its window actor. It has to track visibility,
+  workspaces, and animations by hand. The PR records the decision. With no working fallback,
+  SET-P1 is blocked.
+
+**Acceptance**
+
+- `npm run lint`, `make check`, and `npm run e2e` pass.
+- Unit tests cover every rule of the set codec.
+- End-to-end checks cover migration, drawing in a window, snapping, undo, the badge menu, Set
+  settings with the file chooser, Save as new set…, the picker and the capture not sampling the
+  helpers, the mockup, click-through, the panel menu (load, rename, delete to trash, the trash
+  failure), the grid shortcut, disable and enable, the preferences, and 125%.
+- The prototype criteria above, and the maintainer's scanout result recorded on the PR.
+
+**Technical notes**
+
+- Children of `MetaWindowActor` are positioned from the buffer rectangle and inherit the actor's
+  geometry scale. The frame-to-actor transform, its rounding included, is the first thing the
+  prototype proves.
+- The portal file chooser (`org.freedesktop.portal.FileChooser`) has to work from the shell
+  process, with the dialog's grab released while it is open, as Set settings describes. Check it
+  first, with real pointer and keyboard use of the chooser. If the shell is not accepted as a
+  caller, fall back to a path entry, and change the Set settings rules through a spec change.
+
+### SET-P2: Copies, linking, zones
+
+**Scope**
+
+- **Copies**: `A`, **Add a copy…**, and loading a set that is already on screen; the copy badge,
+  with Linked, Reset zone, Save as new set…, and Remove copy; live updates of linked copies during
+  a drag; the local state of unlinked copies, and relinking with Keep or Discard; promotion when
+  the main view's window closes; undo history per set, plus one per unlinked copy.
+- **Zones**: the dashed frame and edge handles; fixed zones with snapping, the 40 × 40 minimum, and
+  Reset zone; hit testing, `Tab` cycling, measuring, snapping, and gap labels bounded to the zone.
+- **Several views per window**, which lifts the SET-P1 restriction: stacking and targeting by zone
+  size, input and handle priority, and badge placement and shifting.
+- **Panel menu, for copies**: the number of copies on On screen rows, the ✕ confirmation when
+  unlinked copies have local changes, the number of views leaving in the delete dialog, and loading
+  a set already on screen.
+- The edit mode key list in the preferences gains `A` and the zone edges.
+
+**Temporary restrictions**: those of SET-P1 that SET-P3 and SET-P4 deliver.
+
+**Acceptance**
+
+- `npm run lint`, `make check`, and `npm run e2e` pass.
+- Unit tests cover zone geometry and targeting among zones: smallest zone first, handle priority,
+  the 40 × 40 minimum, and snapping of zone edges.
+- End-to-end checks cover each scope item: a linked copy following a drag live, unlinking and
+  relinking with Keep and Discard, promotion on close, two views in one window framed by dragging
+  an edge that snaps to the divider, Reset zone, `Tab` and measuring bounded to a zone, and the
+  menu confirmations.
+
+### SET-P3: Library polish and robustness
+
+**Scope**: everything about files changing outside the shell, which SET-P1 leaves out.
+
+- **Imports**: fresh IDs and renames for files that are copies or named differently, and name
+  suffixes.
+- **External edits**: replacing the set in memory, cancelling a gesture on it, closing its open Set
+  settings dialog, and resetting its undo history.
+- **Write conflicts**: etag checks, where the file on disk wins.
+- **Live deletion**: a file removed, or turned unavailable, while its set is shown, during a
+  gesture too.
+- **Missing mockup images**: the notice, and the path is kept.
+- **Write failures**: the `Not saved` state, and the retry.
+- **Dialogs and menus** open for a set that is replaced, removed, or made unavailable close without
+  applying.
+
+**Temporary restrictions**: no **Find helpers** until SET-P4.
+
+**Acceptance**
+
+- `npm run lint`, `make check`, and `npm run e2e` pass.
+- The decision rules (own write or not, settling, import, conflict) live in a pure module, with
+  `node --test` tables.
+- End-to-end checks cover each interleaving: an external edit; a file renamed over a set; delete
+  then create; a file copied in, at runtime and at startup; a set restored from the Trash; a write
+  conflict; a write failure; a deletion during a gesture; an edit during an open dialog.
+
+**Technical notes**: make races deterministic through Eval, by pausing the folder monitor and
+writing the file before the commit. Force failures by making the target path a directory, which
+fails even as root, as CI may run.
+
+### SET-P4: Find helpers
+
+**Scope**
+
+- **Detection**: a new pure module that reads the pixels of a zone and returns guides and
+  rectangles. Guides come from long edges, found with projection profiles of the edge map;
+  rectangles come from uniform 2D regions. Fixed parameters per tolerance level, Low, Medium, and
+  High. At most 60 helpers, truncated deterministically as Find helpers says.
+- **Badge**: **Find helpers** and the **Tolerance** list, on the main view only; the Replace
+  confirmation when the set already has helpers; changing the tolerance right after a run replaces
+  without asking; one undo step; a fresh capture per run, with the extension's UI hidden; the
+  notice, with no change, when the zone is covered, the capture fails, or the result is stale.
+
+**Prototype**, throwaway, run first, pass or fail. Reading a whole 4K screen into memory takes over
+a second through `composite_to_stream`. Read a full-window 4K zone in bands of about 256 rows,
+yielding to the main loop between bands, downsample on the CPU for Low and Medium, and run a first
+detection. It passes when the whole run takes 3 s at most and the shell never stops responding for
+more than 100 ms at a time, on the maintainer's machine; 1 s is the goal. The PR reports the timing
+and what it includes. If it fails with no fallback that keeps those numbers, SET-P4 is blocked.
+
+**Acceptance**
+
+- `npm run lint`, `make check`, and `npm run e2e` pass.
+- Test images are synthetic, drawn by a test script as raw RGBA, with known blocks, cards,
+  elements, text, gradients, and shadows; no real screenshots. They are committed under `tests/`,
+  each with its exact expected output next to it, which the unit tests compare.
+- For each image and level, the tests check what the level must find: Low the layout blocks,
+  Medium the cards as well, High the elements as well. Guide suppression near rectangles and the
+  30/30 cap may drop at a higher level a helper a lower level kept, so no containment between
+  levels is required.
+- Downsampled Low and Medium give the same result as at full resolution on every image.
+- End-to-end: one screenshot per level; a found guide equals the snapped one at 125%; the badges
+  and the menu are not sampled by the capture.
+
+**Technical notes**: detection is noisy on shadows, gradients, text, and images. That is why it
+offers a confirmation and a one-step undo, and is tuned on test images.
