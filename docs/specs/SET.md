@@ -33,10 +33,12 @@ The images are mockups. Where an image and the text disagree, the text wins.
 ## Vocabulary
 
 - **Set**: a saved collection of helpers with its column grid, mockup, and display settings. A
-  set is one file in the sets folder. Sets are the only thing Measure Things saves.
+  set is one file in the sets folder. Sets are the only content Measure Things saves; the
+  preferences hold its settings.
 - **View**: a set shown on a window, inside a zone of that window.
 - **Zone**: the rectangle of a window a view is drawn in. It is the whole window by default.
-- **Main view**: the one view of a set on screen whose edits save the set.
+- **Main view**: the one view of a set on screen that carries the set's own badge, and stays when
+  its copies go. Its edits save the set, as a linked copy's do.
 - **Copy**: any other view of the same set. Copies last for the session and are never saved.
   A copy is **linked** or **unlinked**.
 
@@ -58,14 +60,15 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - Every change is committed when a gesture ends, or when a discrete command runs: a drag released,
   a key, a menu action, the settings dialog saved. A pointer motion never writes. A commit
   rewrites the file atomically, with `Gio.File.replace_contents_bytes_async` and the etag of the
-  last successful read or write of that file, and increments its revision. Writes of one file run
-  one at a time, in commit order, across a disable and re-enable too: each starts once the
-  previous one ended, with the etag it left. Loading a set is a write
-  too: it updates the time last loaded and increments the revision.
+  last successful read or write of that file, and increments its revision once per commit.
+  Loading a set is a write too: it updates the time last loaded and increments the revision.
+- Writes of one file go through one queue, kept across a disable and re-enable: one write at a
+  time, each starting once the previous one ended, with the etag it left. Commits that have not
+  started yet merge into the latest state, so one write carries them all.
 - For each file, the shell keeps the etag and the text of its last successful read or write. A
-  folder event whose file has that etag or that text is the shell's own write, or no change, and
-  is ignored. This holds across a disable and re-enable: a write still in flight then finishes,
-  and its event is ignored.
+  folder event is judged only once that file's queue is idle. An event whose file has that etag,
+  or the text of that write or of any write that was in flight or queued meanwhile, is the
+  shell's own write, or no change, and is ignored. This holds across a disable and re-enable.
 - A file is identified by its name, `<id>.json`. The shell watches the folder, and acts on a name
   once its events settle: on `CHANGES_DONE_HINT`, or after about 300 ms without an event. A file
   that disappears and comes back within that time is changed, not removed.
@@ -91,7 +94,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
   - A file removed there removes its set: its views leave the screen, unlinked copies included,
     with a notice that counts the local changes lost.
   - A commit whose file no longer exists, before its removal has settled, is dropped and never
-    recreates the file: the set is removed as above.
+    recreates the file: the set is removed as above. GIO's replace recreates a missing file even
+    with an etag, so each write first checks that the file exists. A file recreated in the
+    window left between that check and the write is read as an import; an ID the shell deleted
+    stays covered by its tombstone.
 - When a set is replaced, removed, or made unavailable, every dialog and menu open for it closes
   without applying: **Set settings**, rename, the delete confirmation, the **Save as new set…**
   name dialog, and its badge menu. A file chooser answer that arrives later is ignored. Rename and
@@ -100,13 +106,16 @@ The images are mockups. Where an image and the text disagree, the text wins.
   shows as unavailable in the library. It is never written to and cannot be loaded. When a set on
   screen becomes unavailable, its views leave the screen with a notice.
 - A file is invalid when it is not a JSON object, or when a stored field is missing, of the wrong
-  type, or out of its range: the ranges of [Set settings](#set-settings), a non-empty name of at
-  most 200 characters, and a rectangle of a positive size. Unknown fields of a valid file are
-  ignored, and dropped by its next write.
+  type, or out of its range: the ranges of [Set settings](#set-settings), an ID of 1 to 64
+  characters among `A-Z`, `a-z`, `0-9`, and `-`, a non-empty name of at most 200 Unicode
+  characters, a rectangle of a positive size, and at most 1,000 helpers. Unknown fields of a valid
+  file are ignored, and dropped by its next write. The field names are those of schema version 1,
+  defined by the set codec.
 - A set has at most 1,000 helpers, and its file at most 1 MiB. An action that would go past a
   limit is refused with a notice. The limits apply to every commit, an unlinked copy's included.
 - Two sets never share a name. A name that is already taken gets a numeric suffix, `Project A 2`,
-  when a set is created, renamed, or found in the folder. A suffix given to a file found in the
+  when a set is created, renamed, or found in the folder. Among files found with the same name,
+  the one edited earliest keeps it, then the lower ID. A suffix given to a file found in the
   folder is written to that file once.
 - Nothing reattaches after a restart: windows have no stable identity. The user loads a set onto
   a window from the menu.
@@ -145,7 +154,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
   confirmation comes first, in place: *Keep* leaves the copy unlinked and unchanged, *Discard*
   drops its changes and the copy shows the set again.
 - **Save as new set…** asks for a name in a dialog, prefilled with the set's name followed by a
-  numeric suffix. The views switch to the new set at once, so later commits go to it, then its
+  numeric suffix. An empty name keeps the prefilled one. The views switch to the new set at once, so later commits go to it, then its
   file is written. If the write fails, the new set stays in memory as `not saved` (see
   [Lifecycle](#lifecycle)), and the next commit tries again.
   - On an unlinked copy, the copy becomes the main view of the new set, with its content and its
@@ -173,7 +182,9 @@ The images are mockups. Where an image and the text disagree, the text wins.
 ## Rendering
 
 - Views go on normal, dialog, modal dialog, and utility windows; edit mode targets, the grid
-  shortcut, and loading use that one list. Wayland windows are supported. XWayland windows work
+  shortcut, and loading use that one list. Popup menus, dropdown menus, combo boxes, tooltips,
+  menus, and override-redirect windows block the windows below them. Every other window type,
+  such as docks, the desktop, toolbars, and splash screens, is transparent to targeting. Wayland windows are supported. XWayland windows work
   on a best-effort basis and are not verified.
 - A view draws its helpers inside its window, as children of the window's actor, clipped to its
   zone. Helpers move with the window. Windows in front hide them. They follow the window across
@@ -215,8 +226,9 @@ The images are mockups. Where an image and the text disagree, the text wins.
   stays where it is released.
 - While an edge is dragged, the zone stays within the window frame and at least 40 × 40 stage
   pixels, or the whole frame when the window is smaller.
-- A fixed zone is stored in the window actor's units, stage pixels divided by the window's scale,
-  rounded to whole stage pixels when the drag ends, so it stays on the content when the window
+- A fixed zone is stored in the window actor's units, stage pixels divided by k, the scale of the
+  actor's children: 1 in logical layout mode, the window's geometry scale in physical layout
+  mode. It is rounded to whole stage pixels when the drag ends, so it stays on the content when the window
   changes scale or monitor. Its corner goes through the same transform as the helpers. The
   40 × 40 minimum and snapping stay in stage pixels.
 - A fixed zone keeps its stored position and size, relative to the window's top-left corner, when
@@ -257,16 +269,22 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - Edit mode shows every view, hidden sets included, and every badge.
 - **Targeting**: the target is the topmost visible window under the pointer. Inside it, the
   target is the smallest zone under the pointer, the newest on equal sizes. The panel, the
-  desktop, and the overview are never targets, and a popup in front of a window blocks it.
+  desktop, and the overview are never targets, and a blocking window in front of a window blocks
+  it (see [Rendering](#rendering)).
 - **Priority** under the pointer, over every view of the target window: a badge first, then a
   zone edge, within 4 pixels along its whole length, then helpers, then the zone that targeting
-  picks. Among equal hits, the view stacked higher wins: the smaller zone, then the newer. So the
-  edge of a larger zone can be dragged from inside a smaller one.
+  picks. Among equal hits, the view targeted last wins, then the view stacked higher: the smaller
+  zone, then the newer. So the edge of a larger zone can be dragged from inside a smaller one,
+  and coinciding edges belong to the view being worked on.
+- A zone edge is grabbed only once the pointer has moved 3 pixels from the press. A press on an
+  edge released before that acts as a press on what lies under the edge: a helper, or the zone.
+- A press on a helper, a badge, or a zone edge latches its view as the target until the next press
+  elsewhere, or until the pointer leaves the window.
 - A point of a window that no zone covers targets the window alone. There, drawing, `H`, `V`,
   `Enter` on a measured area, and `G` create a set (see [New sets](#new-sets)), `D` measures
   areas within the window frame, `A` adds a copy, and the other keys do nothing.
-- The selection belongs to one view. When the target changes to another view, the selection is
-  cleared. Copy, nudge, delete, and `Tab` act on the target view's selection only.
+- The selection belongs to one view. When the target changes to another view, latching
+  included, the selection is cleared. Copy, nudge, delete, and `Tab` act on the target view's selection only.
 - A gesture latches its view, set, helper, and coordinate transform when it starts, and keeps them
   until it ends. If the target window moves, resizes, changes scale, or changes monitor during the
   gesture, the gesture is cancelled, as with `Esc`.
@@ -314,6 +332,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
   **Find helpers**, **Set settings** saved.
 - Session state is not undoable: zones, linking, adding or removing views, hiding, loading, and
   **Save as new set…**. Renaming and deleting from the library are not undoable either.
+- A rename from the library is not an undo step: the history's states all take the new name.
 - Undoing a rename to a name that has been taken since gets a numeric suffix.
 - A history keeps 100 states and lasts for the session, while the set is on screen: it ends when
   the set leaves the screen, and loading it again starts a new one.
@@ -324,7 +343,8 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - Each view shows a small badge in the bottom-right corner of its zone's visible part, or of the
   window frame when that part is empty, so **Reset zone** stays reachable. Badges that would
   overlap shift left, the newest view's outermost. A badge that would cross the window frame's
-  left edge starts a new row above, so every badge stays inside the frame. A badge:
+  left edge starts a new row above. A set's name is cut with `…` past 24 characters or half the
+  window frame's width; a frame narrower than one badge clips it. A badge:
   - a main view shows a filled dot in the set's color and the set's name;
   - a copy shows a hollow dot, `Copy`, and a link icon when it is linked.
 - Outside edit mode, the badge is visible but never takes input. The preference **Show outside
@@ -379,7 +399,8 @@ The panel menu manages the sets: which ones are on screen, and the library.
   the list scrolls. Each row shows the set's name and when it was last edited. A set on screen
   shows `On screen`. An unavailable file shows `unavailable` and does nothing.
   - A click loads the set (see [Loading a set](#loading-a-set)).
-  - On hover, **rename** opens a dialog with the name, and **delete** asks for confirmation.
+  - On hover, **rename** opens a dialog with the name, and **delete** asks for confirmation. An
+    empty name keeps the current one.
   - An empty library shows `No sets yet. Draw on a window to start one.`
 - **Open sets folder** opens the folder in the file manager. Copying a file there imports a set,
   and copying one out exports it.
@@ -402,10 +423,11 @@ The panel menu manages the sets: which ones are on screen, and the library.
 ![Confirmation before deleting a set that is on screen](images/SET-delete-set.png)
 
 - A dialog asks `Delete “<set>”?`. When the set is on screen, it says how many views will leave.
-- **Delete** moves the file to the trash. Its main view and copies leave the screen at once. Its
-  ID is remembered for the session, so a late save never recreates it.
+- **Delete** first stops every commit of the set, then moves the file to the trash. Once it is in
+  the trash, its main view and copies leave the screen, and its ID is remembered for the session,
+  so a late save never recreates it.
 - When the file cannot go to the trash, such as on a mount without one, nothing changes: the set
-  stays in the library and on screen, and a notice says it could not be deleted.
+  stays in the library and on screen, commits resume, and a notice says it could not be deleted.
 
 ## Set settings
 
@@ -424,12 +446,13 @@ The panel menu manages the sets: which ones are on screen, and the library.
     (`org.freedesktop.portal.FileChooser`), and **Remove**, which clears it;
   - opacity, 5% to 100%;
   - pixel density, 1x to 4x.
-- An invalid entry never blocks **Save**: numbers are clamped to their range, an empty or
+- An invalid entry never blocks **Save**: numbers are rounded to whole numbers and clamped to
+  their range, an empty or
   non-numeric number and an invalid hex color keep the previous value, an empty name keeps the
   previous name, and a name already taken gets a numeric suffix.
 - While the file chooser is open, the dialog hides, releases its modal grab, and keeps its draft,
   and edit mode is left: the dialog's lightbox would cover the chooser. When the chooser closes,
-  the dialog shows and takes its grab back. Cancelling the
+  the dialog shows and takes its grab back; edit mode stays left. Cancelling the
   chooser, or a portal error, keeps the previous image; an error also shows a notice. Disabling
   the extension closes the dialog without saving.
 - **Save** applies everything as one commit, and one undo step. Choosing a new image turns the
@@ -456,8 +479,9 @@ The panel menu manages the sets: which ones are on screen, and the library.
   change its opacity by 10%.
 - When the image file is missing or cannot be read or decoded, the mockup is not drawn, and a
   notice says so, once per set and path for the session. Nothing is committed: the path and the
-  **Mockup** chip stay as they are. The image is read again on each sync, so it comes back when
-  the file does, and a file replaced at the same path shows its new content.
+  **Mockup** chip stay as they are. The decoded image is cached by path, modification time, and
+  size, and a file monitor on the path reads it again when the file appears, changes, or goes, so
+  it comes back when the file does, and a file replaced at the same path shows its new content.
 
 ## Find helpers
 
@@ -508,8 +532,9 @@ The panel menu manages the sets: which ones are on screen, and the library.
     it ran.
 
   The helpers and the history stay as they were. A new run cancels one in progress.
-- **Speed**: a full-window zone on a 4K monitor completes in 3 s at most, and the shell never
-  stops responding for more than 100 ms at a time; 1 s is the goal. The zone may be read in bands
+- **Speed**: a run, from the capture to the commit, on a 3840 × 2160 zone at scale 1, completes
+  in 3 s at most, and the shell never stops responding for more than 100 ms at a time; 1 s is the
+  goal. Responsiveness is measured by a GLib timeout every 10 ms, as its largest gap. The zone may be read in bands
   and downsampled for Low and Medium, only if they then give the same result as at full
   resolution on every test image.
 
@@ -555,8 +580,9 @@ The preferences only customize the extension. They hold no set content.
   reads `Main view · not saved`, and the next commit tries again. The state clears on the next
   successful write. One notice covers a run of failures, until a write succeeds. A set appears in
   the library only once a write of it succeeded. A missing sets folder is created again on write.
-  A `not saved` set that leaves the screen, its last window closed, is tried once more; when that
-  write fails too, a notice says its unsaved changes are lost.
+  A `not saved` set that leaves the screen for any reason but its deletion or its file's removal,
+  such as its last window closing, **✕**, or disabling the extension, is tried once more; when
+  that write fails too, a notice says its unsaved changes are lost.
 - **Find helpers** drops its result when the set, the zone, or the window changed while it ran.
 - **Disabling the extension** cancels any gesture in progress, removes every view and badge, and
   keeps every set. Writes in flight finish.
@@ -575,11 +601,22 @@ The preferences only customize the extension. They hold no set content.
   - the helper color and browser zoom become the set's;
   - the grid settings and the mockup image, opacity, density, and visibility come along. The
     helpers' visibility comes from **Show helpers**.
+- Past 1,000 helpers, the migration keeps the first 1,000 and a notice says how many were left
+  out.
 - The set is not shown: the user loads it.
 - The set file records that it comes from the migration. The migration marker is written only
   after that file is saved. On start, a missing marker with such a file already present writes
   the marker and creates nothing, so an interrupted migration never makes two sets.
 - The old keys stay untouched for one release, then go: v0.4 removes them (#14).
+
+## Removed from v0.2
+
+- The panel menu's **Add vertical guide** and **Add horizontal guide**: `H` and `V` in edit mode
+  add guides.
+- The panel menu's **Column grid**, **Mockup**, and **Show helpers** switches: each set's chips
+  in its badge menu replace them.
+- The grid on the primary monitor's work area when no window has focus: the grid belongs to a
+  set's views.
 
 ## Out of scope for v0.3
 
@@ -636,8 +673,8 @@ Four plans, delivered in order. Notes shared by every plan:
    `Gio.FileMonitor` on the folder that adds and removes sets in the library; unreadable or newer
    files shown as `unavailable`.
 3. **Views**: window-scoped rendering with the approach the prototype chose; targeting (topmost
-   visible window, then the zone; popups block); gesture latching and the CSS ↔ stage transform;
-   selection per view; undo history per set; the rules of Lifecycle; automatic zones only, so hit
+   visible window, then the zone; blocking window types); gesture latching and the CSS ↔ stage
+   transform; selection per view; undo history per set; the rules of Lifecycle; automatic zones only, so hit
    testing, `Tab` cycling, measuring, snapping, and gap labels are bounded to the window frame.
 4. **New sets**: `Untitled N` on the first content action, the palette color, and autosave.
 5. **Panel menu**: Edit helpers, Pick color, **On screen** (eye, ✕, a click enters edit mode),
@@ -659,7 +696,8 @@ Four plans, delivered in order. Notes shared by every plan:
   no **Reset zone**. SET-P2 delivers them.
 - External edits are ignored, and a commit simply overwrites the file. Files not named
   `<id>.json` show as `unavailable`. A file removed while its set is shown only leaves the
-  library. A write failure or a missing mockup image only logs a warning, and the badge header
+  library. Files found with the same name get no suffix. A write failure or a missing mockup
+  image only logs a warning, and the badge header
   always reads `Main view · saved`. SET-P3 delivers the rules for all of them.
 - No **Find helpers** and no **Tolerance** in the badge. SET-P4 delivers them.
 
@@ -748,7 +786,9 @@ a window actor, with a clip. It must pass every criterion below, in the headless
 **Scope**: everything about files changing outside the shell, which SET-P1 leaves out.
 
 - **Imports**: fresh IDs and renames for files that are copies or named differently, and name
-  suffixes.
+  suffixes for files found in the folder, at startup and at runtime.
+- **Own writes**: events judged once a file's queue is idle, and the existence check before each
+  write.
 - **External edits**: replacing the set in memory, cancelling a gesture on it, closing its open Set
   settings dialog, and resetting its undo history.
 - **Write conflicts**: etag checks, where the file on disk wins.
@@ -764,6 +804,7 @@ a window actor, with a clip. It must pass every criterion below, in the headless
 **Acceptance**
 
 - `npm run lint`, `make check`, and `npm run e2e` pass.
+- A headless test shows that a write to a file removed after its last read does not recreate it.
 - The decision rules (own write or not, settling, import, conflict) live in a pure module, with
   `node --test` tables.
 - End-to-end checks cover each interleaving: an external edit; a file renamed over a set; delete
@@ -798,17 +839,22 @@ and what it includes. If it fails with no fallback that keeps those numbers, SET
 
 - `npm run lint`, `make check`, and `npm run e2e` pass.
 - Test images are synthetic, drawn by a test script as raw RGBA, with known blocks, cards,
-  elements, text, gradients, and shadows; no real screenshots. They are committed under `tests/`,
-  each with its exact expected output next to it, which the unit tests compare.
-- For each image and level, the tests check what the level must find: Low the layout blocks,
-  Medium the cards as well, High the elements as well. Guide suppression near rectangles and the
+  elements, text, gradients, and shadows; no real screenshots. The script also writes each
+  image's ground truth: the rectangles and edges it drew, each labeled `block`, `card`, or
+  `element`.
+- For each image and level, every ground-truth item of the level's classes is found within 1
+  pixel: Low the blocks, Medium the cards as well, High the elements as well. At most 20% of the
+  helpers a level finds match no ground-truth item.
+- Each image's exact output per level is committed under `tests/` next to it, as a golden the
+  unit tests compare, to catch regressions. Guide suppression near rectangles and the
   30/30 cap may drop at a higher level a helper a lower level kept, so no containment between
   levels is required.
 - Downsampled Low and Medium give the same result as at full resolution on every image.
 - End-to-end: one screenshot per level; a found guide equals the snapped one at 125%; no actor of
   the extension is sampled by the capture.
-- The finished detector meets the Speed rule at every level, on a full-window 4K zone of the
-  busiest test image, on the maintainer's machine; the PR reports the timings. Each band's
+- The finished detector meets the Speed rule at every level, on the busiest test image scaled to
+  3840 × 2160, on the maintainer's machine, measured as the rule says; the PR reports the
+  timings. It is not a CI gate. Each band's
   readback through `composite_to_stream` is synchronous on the GPU, so the band size is what
   keeps each stall under 100 ms.
 
