@@ -66,9 +66,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
   time, each starting once the previous one ended, with the etag it left. Commits that have not
   started yet merge into the latest state, so one write carries them all.
 - For each file, the shell keeps the etag and the text of its last successful read or write. A
-  folder event is judged only once that file's queue is idle. An event whose file has that etag,
-  or the text of that write or of any write that was in flight or queued meanwhile, is the
-  shell's own write, or no change, and is ignored. This holds across a disable and re-enable.
+  folder event is judged only once that file's queue is idle, against the file as it is then:
+  when it has that etag or that text, the event is the shell's own write, or no change, and is
+  ignored. Events of earlier writes in the queue are judged the same way, so they never count as
+  external. This holds across a disable and re-enable.
 - A file is identified by its name, `<id>.json`. The shell watches the folder, and acts on a name
   once its events settle: on `CHANGES_DONE_HINT`, or after about 300 ms without an event. A file
   that disappears and comes back within that time is changed, not removed.
@@ -96,9 +97,11 @@ The images are mockups. Where an image and the text disagree, the text wins.
   - A commit whose file no longer exists, before its removal has settled, is dropped and never
     recreates the file: the set is removed as above. GIO's replace recreates a missing file even
     with an etag, so each write to a file already read or written first checks that it still
-    exists. A first write creates the file, and the sets folder when it is missing. Once a
-    removal has settled, a file that comes back is judged as an import, never as the shell's own
-    write, whatever its text; an ID the shell deleted stays covered by its tombstone.
+    exists. A first write creates the file, and the sets folder when it is missing. A file
+    removed in the instant between that check and the write is recreated by the write; that
+    residual race is accepted. Once a removal has settled, a file that comes back is judged as
+    an import, never as the shell's own write, whatever its text; an ID the shell deleted stays
+    covered by its tombstone.
 - When a set is replaced, removed, or made unavailable, every dialog and menu open for it closes
   without applying: **Set settings**, rename, the delete confirmation, the **Save as new set…**
   name dialog, and its badge menu. A file chooser answer that arrives later is ignored. Rename and
@@ -114,9 +117,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
   defined by the set codec.
 - A set has at most 1,000 helpers, and its file at most 1 MiB. An action that would go past a
   limit is refused with a notice. The limits apply to every commit, an unlinked copy's included.
-- A name is trimmed of surrounding whitespace, and cut to 200 characters; a name of whitespace
-  only counts as empty. A numeric suffix shortens the name before it, so the whole stays within
-  200 characters.
+- A name the user enters, or the shell makes, is trimmed of surrounding whitespace, and cut to 200
+  characters; a name of whitespace only counts as empty. A name read from a file is not normalized:
+  past 200 characters, or empty once trimmed, the file is invalid. A numeric suffix shortens the
+  name before it, so the whole stays within 200 characters.
 - Two sets never share a name. A name that is already taken gets a numeric suffix, `Project A 2`,
   when a set is created, renamed, or found in the folder. Among files found with the same name,
   the one edited earliest keeps it, then the lower ID. A suffix given to a file found in the
@@ -187,11 +191,11 @@ The images are mockups. Where an image and the text disagree, the text wins.
 
 - Views go on normal, dialog, modal dialog, and utility windows; edit mode targets, the grid
   shortcut, and loading use that one list. Popup menus, dropdown menus, combo boxes, tooltips,
-  menus, and override-redirect windows block the windows below them. Every other window type,
-  such as docks, the desktop, toolbars, and splash screens, is transparent to targeting. Only
-  native popup menus (`xdg_popup`) blocking is verified; the other blocking types and
-  override-redirect windows come from XWayland. Wayland windows are supported. XWayland windows
-  work on a best-effort basis and are not verified.
+  menus, and override-redirect windows block the windows below them. Every other window type, such
+  as docks, the desktop, toolbars, and splash screens, is transparent to targeting. Blocking only
+  matters for windows that stay mapped once edit mode takes its grab; the other blocking types and
+  override-redirect windows come from XWayland, and are not verified. Wayland windows are supported.
+  XWayland windows work on a best-effort basis and are not verified.
 - A view draws its helpers inside its window, as children of the window's actor, clipped to its
   zone. Helpers move with the window. Windows in front hide them. They follow the window across
   workspaces, and hide while it is minimized. No line crosses the whole screen any more.
@@ -200,8 +204,9 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - Popups that a page draws inside its own content, such as HTML dropdowns, stay beneath the
   helpers. Native popup menus show above them.
 - Views of one window stack the largest zone at the bottom and the smallest on top, the newest on
-  top among equal sizes, so the view drawn on top is the one edit mode targets. Badges stack above
-  every view of their window.
+  top among equal sizes, so the view drawn on top is the one edit mode targets, unless a latched
+  or last-targeted view takes precedence (see [Edit mode](#edit-mode)). Badges stack above every
+  view of their window.
 - Outside edit mode nothing is reactive: clicks, scrolling, and hovering reach the window below.
 
 ## Coordinates and units
@@ -590,13 +595,13 @@ The preferences only customize the extension. They hold no set content.
 - **Snapshot**: it records the geometry it was taken with. A move, resize, scale change, or
   monitor change of the target window takes a new snapshot after the gesture is cancelled, and
   stale reads are dropped.
-- **A write fails**: the set stays in memory and is `not saved`: the main view's badge header
-  reads `Main view · not saved`, and the next commit tries again. The state clears on the next
-  successful write. One notice covers a run of failures, until a write succeeds. A set appears in
-  the library only once a write of it succeeded. A missing sets folder is created again on write.
-  A `not saved` set that leaves the screen for any reason but its deletion or its file's removal,
-  such as its last window closing, **✕**, or disabling the extension, is tried once more; when
-  that write fails too, a notice says its unsaved changes are lost.
+- **A write fails**: the set stays in memory and is `not saved`: the main view's badge header reads
+  `Main view · not saved`, and the next commit tries again. The state clears on the next successful
+  write. One notice covers a run of failures, until a write succeeds. A set appears in the library
+  only once a write of it succeeded. A missing sets folder is created again on write. A `not saved`
+  set that leaves the screen for any reason but its deletion, its file's removal, or its file
+  becoming unavailable, such as its last window closing, **✕**, or disabling the extension, is tried
+  once more; when that write fails too, a notice says its unsaved changes are lost.
 - **Find helpers** drops its result when the set, the zone, or the window changed while it ran.
 - **Disabling the extension** cancels any gesture in progress, removes every view and badge, and
   keeps every set. Writes in flight finish.
@@ -698,9 +703,11 @@ Four plans, delivered in order. Notes shared by every plan:
 4. **New sets**: `Untitled N` on the first content action, the palette color, and autosave.
 5. **Panel menu**: Edit helpers, Pick color, **On screen** (eye, ✕, a click enters edit mode),
    **Sets** (load, rename, delete with trash and tombstone, including for sets on screen, and the
-   trash failure rule), Open sets folder, Settings. The 5-row scrolling lists use `St.ScrollView`.
+   trash failure rule, holding commits until the write queue is idle), Open sets folder,
+   Settings. The 5-row scrolling lists use `St.ScrollView`.
 6. **Badge** on the main view, with the chips, Set settings…, Save as new set…, and Clear helpers.
-7. **Set settings** dialog: a `ModalDialog` in the shell, with the portal file chooser.
+7. **Set settings** dialog: a `ModalDialog` in the shell, with the portal file chooser, and the
+   extension's shortcuts ignored while it or its chooser is open.
 8. **Grid and mockup** per set and per view, with the mockup's cache and file monitor.
    `Super+Shift+G` acts on the focused window's set.
 9. **Preferences**: drop helper color, zoom, grid, mockup, and Show helpers, and add **Corner
@@ -714,11 +721,10 @@ Four plans, delivered in order. Notes shared by every plan:
   its set leaves the screen. A set already on screen cannot be loaded again: its library row
   shows `On screen` and does not load. No copies, no fixed zones, no `A` key, no **Add a copy…**,
   no **Reset zone**. SET-P2 delivers them.
-- External edits are ignored, and a commit simply overwrites the file. Files not named
-  `<id>.json` show as `unavailable`. A file removed while its set is shown only leaves the
-  library. Files found with the same name get no suffix. A write failure or a missing mockup
-  image only logs a warning, and the badge header
-  always reads `Main view · saved`. SET-P3 delivers the rules for all of them.
+- External edits are ignored, and a commit simply overwrites the file. Files not named `<id>.json`
+  show as `unavailable`. A file removed while its set is shown only leaves the library. Files found
+  with the same name get no suffix. A write failure or a missing mockup image only logs a warning,
+  and the badge header always reads `Main view · saved`. SET-P3 delivers the rules for all of them.
 - No **Find helpers** and no **Tolerance** in the badge. SET-P4 delivers them.
 
 **Prototype**, throwaway, not merged, run first. Render one guide and one rectangle as children of
@@ -734,7 +740,8 @@ a window actor, with a clip. It must pass every criterion below, in the headless
   does not inherit.
 - The helpers move with the window, hide with it when it is minimized or moved to another
   workspace, and disappear when it closes, without a `JS ERROR`.
-- Native popup menus (`xdg_popup`) show above the helpers.
+- Native popup menus (`xdg_popup`) show above the helpers. Also record whether such a menu, open
+  when edit mode starts, stays mapped after `Main.pushModal`.
 - Edit mode's capture (`Shell.Screenshot.screenshot_stage_to_content`) and the color picker don't
   sample the helpers, which are hidden for the paint and restored afterwards, on cancel too.
 - Outside edit mode, `global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, …)` never returns a
@@ -756,8 +763,12 @@ a window actor, with a clip. It must pass every criterion below, in the headless
 - End-to-end checks cover migration, drawing in a window, snapping, undo, the badge menu, Set
   settings with the file chooser, Save as new set…, the picker and the capture not sampling the
   helpers, the mockup, click-through, the panel menu (load, rename, delete to trash, the trash
-  failure), the grid shortcut, disable and enable, the preferences, and 125%; a native popup
-  menu blocking targeting; a mockup image replaced at the same path showing its new content.
+  failure, a delete issued while a write is in flight leaving the file in the trash), the grid
+  shortcut, shortcuts doing nothing while Set settings is open, disable and enable, the
+  preferences, and 125%; a mockup image replaced at the same path showing its new content.
+- Unit tests classify every window type as a target, a blocker, or transparent. When the
+  prototype shows that a native popup menu stays mapped after edit mode's grab, an end-to-end
+  check also shows it blocking targeting.
 - The prototype criteria above, and the maintainer's scanout result recorded on the PR.
 
 **Technical notes**
@@ -783,7 +794,7 @@ a window actor, with a clip. It must pass every criterion below, in the headless
   Reset zone; hit testing, `Tab` cycling, measuring, snapping, and gap labels bounded to a fixed
   zone's visible part.
 - **Several views per window**, which lifts the SET-P1 restriction: stacking and targeting by zone
-  size, input and handle priority, and badge placement and shifting.
+  size, input and handle priority, target latching, and badge placement and shifting.
 - **Badges**: overlapping badges shift left and wrap to a row above at the window frame's edge.
 - **Panel menu, for copies**: the number of copies on On screen rows, the ✕ confirmation when
   unlinked copies have local changes, the number of views leaving in the delete dialog, and loading
@@ -799,8 +810,9 @@ a window actor, with a clip. It must pass every criterion below, in the headless
   the 40 × 40 minimum, and snapping of zone edges.
 - End-to-end checks cover each scope item: a linked copy following a drag live, unlinking and
   relinking with Keep and Discard, promotion on close, two views in one window framed by dragging
-  an edge that snaps to the divider, Reset zone, `Tab` and measuring bounded to a zone, and the
-  menu confirmations.
+  an edge that snaps to the divider, Reset zone, `Tab` and measuring bounded to a zone, the
+  menu confirmations, and target latching: a press on a helper, a badge, or an edge, a short
+  press on an edge, the selection cleared, and keys inert outside the latched zone.
 
 ### SET-P3: Library polish and robustness
 
