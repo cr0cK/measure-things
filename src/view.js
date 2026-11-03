@@ -5,7 +5,15 @@ import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
-import {columnGrid, guideGaps, highestScaleMonitor, rectangleGaps, scaleHelper, surfaceOffset} from './geometry.js';
+import {
+    columnGrid,
+    guideGaps,
+    highestScaleMonitor,
+    isInZone,
+    rectangleGaps,
+    scaleHelper,
+    surfaceOffset,
+} from './geometry.js';
 import {badgeName, roundCss} from './sets.js';
 
 const LABEL_MARGIN = 4;
@@ -84,6 +92,7 @@ export class View {
         this._mockupImage = null;
         this._mockupMonitor = null;
         this._mockupWatched = null;
+        this._mockupLoad = null;
         this._labelHeight = 0;
         this._attached = false;
 
@@ -135,6 +144,7 @@ export class View {
         this.layer.destroy();
         this._helperViews.clear();
         this._mockupPath = null;
+        this._mockupLoad = null;
     }
 
     /** Detaches from a window that is going away, before its actor is destroyed. */
@@ -179,9 +189,11 @@ export class View {
             ? this.geometry.devicePerStage : 1 / this.zonePerCss;
     }
 
-    /** The helpers in zone pixels, with their ids. */
+    /** The helpers in zone pixels, with their ids; those outside the zone are hidden, and left out. */
     zoneHelpers() {
-        return this.content.helpers.map(helper => scaleHelper(helper, this.zonePerCss));
+        const {width, height} = this.geometry;
+        return this.content.helpers.map(helper => scaleHelper(helper, this.zonePerCss))
+            .filter(helper => isInZone(helper, width, height));
     }
 
     /** Stores a helper given in zone pixels, rounded to CSS hundredths. */
@@ -291,6 +303,8 @@ export class View {
             return;
         const helpers = this.zoneHelpers();
         const ids = new Set(helpers.map(helper => helper.id));
+        if (!ids.has(this.selectedId))
+            this.selectedId = null;
         for (const [id, views] of this._helperViews) {
             if (!ids.has(id)) {
                 for (const actor of views.actors)
@@ -496,6 +510,7 @@ export class View {
             this._mockup.hide();
             this._mockupPath = null;
             this._mockupImage = null;
+            this._mockupLoad = null;
             this._watchMockup(null);
             return;
         }
@@ -504,15 +519,18 @@ export class View {
             this._mockup.hide();
             this._mockupImage = null;
             const path = mockup.file;
+            // Only the last load counts: an older one may end after it.
+            const load = {};
+            this._mockupLoad = load;
             this._watchMockup(path);
             this._images.load(path).then(image => {
-                if (this._mockupPath !== path)
+                if (this._mockupLoad !== load)
                     return;
                 this._mockupImage = image;
                 this._mockup.set_content(image.content);
                 this._syncMockup();
             }).catch(error => {
-                if (this._mockupPath === path)
+                if (this._mockupLoad === load)
                     console.warn(`Measure Things: could not load the mockup ${path}: ${error.message}`);
             });
             return;

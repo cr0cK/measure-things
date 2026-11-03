@@ -525,12 +525,12 @@ export class Overlay {
 
     /** The stage coordinate of the nearest screen edge within the zone, or `position` itself. */
     _nearest(line, scale, position, origin, length) {
-        const boundary = nearestBoundary(line, position * scale, SNAP_DISTANCE * scale);
-        const outside = boundary !== null &&
-            (boundary < origin * scale - 0.5 || boundary > (origin + length) * scale + 0.5);
-        if (boundary === null || outside)
-            return position;
-        return boundary / scale;
+        // Only boundaries within the zone count: the nearest one may lie outside it.
+        const boundary = nearestBoundary(line, position * scale, SNAP_DISTANCE * scale, undefined, {
+            from: Math.ceil(origin * scale - 0.5),
+            to: Math.floor((origin + length) * scale + 0.5),
+        });
+        return boundary === null ? position : boundary / scale;
     }
 
     _onPress(event) {
@@ -793,7 +793,8 @@ export class Overlay {
         }
         case Clutter.KEY_Tab:
         case Clutter.KEY_ISO_Left_Tab: {
-            const helpers = model?.content.helpers ?? [];
+            // Helpers outside the zone are hidden, and cannot be selected.
+            const helpers = view?.zoneHelpers() ?? [];
             if (helpers.length === 0)
                 break;
             const index = helpers.findIndex(helper => helper.id === view.selectedId);

@@ -42,6 +42,8 @@ export class SetStore {
     }
 
     async load() {
+        // A write of the previous run, still in flight, must land before the files are read.
+        await Promise.all([...writes.values()].map(job => job.done));
         try {
             this.folder.make_directory_with_parents(null);
         } catch (error) {
@@ -197,8 +199,8 @@ export class SetStore {
             else
                 entry = {name, title: titleOf(bytes, name), error: result.error ?? 'misnamed'};
         } catch (error) {
-            if (error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED) ||
-                error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+            if (error instanceof GLib.Error && (error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED) ||
+                error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND)))
                 return;
             entry = {name, title: name.replace(/\.json$/, ''), error: 'unreadable'};
         }

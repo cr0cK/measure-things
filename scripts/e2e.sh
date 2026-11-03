@@ -123,6 +123,16 @@ click_actor() {
     pointer_click "$x" "$y"
 }
 
+# Types text through the virtual keyboard: type_text /tmp/some/path.png.
+type_text() {
+    local i
+    for ((i = 0; i < ${#1}; i++)); do
+        input_eval "const keyval = Clutter.unicode_to_keysym('${1:i:1}'.codePointAt(0));
+            global._headlessKeyboard.notify_keyval(now, keyval, Clutter.KeyState.PRESSED);
+            global._headlessKeyboard.notify_keyval(now, keyval, Clutter.KeyState.RELEASED);"
+    done
+}
+
 type_keys() {
     local key
     for key in "$@"; do
@@ -364,7 +374,9 @@ CHOOSER="$E2E.win('Choose a mockup image')"
 shell_eval "void ($E2E.chooserDialog = $E2E.dialog())" >/dev/null
 click_actor "$E2E.button($E2E.dialog(), 'Choose…')"
 wait_for "!!$CHOOSER || $E2E.chooserDialog.visible" 60
+PORTAL=0
 if [[ $(shell_eval "!!$CHOOSER") == true ]]; then
+    PORTAL=1
     expect "$E2E.chooserDialog.visible + ' ' + $OVERLAY.editing + ' ' + Main.modalCount" 'false false 0' \
         'while the file chooser is open, the dialog hides and releases its grab, and edit mode ends'
     shell_eval "$CHOOSER.activate(global.get_current_time())" >/dev/null
@@ -382,6 +394,37 @@ expect "$E2E.entries($E2E.dialog())[0].text + ' ' + Main.modalCount" 'Draft 1' \
     'when the chooser closes, the dialog comes back with its draft'
 click_actor "$E2E.button($E2E.dialog(), 'Cancel')"
 expect "$E2E.model('Page').name + ' ' + !!$E2E.dialog()" 'Landing page false' 'Cancel changes nothing'
+
+# An image chosen in the file chooser becomes the set's mockup, and turns it on.
+if ((PORTAL)); then
+    shell_eval "const {GdkPixbuf} = imports.gi;
+        const image = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, false, 8, 40, 20);
+        image.fill(0x2ec27eff);
+        image.savev('$WORK/chosen.png', 'png', [], []);" >/dev/null
+    press_keys Super_L Shift_L m
+    pointer_move 600 600
+    click_actor "$E2E.view('Page').badgeActor"
+    click_actor "$OVERLAY.badgeMenu.menu._getMenuItems()[2]"
+    wait_for "!!$E2E.dialog()?.visible"
+    shell_eval "void ($E2E.chooserDialog = $E2E.dialog())" >/dev/null
+    click_actor "$E2E.button($E2E.dialog(), 'Choose…')"
+    wait_for "!!$CHOOSER" 60
+    shell_eval "$CHOOSER.activate(global.get_current_time())" >/dev/null
+    wait_for "$CHOOSER.has_focus()"
+    press_keys Control_L l
+    type_text "$WORK/chosen.png"
+    # The first Return goes to the file, the second chooses it.
+    press_keys Return
+    sleep 0.5
+    press_keys Return
+    wait_for "$E2E.chooserDialog.visible" 30
+    click_actor "$E2E.button($E2E.dialog(), 'Save')"
+    expect "(m => m.file + ' ' + m.visible)($E2E.model('Page').content.mockup)" "$WORK/chosen.png true" \
+        'an image chosen in the file chooser becomes the mockup, shown'
+    shell_eval "const model = $E2E.model('Page');
+        Object.assign(model.content.mockup, {file: '', visible: false});
+        $MANAGER.commit(model);" >/dev/null
+fi
 
 # Save as new set: the view switches to a new set, and the old file keeps its last content.
 press_keys Super_L Shift_L m
@@ -621,6 +664,17 @@ mv "$XDG_DATA_HOME/Trash.off" "$XDG_DATA_HOME/Trash"
 shell_eval "$MANAGER.delete('$KEPT')" >/dev/null
 expect "$MANAGER.modelOf('$KEPT')" null 'the set can be deleted once the trash works'
 check 'and its file is in the trash' "[[ -f $XDG_DATA_HOME/Trash/files/$KEPT.json ]]"
+# A helper outside its zone is hidden, and neither drawn nor selectable, but still stored.
+shell_eval "const model = $MANAGER.createSet($E2E.win('Third')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 50});
+    $MANAGER.addHelper(model, {kind: 'rectangle', x: -500, y: 10, width: 50, height: 20});
+    $MANAGER.commit(model);" >/dev/null
+expect "(v => v.zoneHelpers().length + ' ' + v.content.helpers.length + ' ' + v._helperViews.size)($E2E.view('Third'))" \
+    '1 2 1' 'a helper outside its zone is hidden, but still stored'
+HIDDEN=$(shell_eval "$E2E.model('Third').id")
+shell_eval "$MANAGER.delete('$HIDDEN')" >/dev/null
+wait_for "!$MANAGER.modelOf('$HIDDEN')"
+
 shell_eval "$E2E.win('Third').delete(global.get_current_time())" >/dev/null
 wait_for "!$E2E.win('Third')"
 
@@ -661,6 +715,21 @@ expect "$E2E.model('Other').content.grid.visible + ' ' + $E2E.helpers('Other') +
     'true R 120,110 201x170 | V 510 true' 'the grid shortcut does nothing during a drag'
 press_keys Escape
 
+# A write still in flight when the extension is disabled lands before the next run reads the files:
+# the next run holds the committed revision, not the one before it.
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
+    global._restoreReplace = () => { proto._replace = replace; };
+    proto._replace = async function (name, bytes) {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1000,
+            () => { resolve(); return false; }));
+        return replace.call(this, name, bytes);
+    };
+    const model = $E2E.model('Other');
+    model.content.grid.visible = !model.content.grid.visible;
+    $MANAGER.commit(model);
+    global._inFlight = [model.id, model.revision];" >/dev/null
+IN_FLIGHT=$(shell_eval "global._inFlight[0]")
+IN_FLIGHT_REVISION=$(shell_eval "global._inFlight[1]")
 shell_eval "Main.extensionManager.disableExtension('$UUID')" >/dev/null
 wait_for "Main.extensionManager.lookup('$UUID').state !== 1"
 expect "global.get_window_actors().some(a => a.get_children().some(c => c.name === 'measure-things-view'))" false \
@@ -670,6 +739,9 @@ expect "!!Main.panel.statusArea['$UUID'] || Main.layoutManager.uiGroup.get_child
 shell_eval "Main.extensionManager.enableExtension('$UUID')" >/dev/null
 wait_for "Main.extensionManager.lookup('$UUID').state === 1"
 wait_for "$MANAGER.store.entries().length === 3"
+shell_eval "global._restoreReplace()" >/dev/null
+expect "$MANAGER.store.get('$IN_FLIGHT').revision" "$IN_FLIGHT_REVISION" \
+    'a write in flight when the extension is disabled lands before the next run reads its file'
 expect "$MANAGER.models.length + ' ' + $MANAGER.store.entries().map(e => e.name).sort().join()" \
     '0 Landing page,Untitled 1,v2' 'enabling keeps every set, with no view on screen'
 

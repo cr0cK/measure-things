@@ -74,7 +74,7 @@ function parseHelper(entry) {
 /** The content of a parsed file, or null when anything in it is invalid. */
 function parseContent(raw) {
     const {grid, mockup} = raw;
-    if (!COLOR_PATTERN.test(raw.color ?? '') || !inRange(raw.zoom, ZOOM_RANGE) ||
+    if (typeof raw.color !== 'string' || !COLOR_PATTERN.test(raw.color) || !inRange(raw.zoom, ZOOM_RANGE) ||
         typeof raw.helpersVisible !== 'boolean' || !TOLERANCES.includes(raw.tolerance) ||
         !isObject(grid) || typeof grid.visible !== 'boolean' ||
         !Object.entries(GRID_RANGES).every(([key, range]) => inRange(grid[key], range)) ||
@@ -133,7 +133,7 @@ export function parseSet(text, bytes = text.length) {
     const edited = typeof raw.edited === 'string' ? Date.parse(raw.edited) : NaN;
     const name = typeof raw.name === 'string' ? raw.name : '';
     const content = parseContent(raw);
-    if (!ID_PATTERN.test(raw.id ?? '') || !name.trim() || characters(name).length > MAX_NAME_LENGTH ||
+    if (typeof raw.id !== 'string' || !ID_PATTERN.test(raw.id) || !name.trim() || characters(name).length > MAX_NAME_LENGTH ||
         !Number.isInteger(raw.revision) || raw.revision < 0 || Number.isNaN(edited) ||
         (raw.migrated !== undefined && typeof raw.migrated !== 'boolean') || !content)
         return {error: 'invalid'};

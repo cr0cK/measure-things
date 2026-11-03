@@ -31,11 +31,13 @@ export function regionAround(line, index, tolerance = EDGE_TOLERANCE) {
 
 /**
  * The boundary between two different pixels nearest to `position` (a boundary coordinate, which
- * may be fractional), within `radius`; null when there is none.
+ * may be fractional), within `radius` and within the boundaries `from` to `to`; null when there
+ * is none.
  */
-export function nearestBoundary(line, position, radius, tolerance = EDGE_TOLERANCE) {
-    const first = Math.max(1, Math.ceil(position - radius));
-    const last = Math.min(line.length - 1, Math.floor(position + radius));
+export function nearestBoundary(line, position, radius, tolerance = EDGE_TOLERANCE,
+    {from = 0, to = line.length} = {}) {
+    const first = Math.max(1, from, Math.ceil(position - radius));
+    const last = Math.min(line.length - 1, to, Math.floor(position + radius));
     let best = null;
     for (let b = first; b <= last; b++) {
         if (differs(line, b - 1, b, tolerance) &&

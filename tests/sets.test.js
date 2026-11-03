@@ -60,6 +60,8 @@ test('reports files that are not valid sets', () => {
     for (const changes of [
         {id: ''},
         {id: '../escape'},
+        {id: 123},
+        {color: ['#ff2d95']},
         {name: '   '},
         {revision: -1},
         {edited: 'yesterday'},
