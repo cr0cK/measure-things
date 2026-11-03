@@ -1150,11 +1150,26 @@ shell_eval "const manager = $MANAGER;
     manager._anyEdit = false;
     manager.lastEdited = manager.modelOf('$ORIGIN');
     manager.saveAsNew(manager.lastEdited, 'Third fork');
+    global._third = manager.lastEdited;
     manager.load('$FORK', $E2E.win('Host'));
-    global._third = manager.lastEdited?.id;
-    manager._anyEdit = true;
+    global._loaded = manager.lastEdited?.id;
     null;" >/dev/null
-expect "global._third" "$FORK" 'Save as new set… is not an edit for the set A copies'
+expect "global._loaded" "$FORK" 'Save as new set… is not an edit: the set loaded after it is the one A copies'
+shell_eval "const manager = $MANAGER;
+    manager._anyEdit = false;
+    manager.lastEdited = manager.modelOf('$FORK');
+    manager.saveAsNew(global._third, 'Fourth fork');
+    global._created = manager.lastEdited === global._third;
+    manager.lastEdited = global._third;
+    manager._anyEdit = false;
+    manager.removeFromScreen(global._third);
+    manager.load('$FORK', $E2E.win('Host'));
+    global._blocked = manager.lastEdited;
+    manager._anyEdit = true;
+    manager.lastEdited = manager.modelOf('$FORK');
+    null;" >/dev/null
+expect "global._created + ' ' + global._blocked" 'true null' \
+    'a set saved under a new name counts as created, and A stays off once its set left the screen until a set is edited'
 # After A, the keys act on the new view without the pointer moving.
 open_window Fresh 440 780 280x200 '#241f31'
 press_keys Super_L Shift_L m

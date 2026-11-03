@@ -467,8 +467,11 @@ export class Manager {
         if (index < 0)
             return;
         this.models.splice(index, 1);
-        if (this.lastEdited === model)
+        if (this.lastEdited === model) {
+            // `A` does nothing until another set is edited: loading one does not bring it back.
             this.lastEdited = null;
+            this._anyEdit = true;
+        }
         const views = [model.view, ...model.copies].filter(Boolean);
         model.view = null;
         model.copies = [];
@@ -549,6 +552,8 @@ export class Manager {
         Object.assign(model, {id: set.id, name, revision: 0, edited: set.edited, migrated: false});
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
         this.store.write(set);
+        // A new set, not a change of content: it counts as created.
+        this._fallbackEdited(model);
         this.syncModel(model);
         this._changed();
     }
