@@ -48,16 +48,19 @@ export function hitTest(helpers, x, y, tolerance = HIT_TOLERANCE) {
 }
 
 /**
- * Whether a helper shows in a zone of `width` × `height`: a guide on it, or a rectangle that
- * intersects it. Others are hidden, and neither selectable nor neighbors of a gap.
+ * Whether a helper shows in the visible part of a zone, `{x, y, width, height}` in zone pixels: a
+ * guide on it, or a rectangle that intersects it. Others are hidden, and neither selectable nor
+ * neighbors of a gap.
  */
-export function isInZone(helper, width, height) {
+export function isInZone(helper, visible) {
+    const right = visible.x + visible.width;
+    const bottom = visible.y + visible.height;
     if (helper.kind === 'vertical')
-        return helper.x >= 0 && helper.x < width;
+        return helper.x >= visible.x && helper.x < right;
     if (helper.kind === 'horizontal')
-        return helper.y >= 0 && helper.y < height;
-    return helper.x < width && helper.x + helper.width > 0 &&
-        helper.y < height && helper.y + helper.height > 0;
+        return helper.y >= visible.y && helper.y < bottom;
+    return helper.x < right && helper.x + helper.width > visible.x &&
+        helper.y < bottom && helper.y + helper.height > visible.y;
 }
 
 const keep = value => value;

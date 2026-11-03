@@ -38,6 +38,8 @@ const EDIT_KEYS = [
     },
     {title: 'Lower or raise the mockup opacity', keys: 'bracketleft bracketright'},
     {title: 'Toggle the column grid', keys: 'g'},
+    {title: 'Add a linked copy of the set edited last', subtitle: 'On the window under the pointer.', keys: 'a'},
+    {title: 'Resize a zone', subtitle: 'Drag its dashed edge. It snaps to screen edges.', text: 'Drag'},
     {title: 'Cancel the current drag, or leave edit mode', keys: 'Escape'},
 ];
 // A global shortcut needs one of these, so it cannot take a key away from typing.
@@ -101,8 +103,13 @@ export default class MeasureThingsPreferences extends ExtensionPreferences {
 
         const editKeysGroup = new Adw.PreferencesGroup({title: 'In edit mode'});
         page.add(editKeysGroup);
-        for (const {title, subtitle = '', hold, keys} of EDIT_KEYS) {
+        for (const {title, subtitle = '', hold, keys, text} of EDIT_KEYS) {
             const row = new Adw.ActionRow({title, subtitle});
+            if (text) {
+                row.add_suffix(new Gtk.Label({label: text, css_classes: ['dim-label'], valign: Gtk.Align.CENTER}));
+                editKeysGroup.add(row);
+                continue;
+            }
             if (hold) {
                 row.add_suffix(new Gtk.ShortcutLabel({accelerator: hold, valign: Gtk.Align.CENTER}));
                 row.add_suffix(new Gtk.Label({label: '+', css_classes: ['dim-label']}));

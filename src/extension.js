@@ -35,6 +35,8 @@ export default class MeasureThingsExtension extends Extension {
         this._settings = this.getSettings();
         this._picker = null;
         this._shownId = 0;
+        // The set whose ✕ is asking for a confirmation in the On screen list.
+        this._removing = null;
 
         this._indicator = new PanelMenu.Button(0.5, this.metadata.name, false);
         const icon = new St.Icon({
@@ -48,7 +50,7 @@ export default class MeasureThingsExtension extends Extension {
         this._overlay = new Overlay(this._settings, this._manager, {
             onStateChanged: () => this._syncMenu(),
             onSettings: model => this._editSettings(model),
-            onSaveAs: model => this._saveAs(model),
+            onSaveAs: view => this._saveAs(view),
         });
         this._buildMenu();
 
@@ -129,6 +131,7 @@ export default class MeasureThingsExtension extends Extension {
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         menu.addAction('Settings', () => this.openPreferences());
         menu.connect('open-state-changed', (_menu, open) => {
+            this._removing = null;
             if (open)
                 this._syncMenu();
         });
@@ -195,7 +198,13 @@ export default class MeasureThingsExtension extends Extension {
         const models = this._manager.onScreen;
         for (const visible of [header, holder, this._onScreenSeparator])
             visible.actor.visible = models.length > 0;
+        if (this._removing && !models.includes(this._removing))
+            this._removing = null;
         for (const model of models) {
+            if (model === this._removing) {
+                section.addMenuItem(this._removeConfirmation(model));
+                continue;
+            }
             const item = new PopupMenu.PopupBaseMenuItem({style_class: 'measure-things-set-row'});
             item.add_child(new St.Widget({
                 style_class: 'measure-things-set-dot',
@@ -203,17 +212,63 @@ export default class MeasureThingsExtension extends Extension {
                 y_align: Clutter.ActorAlign.CENTER,
             }));
             const title = model.view?.window.get_title() || 'Untitled window';
-            item.add_child(this._titles(model.name, `${title}${model.hidden ? ' · hidden' : ''}`));
+            const copies = model.copies.length;
+            const where = copies === 0 ? 'main only' : `main + ${copies} ${copies === 1 ? 'copy' : 'copies'}`;
+            item.add_child(this._titles(model.name,
+                `${where} · ${title}${model.hidden ? ' · hidden' : ''}`));
             const eye = this._rowButton(model.hidden ? 'view-conceal-symbolic' : 'view-reveal-symbolic',
                 model.hidden ? 'Show' : 'Hide', () => this._manager.setHidden(model, !model.hidden));
             const remove = this._rowButton('window-close-symbolic', 'Remove from screen',
-                () => this._manager.removeFromScreen(model));
+                () => this._removeFromScreen(model));
             item.add_child(eye);
             item.add_child(remove);
             item.connect('activate', () => this._showSet(model).catch(logError));
             item.set = model;
             section.addMenuItem(item);
         }
+    }
+
+    /** ✕: removes a set from the screen, asking first when unlinked copies would lose changes. */
+    _removeFromScreen(model) {
+        if (this._manager.localChanges(model) === 0) {
+            this._manager.removeFromScreen(model);
+            return;
+        }
+        this._removing = model;
+        this._syncOnScreen();
+    }
+
+    /** The light confirmation that replaces a set's row, saying what the removal loses. */
+    _removeConfirmation(model) {
+        const count = this._manager.localChanges(model);
+        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false,
+            style_class: 'measure-things-confirm'});
+        const box = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true});
+        const label = new St.Label({
+            text: `Remove “${model.name}” from the screen? ${count} local change${count === 1 ? '' : 's'} ` +
+                'in its unlinked copies will be lost.',
+            style_class: 'measure-things-confirm-text',
+        });
+        label.clutter_text.line_wrap = true;
+        box.add_child(label);
+        const buttons = new St.BoxLayout({x_align: Clutter.ActorAlign.END, style_class: 'measure-things-confirm-buttons'});
+        const cancel = new St.Button({label: 'Cancel', can_focus: true, style_class: 'measure-things-confirm-button'});
+        cancel.connect('clicked', () => {
+            this._removing = null;
+            this._syncOnScreen();
+        });
+        const confirm = new St.Button({label: 'Remove', can_focus: true,
+            style_class: 'measure-things-confirm-button measure-things-confirm-action'});
+        confirm.connect('clicked', () => {
+            this._removing = null;
+            this._manager.removeFromScreen(model);
+        });
+        buttons.add_child(cancel);
+        buttons.add_child(confirm);
+        box.add_child(buttons);
+        item.add_child(box);
+        item.removeConfirmation = true;
+        return item;
     }
 
     _syncLibrary() {
@@ -253,9 +308,7 @@ export default class MeasureThingsExtension extends Extension {
             item.connect('notify::active', () => {
                 actions.opacity = item.active ? 255 : 0;
             });
-            // A set on screen cannot be loaded again.
-            if (!shown)
-                item.connect('activate', () => this._load(entry));
+            item.connect('activate', () => this._load(entry));
         }
     }
 
@@ -338,9 +391,12 @@ export default class MeasureThingsExtension extends Extension {
     async _delete(entry) {
         this._closeMenu();
         const model = this._manager.modelOf(entry.id);
+        const count = model ? 1 + model.copies.length : 0;
+        const views = `${count} view${count === 1 ? '' : 's'}`;
         const confirmed = await askConfirm({
             title: `Delete “${entry.name}”?`,
-            description: model ? 'Its view will leave the screen. The file moves to the trash.'
+            description: model
+                ? `${views} will leave the screen. The file moves to the trash.`
                 : 'The file moves to the trash.',
             actionLabel: 'Delete',
         });
@@ -364,14 +420,20 @@ export default class MeasureThingsExtension extends Extension {
         this._manager.commit(model);
     }
 
-    async _saveAs(model) {
+    /** Save as new set…, on a main view, or on an unlinked copy. */
+    async _saveAs(view) {
+        const set = view.set;
         const name = await askName({
             title: 'Save as new set',
-            name: uniqueName(model.name, this._manager.takenNames()),
+            name: uniqueName(set.name, this._manager.takenNames()),
             actionLabel: 'Save',
         });
-        if (name && this._manager?.models.includes(model))
-            this._manager.saveAsNew(model, name);
+        if (!name || !this._manager?.views.includes(view) || view.set !== set)
+            return;
+        if (view.isMain)
+            this._manager.saveAsNew(set, name);
+        else if (!view.linked)
+            this._manager.saveCopyAsNew(view, name);
     }
 
     async _pickColor() {

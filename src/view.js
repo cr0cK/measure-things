@@ -8,6 +8,7 @@ import {formatLength, formatSize, withAlpha} from './format.js';
 import {
     columnGrid,
     guideGaps,
+    hitTest,
     highestScaleMonitor,
     isInZone,
     rectangleGaps,
@@ -15,10 +16,10 @@ import {
     surfaceOffset,
 } from './geometry.js';
 import {badgeName, roundCss} from './sets.js';
+import {edgeAt, storedZone, zoneRects} from './zones.js';
 
 const LABEL_MARGIN = 4;
 const HANDLE_SIZE = 7;
-const BADGE_MARGIN = 8;
 const BADGE_NAME_LENGTH = 24;
 // What a mockup file does that its view must read the image again for.
 const {CHANGES_DONE_HINT, CREATED, DELETED, MOVED_IN, MOVED_OUT, RENAMED} = Gio.FileMonitorEvent;
@@ -26,17 +27,43 @@ const MOCKUP_FILE_EVENTS = [CHANGES_DONE_HINT, CREATED, DELETED, MOVED_IN, MOVED
 const RECTANGLE_PARTS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
 /**
- * Where a window's frame is drawn, as the views inside it need it:
+ * Where a window's frame, or a zone of it, is drawn, as the views inside it need it:
  * - `k`: the stage pixels per unit of the window actor's children. In physical layout mode Mutter
  *   scales them by the window's geometry scale; in logical mode it is 1. One unit is one CSS pixel
  *   at 100% zoom either way.
- * - `originX`, `originY`: the frame's top-left corner in stage pixels, moved as Mutter moves the
- *   window's surfaces onto the device pixels of the highest-scale monitor the frame touches.
+ * - `originX`, `originY`: the zone's top-left corner in stage pixels; for the frame, moved as
+ *   Mutter moves the window's surfaces onto the device pixels of the highest-scale monitor the
+ *   frame touches.
  * - `layerX`, `layerY`: the same corner in the window actor's units.
- * - `width`, `height`: the frame's size in stage pixels.
+ * - `width`, `height`: the zone's size in stage pixels.
+ * - `visible`: the part of the zone inside the frame, in zone pixels, or null when it is empty.
+ * - `zone`, `visibleInFrame`: the zone and its visible part in frame pixels.
+ * - `frame`: the geometry of the whole frame, which has `visible` and `zone` of the whole frame.
  * - `devicePerStage`: device pixels per stage pixel where the window is drawn.
+ *
+ * `zone` is a view's fixed zone, in the window actor's units from the frame's corner, or null.
  */
-export function windowGeometry(window, logical) {
+export function windowGeometry(window, logical, zone = null) {
+    const frame = frameGeometry(window, logical);
+    if (!frame)
+        return null;
+    const {rect, visible} = zoneRects(frame, zone, frame.k);
+    return {
+        ...frame,
+        frame,
+        originX: frame.originX + rect.x,
+        originY: frame.originY + rect.y,
+        layerX: frame.layerX + rect.x / frame.k,
+        layerY: frame.layerY + rect.y / frame.k,
+        width: rect.width,
+        height: rect.height,
+        zone: rect,
+        visibleInFrame: visible,
+        visible: visible && {...visible, x: visible.x - rect.x, y: visible.y - rect.y},
+    };
+}
+
+function frameGeometry(window, logical) {
     const actor = window.get_compositor_private();
     if (!actor)
         return null;
@@ -69,20 +96,30 @@ export function windowGeometry(window, logical) {
 }
 
 /**
- * A set shown on a window, inside its zone: the whole frame, as zones are automatic. Its actors
- * are children of the window actor, so they move, hide, and stack with the window, and they are
+ * A set shown on a window, inside a zone of it: the whole frame, or a fixed zone. Its actors are
+ * children of the window actor, so they move, hide, and stack with the window, and they are
  * attached only while they show something. Nothing in it is reactive.
+ *
+ * A view is the main view of its set, or a copy. A linked view shows the set's content; an
+ * unlinked copy holds `local`, a model of its own that never reaches the set.
  *
  * Interaction runs in zone pixels: stage pixels from the zone's top-left corner. Helpers are
  * stored in CSS pixels at the set's zoom, and drawn in the window actor's units.
  */
 export class View {
-    constructor(model, window, {settings, images, isLogical, onClosed}) {
-        this.model = model;
+    constructor(set, window, {settings, images, isLogical, onClosed, onBadgeChanged, seq}) {
+        this.set = set;
+        this.local = null;
+        this.zone = null;
+        this.seq = seq;
         this.window = window;
         this.selectedId = null;
         this.editing = false;
         this.geometry = null;
+        // The badge's place in the frame, which the manager sets for all views of a window.
+        this.badgeRect = null;
+        this.badgeSize = {width: 0, height: 0};
+        this._onBadgeChanged = onBadgeChanged;
         this._settings = settings;
         this._images = images;
         this._isLogical = isLogical;
@@ -95,6 +132,8 @@ export class View {
         this._mockupLoad = null;
         this._labelHeight = 0;
         this._attached = false;
+        this._badgeAttached = false;
+        this._badgeShown = false;
 
         this.layer = new St.Widget({name: 'measure-things-view', clip_to_allocation: true});
         // In the window actor's units.
@@ -110,12 +149,19 @@ export class View {
         this._handles = new St.Widget();
         this._gapLabels = new St.Widget();
         this._labels = new St.Widget();
+        // The dashed frame of the zone and its edge handles, in edit mode.
+        this._frame = new St.DrawingArea();
+        this._frame.connect('repaint', area => this._paintFrame(area));
+        this._zoneHandles = [0, 1, 2, 3].map(() => new St.Widget({style_class: 'measure-things-handle'}));
+        // A child of the window actor of its own, above every view's layer.
         this._badge = new St.BoxLayout({style_class: 'measure-things-badge'});
         this._badgeDot = new St.Widget({style_class: 'measure-things-badge-dot', y_align: Clutter.ActorAlign.CENTER});
         this._badgeLabel = new St.Label({style_class: 'measure-things-badge-label', y_align: Clutter.ActorAlign.CENTER});
+        this._badgeLink = new St.Icon({icon_name: 'insert-link-symbolic', icon_size: 12, y_align: Clutter.ActorAlign.CENTER});
         this._badge.add_child(this._badgeDot);
         this._badge.add_child(this._badgeLabel);
-        for (const group of [this._handles, this._gapLabels, this._labels, this._badge])
+        this._badge.add_child(this._badgeLink);
+        for (const group of [this._frame, ...this._zoneHandles, this._handles, this._gapLabels, this._labels])
             this._chrome.add_child(group);
         this.layer.add_child(this._content);
         this.layer.add_child(this._chrome);
@@ -144,8 +190,10 @@ export class View {
         this._settings.disconnect(this._badgesSignal);
         this._settings.disconnect(this._unitSignal);
         this._setAttached(false);
+        this._setBadgeAttached(false);
         this._watchMockup(null);
         this.layer.destroy();
+        this._badge.destroy();
         this._helperViews.clear();
         this._mockupPath = null;
         this._mockupLoad = null;
@@ -155,6 +203,7 @@ export class View {
     detach() {
         this._disconnectActor();
         this._setAttached(false);
+        this._setBadgeAttached(false);
     }
 
     _disconnectActor() {
@@ -173,6 +222,31 @@ export class View {
     /** Hides the view for a capture of the screen, without detaching it. */
     setCaptureHidden(hidden) {
         this.layer.visible = !hidden;
+        this._badge.visible = !hidden && this._badgeShown;
+    }
+
+    /** The model its edits go to: the set's, or an unlinked copy's own. */
+    get model() {
+        return this.local ?? this.set;
+    }
+
+    get isMain() {
+        return this.set.view === this;
+    }
+
+    get linked() {
+        return this.local === null;
+    }
+
+    /** Whether the zone is fixed rather than the whole window. */
+    get fixed() {
+        return this.zone !== null;
+    }
+
+    /** Sets the zone from a rectangle in frame pixels, rounded to whole stage pixels; null resets. */
+    setZone(rect) {
+        this.zone = rect && storedZone(rect, this.geometry.k);
+        this.sync();
     }
 
     select(id) {
@@ -202,9 +276,11 @@ export class View {
 
     /** The helpers in zone pixels, with their ids; those outside the zone are hidden, and left out. */
     zoneHelpers() {
-        const {width, height} = this.geometry;
+        const {visible} = this.geometry;
+        if (!visible)
+            return [];
         return this.content.helpers.map(helper => scaleHelper(helper, this.zonePerCss))
-            .filter(helper => isInZone(helper, width, height));
+            .filter(helper => isInZone(helper, visible));
     }
 
     /** Stores a helper given in zone pixels, rounded to CSS hundredths. */
@@ -217,16 +293,35 @@ export class View {
         return [Math.round(x - this.geometry.originX), Math.round(y - this.geometry.originY)];
     }
 
-    /** Whether a zone point is in the zone. */
+    /** Whether a zone point is in the visible part of the zone. */
     contains(x, y) {
-        return x >= 0 && y >= 0 && x < this.geometry.width && y < this.geometry.height;
+        const {visible} = this.geometry;
+        return Boolean(visible) && x >= visible.x && y >= visible.y &&
+            x < visible.x + visible.width && y < visible.y + visible.height;
     }
 
-    /** Whether a zone point is on the badge, which only shows in edit mode for input. */
-    badgeContains(x, y) {
-        const badge = this._badge;
-        return this._attached && badge.visible && x >= badge.x && y >= badge.y &&
-            x < badge.x + badge.width && y < badge.y + badge.height;
+    /**
+     * What lies under a stage point, as a press sees it: `badge`, `edge` (a zone edge, in edit
+     * mode, with its name), `helper` (what hit testing finds, which an unselected rectangle's
+     * inside does not count as), and `inside` the visible zone.
+     */
+    hitAt(x, y) {
+        const [zoneX, zoneY] = this.toZone(x, y);
+        const {zone, visible} = this.geometry;
+        const badge = this.badgeRect;
+        const onBadge = this._badgeShown && Boolean(badge) && zoneX + zone.x >= badge.x &&
+            zoneY + zone.y >= badge.y && zoneX + zone.x < badge.x + badge.width &&
+            zoneY + zone.y < badge.y + badge.height;
+        const inside = this.contains(zoneX, zoneY);
+        const hit = inside ? hitTest(this.zoneHelpers(), zoneX, zoneY) : null;
+        const helper = hit && (hit.part !== 'inside' || hit.id === this.selectedId) ? hit : null;
+        return {
+            badge: onBadge,
+            edge: this.editing && visible ? edgeAt(visible, zoneX, zoneY) : null,
+            helper,
+            inside,
+            under: hit,
+        };
     }
 
     get badgeActor() {
@@ -248,20 +343,21 @@ export class View {
         return this.editing || this.content.helpersVisible;
     }
 
-    /** A set a gesture is still creating has no badge until its first commit. */
+    /** A set a gesture is still creating has no badge until its first commit; a hidden one has none. */
     _showsBadge() {
-        return !this.model.provisional && (this.editing || this._settings.get_boolean('show-badges'));
+        return !this.set.provisional && (this.editing || !this.set.hidden) &&
+            (this.editing || this._settings.get_boolean('show-badges'));
     }
 
     _showsMockup() {
         return this.content.mockup.visible && this.content.mockup.file !== '';
     }
 
-    /** Whether anything would show: a view is attached only then. */
+    /** Whether the layer would show anything: it is attached only then. */
     _wanted() {
-        if (!this.editing && this.model.hidden)
+        if (!this.geometry.visible || (!this.editing && this.set.hidden))
             return false;
-        return this._showsBadge() || this.content.grid.visible || this._showsMockup() ||
+        return this.editing || this.content.grid.visible || this._showsMockup() ||
             (this._showsHelpers() && this.zoneHelpers().length > 0);
     }
 
@@ -275,28 +371,57 @@ export class View {
             this._actor.remove_child(this.layer);
     }
 
+    _setBadgeAttached(attached) {
+        if (attached === this._badgeAttached || !this._actor)
+            return;
+        this._badgeAttached = attached;
+        if (attached)
+            this._actor.add_child(this._badge);
+        else
+            this._actor.remove_child(this._badge);
+    }
+
+    /** Whether its badge shows. */
+    get hasBadge() {
+        return this._badgeShown;
+    }
+
+    /** The visible zone's area in stage pixels, which stacks views. */
+    get zoneArea() {
+        const visible = this.geometry?.visibleInFrame;
+        return visible ? visible.width * visible.height : 0;
+    }
+
+    /** The layer and the badge, each when attached to the window actor. */
+    get attached() {
+        return {layer: this._attached ? this.layer : null, badge: this._badgeAttached ? this._badge : null};
+    }
+
     /** Lays the view out again from the window and the set. */
     sync() {
-        this.geometry = windowGeometry(this.window, this._isLogical());
+        this.geometry = windowGeometry(this.window, this._isLogical(), this.zone);
         this._setAttached(Boolean(this.geometry) && this._wanted());
-        if (!this._attached)
-            return;
-
-        const {k, layerX, layerY, width, height} = this.geometry;
-        this.layer.set_position(layerX, layerY);
-        this.layer.set_size(width / k, height / k);
-        this._content.set_size(width / k, height / k);
-        this._chrome.set_scale(1 / k, 1 / k);
-        this._chrome.set_size(width, height);
-        this._content.visible = true;
-        this._shapes.visible = this._showsHelpers();
-        this._gapLines.visible = this._showsHelpers();
-        this._handles.visible = this._showsHelpers();
-        this._labels.visible = this._showsHelpers();
-        this._gapLabels.visible = this._showsHelpers();
-        this.syncHelpers();
-        this._syncGrid();
-        this._syncMockup();
+        if (this._attached) {
+            const {k, layerX, layerY, width, height, visible} = this.geometry;
+            // The layer clips to the visible part; its content is laid out from the zone's corner.
+            this.layer.set_position(layerX + visible.x / k, layerY + visible.y / k);
+            this.layer.set_size(visible.width / k, visible.height / k);
+            this._content.set_position(-visible.x / k, -visible.y / k);
+            this._content.set_size(width / k, height / k);
+            this._chrome.set_position(-visible.x / k, -visible.y / k);
+            this._chrome.set_scale(1 / k, 1 / k);
+            this._chrome.set_size(width, height);
+            this._content.visible = true;
+            this._shapes.visible = this._showsHelpers();
+            this._gapLines.visible = this._showsHelpers();
+            this._handles.visible = this._showsHelpers();
+            this._labels.visible = this._showsHelpers();
+            this._gapLabels.visible = this._showsHelpers();
+            this.syncHelpers();
+            this._syncGrid();
+            this._syncMockup();
+            this._syncZoneFrame();
+        }
         this._syncBadge();
     }
 
@@ -371,7 +496,7 @@ export class View {
 
     _updateHelperViews(views, helper) {
         const color = this._color();
-        const {k, width: zoneWidth, height: zoneHeight} = this.geometry;
+        const {k, width: zoneWidth, height: zoneHeight, visible} = this.geometry;
         const line = this._line();
         const selected = helper.id === this.selectedId;
         const labelStyle = selected
@@ -390,10 +515,11 @@ export class View {
                 views.shape.set_size(zoneWidth / k, line);
             }
             views.label.text = `${vertical ? 'x' : 'y'} ${this.guideMeasure(helper)}`;
+            // At the top or left of the visible part of the zone.
             if (vertical)
-                views.label.set_position(Math.round(helper.x + LABEL_MARGIN), LABEL_MARGIN);
+                views.label.set_position(Math.round(helper.x + LABEL_MARGIN), visible.y + LABEL_MARGIN);
             else
-                views.label.set_position(LABEL_MARGIN, Math.round(helper.y + LABEL_MARGIN));
+                views.label.set_position(visible.x + LABEL_MARGIN, Math.round(helper.y + LABEL_MARGIN));
             return;
         }
 
@@ -415,10 +541,10 @@ export class View {
         const [, labelHeight] = views.label.get_preferred_height(-1);
         // Below the rectangle, or above its bottom edge when its zone ends first.
         let labelY = helper.y + helper.height + LABEL_MARGIN;
-        if (labelY + labelHeight > zoneHeight)
+        if (labelY + labelHeight > visible.y + visible.height)
             labelY = helper.y + helper.height - labelHeight - LABEL_MARGIN;
         const centered = helper.x + (helper.width - labelWidth) / 2;
-        const labelX = Math.min(Math.max(centered, 0), zoneWidth - labelWidth);
+        const labelX = Math.min(Math.max(centered, visible.x), visible.x + visible.width - labelWidth);
         views.label.set_position(Math.round(labelX), Math.round(labelY));
 
         const ratio = this.displayRatio;
@@ -427,7 +553,7 @@ export class View {
         views.position.text = `${formatLength(helper.x * ratio)}, ${formatLength(helper.y * ratio)}`;
         const [, positionHeight] = views.position.get_preferred_height(-1);
         views.position.set_position(Math.round(helper.x),
-            Math.round(Math.max(helper.y - positionHeight - LABEL_MARGIN, 0)));
+            Math.round(Math.max(helper.y - positionHeight - LABEL_MARGIN, visible.y)));
 
         const half = Math.floor(HANDLE_SIZE / 2);
         RECTANGLE_PARTS.forEach((part, i) => {
@@ -579,23 +705,83 @@ export class View {
         });
     }
 
+    /** The dashed frame of the zone's visible part, and a handle in the middle of each edge. */
+    _syncZoneFrame() {
+        const shown = this.editing;
+        this._frame.visible = shown;
+        for (const handle of this._zoneHandles)
+            handle.visible = shown;
+        if (!shown)
+            return;
+        const {x, y, width, height} = this.geometry.visible;
+        this._frame.set_position(x, y);
+        this._frame.set_size(width, height);
+        this._frame.queue_repaint();
+        const half = Math.floor(HANDLE_SIZE / 2);
+        const middles = [[x, y + height / 2 - half], [x + width - HANDLE_SIZE, y + height / 2 - half],
+            [x + width / 2 - half, y], [x + width / 2 - half, y + height - HANDLE_SIZE]];
+        this._zoneHandles.forEach((handle, i) => {
+            handle.style = `border-color: ${this._color()};`;
+            handle.set_position(Math.round(middles[i][0]), Math.round(middles[i][1]));
+        });
+    }
+
+    _paintFrame(area) {
+        const [width, height] = area.get_surface_size();
+        const cr = area.get_context();
+        const rgb = parseInt(this._color().slice(1), 16);
+        cr.setSourceRGBA((rgb >> 16) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, 0.9);
+        cr.setLineWidth(1);
+        cr.setDash([6, 4], 0);
+        cr.rectangle(0.5, 0.5, Math.max(0, width - 1), Math.max(0, height - 1));
+        cr.stroke();
+        cr.$dispose();
+    }
+
+    /** Lays the badge's contents out, and tells the manager its size: it places badges together. */
     _syncBadge() {
         const badge = this._badge;
-        badge.visible = this._showsBadge();
-        if (!badge.visible)
+        this._badgeShown = Boolean(this.geometry) && this._showsBadge();
+        this._setBadgeAttached(this._badgeShown);
+        this._badge.visible = this._badgeShown;
+        if (!this._badgeShown) {
+            this.badgeRect = null;
+            this._onBadgeChanged(this);
             return;
-        this._badgeDot.style = `background-color: ${this._color()};`;
-        const {width, height} = this.geometry;
+        }
+        const main = this.isMain;
+        const color = this._color();
+        this._badgeDot.style = main ? `background-color: ${color};`
+            : `background-color: transparent; border: 1px solid ${color}; width: 6px; height: 6px;`;
+        this._badgeLink.visible = !main && this.linked;
         // The name is cut past 24 characters, or past half the frame's width.
+        const {width} = this.geometry.frame;
         let length = BADGE_NAME_LENGTH;
-        this._badgeLabel.text = badgeName(this.model.name, length);
+        const text = () => (main ? badgeName(this.set.name, length) : 'Copy');
+        this._badgeLabel.text = text();
         let [, badgeWidth] = badge.get_preferred_width(-1);
-        while (badgeWidth > width / 2 && length > 1) {
-            this._badgeLabel.text = badgeName(this.model.name, --length);
+        while (main && badgeWidth > width / 2 && length > 1) {
+            length--;
+            this._badgeLabel.text = text();
             [, badgeWidth] = badge.get_preferred_width(-1);
         }
         const [, badgeHeight] = badge.get_preferred_height(-1);
-        badge.set_position(Math.round(width - badgeWidth - BADGE_MARGIN),
-            Math.round(height - badgeHeight - BADGE_MARGIN));
+        this.badgeSize = {width: Math.ceil(badgeWidth), height: Math.ceil(badgeHeight)};
+        badge.set_scale(1 / this.geometry.k, 1 / this.geometry.k);
+        this._onBadgeChanged(this);
+    }
+
+    /** The corner a badge belongs to: the bottom right of the zone's visible part, or of the frame. */
+    badgeCorner() {
+        const {visibleInFrame, frame} = this.geometry;
+        const area = visibleInFrame ?? {x: 0, y: 0, width: frame.width, height: frame.height};
+        return {right: area.x + area.width, bottom: area.y + area.height};
+    }
+
+    /** Puts the badge at a place in the frame, in stage pixels. */
+    placeBadge(x, y) {
+        const {frame} = this.geometry;
+        this.badgeRect = {x, y, width: this.badgeSize.width, height: this.badgeSize.height};
+        this._badge.set_position(frame.layerX + x / frame.k, frame.layerY + y / frame.k);
     }
 }

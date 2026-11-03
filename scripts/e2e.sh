@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # End-to-end test: runs the checkout in a headless GNOME Shell with plain GTK test windows, drives
 # it with a virtual pointer and keyboard, and checks the migration from v0.2, sets and their views
-# on windows, editing, snapping, the badge menu, Set settings, the panel menu, the color picker,
-# the mockup, the click-through views, fractional scaling, and a clean disable. Exits non-zero on
-# any failed check or shell JS error.
+# on windows, editing, snapping, copies and zones, the badge menu, Set settings, the panel menu,
+# the color picker, the mockup, the click-through views, fractional scaling, and a clean disable.
+# Exits non-zero on any failed check or shell JS error.
 set -euo pipefail
 
 # shellcheck source=scripts/headless.sh
@@ -94,6 +94,9 @@ global._e2e = {
     },
     fileHelpers: id => global._e2e.file(id)?.helpers.map(text).join(' | '),
     labels,
+    set: id => extension()._manager.modelOf(id),
+    views: title => extension()._manager.viewsOn(global._e2e.win(title)),
+    item: (badgeMenu, label) => badgeMenu.menu._getMenuItems().find(item => labels(item)[0] === label),
     row: (list, name) => extension()['_' + list].section._getMenuItems().find(item => labels(item)[0] === name),
     button: (actor, label) => find(actor, a => a instanceof St.Button &&
         (a.label === label || a.accessible_name === label)),
@@ -338,7 +341,7 @@ expect "$OVERLAY.badgeMenu + ' ' + $OVERLAY.editing" 'null true' 'Escape closes 
 
 # Set settings: one commit, and one undo step.
 click_actor "$E2E.view('Page').badgeActor"
-click_actor "$OVERLAY.badgeMenu.menu._getMenuItems()[2]"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Set settings…')"
 wait_for "!!$E2E.dialog()?.visible"
 # Numbers are rounded; an empty entry keeps the previous value.
 shell_eval "const [name, , zoom, columns, gutter] = $E2E.entries($E2E.dialog());
@@ -367,7 +370,7 @@ shell_eval "const model = $E2E.model('Page'); model.name = 'Landing page'; model
 
 # The file chooser: the dialog steps aside while it is open, and keeps its draft.
 click_actor "$E2E.view('Page').badgeActor"
-click_actor "$OVERLAY.badgeMenu.menu._getMenuItems()[2]"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Set settings…')"
 wait_for "!!$E2E.dialog()?.visible"
 shell_eval "$E2E.entries($E2E.dialog())[0].text = 'Draft'" >/dev/null
 CHOOSER="$E2E.win('Choose a mockup image')"
@@ -404,7 +407,7 @@ if ((PORTAL)); then
     press_keys Super_L Shift_L m
     pointer_move 600 600
     click_actor "$E2E.view('Page').badgeActor"
-    click_actor "$OVERLAY.badgeMenu.menu._getMenuItems()[2]"
+    click_actor "$E2E.item($OVERLAY.badgeMenu, 'Set settings…')"
     wait_for "!!$E2E.dialog()?.visible"
     shell_eval "void ($E2E.chooserDialog = $E2E.dialog())" >/dev/null
     click_actor "$E2E.button($E2E.dialog(), 'Choose…')"
@@ -430,7 +433,7 @@ fi
 press_keys Super_L Shift_L m
 pointer_move 600 600
 click_actor "$E2E.view('Page').badgeActor"
-click_actor "$OVERLAY.badgeMenu.menu._getMenuItems()[3]"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Save as new set…')"
 wait_for "!!$E2E.dialog()?.visible"
 expect "$E2E.entries($E2E.dialog())[0].text" 'Landing page 2' 'Save as new set suggests a free name'
 type_keys v 2 Return
@@ -528,12 +531,12 @@ shell_eval "$E2E.win('Page').unminimize()" >/dev/null
 # The panel menu lists the sets on screen and the library.
 open_menu
 expect "$EXTENSION._onScreen.section._getMenuItems().map(item => $E2E.labels(item).join(' / ')).join(' | ')" \
-    'v2 / Page | Untitled 3 / Other' 'the menu lists the sets on screen'
+    'v2 / main only · Page | Untitled 3 / main only · Other' 'the menu lists the sets on screen'
 expect "$EXTENSION._library.header.count.text + ' ' + $E2E.labels($E2E.row('library', 'v2')).join(' / ')" \
     '4 v2 / edited just now / On screen' 'the library lists every set, and marks those on screen'
 click_actor "$E2E.button($E2E.row('onScreen', 'Untitled 3'), 'Hide')"
 expect "$E2E.model('Other').hidden + ' ' + $E2E.view('Other').layer.get_parent() + ' ' +
-    $E2E.labels($E2E.row('onScreen', 'Untitled 3'))[1]" 'true null Other · hidden' \
+    $E2E.labels($E2E.row('onScreen', 'Untitled 3'))[1]" 'true null main only · Other · hidden' \
     'the eye hides a set'
 click_actor "$E2E.button($E2E.row('onScreen', 'Untitled 3'), 'Show')"
 expect "$E2E.model('Other').hidden" false 'the eye shows it again'
@@ -576,14 +579,15 @@ shell_eval "global.workspace_manager.get_workspace_by_index(0).activate(global.g
 wait_for "$E2E.win('Page').get_compositor_private().visible"
 press_keys Escape
 
-# Loading a set onto a window replaces the set shown there.
+# Loading a set onto a window that shows another set adds a view there.
 open_menu
 click_actor "$E2E.row('library', 'Landing page')"
 expect "$OVERLAY._mode + ' ' + $OVERLAY._loadHint.text" 'load Click a window to show “Landing page” · Esc cancels' \
     'a library set waits for a click on a window'
 pointer_click 1300 300
-expect "$E2E.model('Other')?.name + ' ' + $E2E.helpers('Other') + ' ' + !!$MANAGER.modelOf('$(shell_eval "$E2E.entry('Untitled 3').id")')" \
-    'Landing page R 120,110 201x170 | V 510 false' 'a click loads the set onto the window, replacing its set'
+expect "$MANAGER.viewsOn($E2E.win('Other')).map(view => view.set.name + ' ' + view.isMain).join()" \
+    'Untitled 3 true,Landing page true' 'a click loads the set onto a window that shows another set, as a second view'
+shell_eval "$MANAGER.removeFromScreen($MANAGER.modelOf($E2E.entry('Untitled 3').id))" >/dev/null
 open_menu
 click_actor "$E2E.row('library', 'Untitled 3')"
 press_keys Escape
@@ -713,6 +717,432 @@ press_keys Escape
 shell_eval "$E2E.win('Menu').delete(global.get_current_time())" >/dev/null
 wait_for "!$E2E.win('Menu')"
 
+# Copies, linking, and zones. Split is two panes with a divider at CSS x 280 and a red block in each;
+# Host and the Promo windows are plain. Sets are made in the shell where the check is about what
+# happens next, and the interaction itself is driven with the pointer and the keyboard.
+shell_eval "global._libraryBefore = $MANAGER.store.entries().map(entry => entry.id)" >/dev/null
+open_window Split 1020 480 560x400 '#deddda' '280,0,280,400,#f6f5f4' '40,40,100,60,#e01b24' '320,40,100,60,#e01b24'
+open_window Host 20 780 400x200 '#241f31'
+shell_eval "const model = $MANAGER.createSet($E2E.win('Split')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 50});
+    $MANAGER.commit(model);" >/dev/null
+SPLIT_SET=$(shell_eval "$E2E.model('Split').id")
+SPLIT_NAME=$(shell_eval "$E2E.model('Split').name")
+M="$E2E.set('$SPLIT_SET')"
+HOST_COPY="$E2E.views('Host')[0]"
+SPLIT_COPY="$E2E.views('Split')[1]"
+
+# A adds a linked copy of the set edited last, on the window under the pointer.
+press_keys Super_L Shift_L m
+pointer_move 200 880
+press_keys a
+expect "$E2E.views('Host').map(view => [view.set.id === '$SPLIT_SET', view.isMain, view.linked].join()).join(' | ')" \
+    'true,false,true' 'A adds a linked copy of the set edited last on the window under the pointer'
+expect "$HOST_COPY._helperViews.get(1).shape.x + ' ' + $HOST_COPY._badgeLabel.text + ' ' + $HOST_COPY._badgeLink.visible" \
+    '50 Copy true' 'the copy shows the helpers of the set, and a badge that reads Copy with a link icon'
+
+# A linked copy follows a drag live, and its edits are the set's.
+pointer_move 70 880
+pointer_button PRESSED
+pointer_move 90 880
+pointer_move 100 880
+expect "$M.content.helpers[0].x + ' ' + $E2E.view('Split')._helperViews.get(1).shape.x" '80 80' \
+    'a drag on a linked copy moves the helper of the main view live'
+pointer_button RELEASED
+expect "$E2E.fileHelpers('$SPLIT_SET')" 'V 80' 'and the set is saved when the drag ends'
+
+# Unlinking: the copy holds a copy of the content, and the set and the copy stop following each other.
+click_actor "$HOST_COPY.badgeActor"
+expect "$OVERLAY.badgeMenu?.view === $HOST_COPY && $E2E.labels($OVERLAY.badgeMenu.menu.box).slice(0, 2).join(' / ')" \
+    "Copy of $SPLIT_NAME / Follows the main view" 'the badge of a copy opens its own menu'
+expect "$E2E.item($OVERLAY.badgeMenu, 'Reset zone').sensitive + ' ' + $E2E.item($OVERLAY.badgeMenu, 'Save as new set…').visible" \
+    'false false' 'Reset zone is unavailable on an automatic zone, and Save as new set… on a linked copy'
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
+expect "$HOST_COPY.linked + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box)[1] + ' ' + $E2E.item($OVERLAY.badgeMenu, 'Save as new set…').visible" \
+    'false Unlinked true' 'the Linked switch unlinks the copy'
+press_keys Escape
+pointer_drag 100 880 120 880
+expect "[$HOST_COPY.local.content.helpers[0].x, $M.content.helpers[0].x, $HOST_COPY.local.localChanges].join()" '100,80,1' \
+    'an edit of an unlinked copy stays in the copy'
+expect "$E2E.fileHelpers('$SPLIT_SET') + ' ' + $E2E.view('Split')._helperViews.get(1).shape.x + ' ' + $E2E.file('$SPLIT_SET').revision" \
+    "V 80 80 $(shell_eval "$M.revision")" 'and is never saved'
+shell_eval "$M.content.helpers[0].x = 60; $MANAGER.commit($M);" >/dev/null
+expect "$HOST_COPY.local.content.helpers[0].x + ' ' + $HOST_COPY._helperViews.get(1).shape.x" '100 100' \
+    'a change of the set does not reach an unlinked copy'
+click_actor "$HOST_COPY.badgeActor"
+expect "$E2E.labels($OVERLAY.badgeMenu.menu.box)[1]" 'Unlinked · 1 local change' 'the badge counts the local changes'
+
+# Relinking with local changes asks first: Keep leaves the copy as it was, Discard drops its changes.
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
+expect "$HOST_COPY.linked + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box).some(text => text.startsWith('Discard 1 local change'))" \
+    'false true' 'relinking a copy with local changes asks in place'
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Keep')"
+expect "$HOST_COPY.linked + ' ' + $HOST_COPY.local.localChanges + ' ' + $OVERLAY.badgeMenu" 'false 1 null' \
+    'Keep leaves the copy unlinked, with its changes'
+click_actor "$HOST_COPY.badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Discard')"
+expect "$HOST_COPY.linked + ' ' + $HOST_COPY._helperViews.get(1).shape.x" 'true 60' \
+    'Discard drops the changes, and the copy shows the set again'
+
+# Undo history belongs to the set for linked views, and to the copy once unlinked.
+pointer_move 200 880
+press_keys Control_L z
+expect "$E2E.fileHelpers('$SPLIT_SET') + ' ' + $HOST_COPY._helperViews.get(1).shape.x" 'V 80 80' \
+    'Ctrl+Z on a linked copy undoes the set'
+press_keys Control_L y
+click_actor "$HOST_COPY.badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
+press_keys Escape
+pointer_drag 80 880 90 880
+expect "$HOST_COPY.local.localChanges" 1 'a local change counts'
+pointer_move 200 880
+press_keys Control_L z
+expect "$HOST_COPY.local.localChanges + ' ' + $HOST_COPY.local.content.helpers[0].x + ' ' + $E2E.fileHelpers('$SPLIT_SET')" \
+    '0 60 V 60' 'Ctrl+Z on an unlinked copy undoes its own change, and the count follows'
+click_actor "$HOST_COPY.badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
+expect "$HOST_COPY.linked + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box).some(text => text.startsWith('Discard'))" \
+    'true false' 'relinking a copy without local changes is immediate'
+press_keys Escape
+
+# Remove copy: a copy with local changes asks first.
+click_actor "$HOST_COPY.badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
+press_keys Escape
+pointer_drag 80 880 90 880
+click_actor "$HOST_COPY.badgeActor"
+click_actor "$OVERLAY.badgeMenu.removeButton"
+expect "$E2E.views('Host').length + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box).some(text => text.startsWith('Remove this copy? Its 1 local change'))" \
+    '1 true' 'Remove copy asks first when the copy has local changes'
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Cancel')"
+expect "$E2E.views('Host').length" 1 'Cancel keeps the copy'
+click_actor "$HOST_COPY.badgeActor"
+click_actor "$OVERLAY.badgeMenu.removeButton"
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Remove')"
+expect "$E2E.views('Host').length + ' ' + $M.copies.length" '0 0' 'the confirmation removes the copy'
+
+# Add a copy… waits for a click on a window without leaving edit mode, and Escape cancels it.
+click_actor "$E2E.view('Split').badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Add a copy…')"
+expect "$OVERLAY.editing + ' ' + $OVERLAY._loadHint.text" "true Click a window to add a copy of “$SPLIT_NAME” · Esc cancels" \
+    'Add a copy… shows a crosshair and a hint in edit mode'
+press_keys Escape
+expect "$OVERLAY.editing + ' ' + $OVERLAY._copyPick + ' ' + $M.copies.length" 'true null 0' \
+    'Escape cancels Add a copy… and edit mode goes on'
+click_actor "$E2E.view('Split').badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Add a copy…')"
+pointer_click 200 880
+expect "$E2E.views('Host').map(view => view.linked).join() + ' ' + $OVERLAY.editing" 'true true' \
+    'a click on a window adds a linked copy there'
+click_actor "$E2E.view('Split').badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Add a copy…')"
+pointer_click 800 20
+expect "$M.copies.length + ' ' + $OVERLAY._copyPick" '1 null' 'a click outside any window cancels Add a copy…'
+
+# Two views in one window: a second copy on Split starts on the whole window, and its badge shifts left.
+pointer_move 1400 700
+press_keys a
+expect "$E2E.views('Split').map(view => view.isMain + ' ' + view.fixed).join()" 'true false,false false' \
+    'A adds a second view to a window, with an automatic zone'
+expect "(([a, b]) => b.x + b.width < a.x && a.y === b.y)($E2E.views('Split').map(view => view.badgeRect))" true \
+    'overlapping badges shift left, the newest outermost'
+# Framing the copy: its left edge is dragged to the divider and snaps to it, so its zone becomes fixed.
+pointer_move 1021 700
+pointer_button PRESSED
+pointer_move 1100 700
+pointer_move 1295 700
+pointer_button RELEASED
+wait_for "$OVERLAY._drag === null"
+expect "(v => [v.fixed, v.geometry.visibleInFrame.x, v.geometry.visibleInFrame.width].join())($SPLIT_COPY)" 'true,280,280' \
+    'dragging a zone edge snaps it to the divider and fixes the zone'
+expect "$E2E.view('Split').fixed" false 'and the other view keeps its zone'
+# The edge press latched the view; a press elsewhere lets the zones target again.
+expect "$OVERLAY._latched === $SPLIT_COPY" true 'a press on a zone edge latches its view'
+pointer_click 1450 800
+pointer_move 1400 700
+expect "$OVERLAY._target.view === $SPLIT_COPY" true 'the smallest zone under the pointer is the target'
+expect "(v => v._helperViews.get(1).shape.x + ' ' + v.geometry.originX)($SPLIT_COPY)" '60 1300' \
+    'the helpers of a view follow the corner of its zone'
+pointer_move 1100 700
+expect "$OVERLAY._target.view === $E2E.view('Split')" true 'a point outside the smaller zone targets the larger one'
+click_actor "$SPLIT_COPY.badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Reset zone')"
+expect "$SPLIT_COPY.fixed + ' ' + $SPLIT_COPY.geometry.visibleInFrame.width" 'false 560' 'Reset zone makes the zone automatic again'
+pointer_click 1450 800
+
+# Hit testing, Tab, and measuring stay in the visible part of a fixed zone. The zone is the square at
+# frame (100, 100), 100 pixels wide, over the left pane; the set has guides at 60, 300, and 0.
+shell_eval "const model = $M;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 300});
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 0});
+    $MANAGER.commit(model);
+    $SPLIT_COPY.setZone({x: 100, y: 100, width: 100, height: 100});" >/dev/null
+expect "$SPLIT_COPY.zoneHelpers().map(h => h.id).join() + ' ' + $E2E.view('Split').zoneHelpers().map(h => h.id).join()" \
+    '1,3 1,2,3' 'a helper outside the visible part of a zone is hidden'
+pointer_move 1170 640
+press_keys Tab
+press_keys Tab
+press_keys Tab
+expect "$SPLIT_COPY.selectedId" 1 'Tab cycles only the helpers of the zone'
+press_keys Tab
+expect "$SPLIT_COPY.selectedId" 3 'and visits each of them'
+pointer_move 1050 640
+press_keys Tab
+press_keys Tab
+expect "$SPLIT_COPY.selectedId + ' ' + $E2E.view('Split').selectedId" 'null 2' \
+    'Tab in the larger zone cycles all of its helpers, and the selection of the other view is cleared'
+pointer_move 1170 640
+press_keys d
+wait_for "$OVERLAY._readout.text === '100 × 100'"
+expect "$OVERLAY._readout.text" '100 × 100' 'measuring an area stops at the edges of the zone'
+pointer_move 1050 640
+wait_for "$OVERLAY._readout.text === '280 × 400'"
+expect "$OVERLAY._readout.text" '280 × 400' 'and measures the whole window outside it'
+press_keys d
+
+# Latching: a press on a helper, a badge, or a zone edge keeps its view as the target.
+pointer_move 1180 640
+pointer_button PRESSED
+pointer_button RELEASED
+expect "$OVERLAY._latched === $SPLIT_COPY && $SPLIT_COPY.selectedId" 1 'a press on a helper latches its view'
+pointer_move 1450 800
+expect "$OVERLAY._target.view === $SPLIT_COPY && $OVERLAY._readout.visible" false \
+    'a latched view stays the target outside its zone, where the readout shows nothing'
+shell_eval "global._count = $M.content.helpers.length" >/dev/null
+press_keys h
+press_keys v
+press_keys d
+expect "$M.content.helpers.length - global._count + ' ' + $OVERLAY._measuring" '0 false' \
+    'H, V, and D do nothing outside the latched zone'
+pointer_click 1450 800
+expect "$OVERLAY._latched + ' ' + ($OVERLAY._target.view === $E2E.view('Split')) + ' ' + $SPLIT_COPY.selectedId" \
+    'null true null' 'a press elsewhere unlatches, and the selection of the view left is cleared'
+pointer_move 1450 800
+press_keys h
+expect "$M.content.helpers.length - global._count" 1 'H works again in the zone of the target'
+press_keys Control_L z
+click_actor "$SPLIT_COPY.badgeActor"
+expect "$OVERLAY._latched === $SPLIT_COPY" true 'a press on a badge latches its view'
+press_keys Escape
+pointer_move 1120 640
+pointer_button PRESSED
+pointer_button RELEASED
+expect "$SPLIT_COPY.selectedId + ' ' + ($OVERLAY._latched === $SPLIT_COPY) + ' ' + $SPLIT_COPY.fixed + ' ' + $SPLIT_COPY.geometry.visibleInFrame.x" \
+    '3 true true 100' 'a short press on an edge acts on the helper under it, and latches its view'
+pointer_move 1220 640
+pointer_button PRESSED
+pointer_move 1230 640
+pointer_move 1240 640
+expect "$OVERLAY._latched === $SPLIT_COPY && $SPLIT_COPY.geometry.visibleInFrame.width" 120 \
+    'dragging an edge resizes the zone, and latches its view'
+pointer_button RELEASED
+pointer_move 1240 640
+pointer_button PRESSED
+pointer_move 1200 640
+pointer_move 1130 640
+pointer_button RELEASED
+expect "$SPLIT_COPY.geometry.visibleInFrame.width" 40 'a zone keeps at least 40 pixels'
+pointer_move 1140 680
+pointer_button PRESSED
+pointer_move 1140 800
+pointer_move 1140 950
+pointer_button RELEASED
+expect "$SPLIT_COPY.geometry.visibleInFrame.y + ' ' + $SPLIT_COPY.geometry.visibleInFrame.height" '100 300' \
+    'a zone stays within the window frame'
+# The edge of a larger zone can be dragged from inside a smaller one.
+shell_eval "$E2E.view('Split').setZone({x: 0, y: 0, width: 400, height: 300});" >/dev/null
+pointer_move 1140 780
+pointer_button PRESSED
+pointer_move 1140 800
+pointer_move 1140 840
+pointer_button RELEASED
+expect "$E2E.view('Split').geometry.visibleInFrame.height + ' ' + $SPLIT_COPY.geometry.visibleInFrame.height" '360 300' \
+    'a zone edge wins over the zone it crosses, so a larger zone can be resized from inside a smaller one'
+# A fixed zone keeps its place when the window is resized; what lies outside the frame is not shown.
+shell_eval "for (const view of $E2E.views('Host'))
+        $MANAGER.removeCopy(view);
+    const model = $MANAGER.createSet($E2E.win('Host')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 10});
+    $MANAGER.commit(model);
+    global._zoned = model.id;
+    $MANAGER.addCopy(model, $E2E.win('Host')).setZone({x: 300, y: 0, width: 100, height: 100});" >/dev/null
+ZONED="$E2E.set(global._zoned).copies[0]"
+expect "$ZONED.geometry.visibleInFrame.x + ' ' + $ZONED.geometry.visibleInFrame.width" '300 100' 'a fixed zone shows inside the frame'
+shell_eval "$E2E.win('Host').move_resize_frame(true, 20, 780, 250, 200)" >/dev/null
+wait_for "$ZONED.geometry.frame.width === 250"
+expect "$ZONED.geometry.visibleInFrame + ' ' + $ZONED.fixed + ' ' + $ZONED.hasBadge + ' ' + $ZONED.layer.get_parent()" \
+    'null true true null' 'a fixed zone outside the frame shows nothing, and its badge stays reachable'
+pointer_move 100 880
+click_actor "$ZONED.badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Reset zone')"
+expect "$ZONED.fixed + ' ' + $ZONED.geometry.visibleInFrame.width" 'false 250' 'Reset zone brings the view back'
+shell_eval "$E2E.win('Host').move_resize_frame(true, 20, 780, 400, 200)" >/dev/null
+wait_for "$ZONED.geometry.frame.width === 400"
+shell_eval "$MANAGER.removeFromScreen($E2E.set(global._zoned))" >/dev/null
+press_keys Escape
+
+# Badges that would cross the frame's left edge wrap to a row above, and never overlap.
+open_window PromoA 440 780 280x200 '#241f31'
+open_window PromoB 740 780 200x200 '#241f31'
+shell_eval "const model = $MANAGER.createSet($E2E.win('PromoB')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 20});
+    $MANAGER.commit(model);
+    for (let i = 0; i < 3; i++)
+        $MANAGER.addCopy(model, $E2E.win('PromoB'));
+    global._wrap = model.id;" >/dev/null
+expect "(rs => rs.every(r => r.x >= 0) && rs.every((a, i) => rs.every((b, j) => i === j || a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y)) && new Set(rs.map(r => r.y)).size)($E2E.views('PromoB').map(view => view.badgeRect))" \
+    2 'badges that would cross the left edge of the frame start a new row above, without overlapping'
+shell_eval "$MANAGER.delete(global._wrap)" >/dev/null
+wait_for "$E2E.views('PromoB').length === 0"
+
+# When the main view's window closes without a linked copy, the set leaves the screen with its
+# unlinked copies.
+shell_eval "const model = $MANAGER.createSet($E2E.win('PromoA')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 40});
+    $MANAGER.commit(model);
+    global._gone = model.id;
+    $MANAGER.unlink($MANAGER.addCopy(model, $E2E.win('PromoB')));" >/dev/null
+GONE=$(shell_eval "global._gone")
+shell_eval "$E2E.win('PromoA').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('PromoA')"
+expect "!!$MANAGER.modelOf('$GONE') + ' ' + $E2E.views('PromoB').length" 'false 0' \
+    'closing the main view window without a linked copy removes the set and its unlinked copies'
+check 'the set stays in the library' "[[ -f $XDG_DATA_HOME/measure-things/sets/$GONE.json ]]"
+
+# Otherwise the oldest linked copy becomes the main view.
+open_window PromoC 440 780 280x200 '#241f31'
+shell_eval "const model = $MANAGER.createSet($E2E.win('PromoC')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 40});
+    $MANAGER.commit(model);
+    global._promo = model.id;
+    $MANAGER.addCopy(model, $E2E.win('PromoB'));
+    $MANAGER.addCopy(model, $E2E.win('Host'));
+    const unlinked = $MANAGER.addCopy(model, $E2E.win('Host'));
+    $MANAGER.unlink(unlinked);
+    unlinked.local.content.helpers[0].x = 5;
+    $MANAGER.commit(unlinked.local);" >/dev/null
+PROMO=$(shell_eval "global._promo")
+PROMO_SET="$E2E.set('$PROMO')"
+shell_eval "$E2E.win('PromoC').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('PromoC')"
+expect "$PROMO_SET.view.window.title + ' ' + $PROMO_SET.view.isMain + ' ' + $PROMO_SET.copies.map(c => c.window.title + ' ' + c.linked).join()" \
+    'PromoB true Host true,Host false' 'when the main view window closes, the oldest linked copy becomes the main view'
+expect "$PROMO_SET.view._badgeLabel.text + ' ' + $PROMO_SET.view._badgeLink.visible" "$(shell_eval "$PROMO_SET.name") false" \
+    'and shows the set badge'
+shell_eval "$E2E.win('PromoB').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('PromoB')"
+expect "$PROMO_SET.view.window.title + ' ' + $PROMO_SET.copies.map(c => c.linked).join()" 'Host false' \
+    'the next linked copy takes over in turn'
+
+# Loading a set that is already on screen adds a linked copy, and the panel menu counts the copies.
+PROMO_NAME=$(shell_eval "$PROMO_SET.name")
+open_menu
+expect "$E2E.labels($E2E.row('onScreen', '$PROMO_NAME'))[1]" 'main + 1 copy · Host' \
+    'the On screen row counts the copies and names the main view window'
+click_actor "$E2E.row('library', '$PROMO_NAME')"
+expect "$OVERLAY._mode + ' ' + $OVERLAY._loadHint.text" "load Click a window to show “$PROMO_NAME” · Esc cancels" \
+    'a library set that is on screen can be loaded again'
+pointer_click 1450 800
+expect "$E2E.views('Split').filter(view => view.set.id === '$PROMO').map(view => view.isMain + ' ' + view.linked).join()" \
+    'false true' 'loading a set already on screen shows it as a linked copy'
+open_menu
+expect "$E2E.labels($E2E.row('onScreen', '$PROMO_NAME'))[1]" 'main + 2 copies · Host' 'the count follows'
+
+# ✕ asks first when unlinked copies hold local changes, and says what will be lost.
+click_actor "$E2E.button($E2E.row('onScreen', '$PROMO_NAME'), 'Remove from screen')"
+expect "$EXTENSION._onScreen.section._getMenuItems().some(item => item.removeConfirmation) + ' ' + !!$MANAGER.modelOf('$PROMO')" \
+    'true true' '✕ asks for a confirmation in the menu when an unlinked copy has local changes'
+expect "$E2E.labels($EXTENSION._onScreen.section._getMenuItems().find(item => item.removeConfirmation))[0]" \
+    "Remove “$PROMO_NAME” from the screen? 1 local change in its unlinked copies will be lost." \
+    'and says what will be lost'
+click_actor "$E2E.button($EXTENSION._onScreen.section._getMenuItems().find(item => item.removeConfirmation), 'Cancel')"
+expect "$EXTENSION._onScreen.section._getMenuItems().some(item => item.removeConfirmation) + ' ' + !!$MANAGER.modelOf('$PROMO')" \
+    'false true' 'Cancel keeps the set'
+click_actor "$E2E.button($E2E.row('onScreen', '$PROMO_NAME'), 'Remove from screen')"
+click_actor "$E2E.button($EXTENSION._onScreen.section._getMenuItems().find(item => item.removeConfirmation), 'Remove')"
+expect "!!$MANAGER.modelOf('$PROMO') + ' ' + $E2E.views('Host').length + ' ' + $E2E.views('Split').length" 'false 0 2' \
+    'Remove takes the main view and every copy off the screen'
+# Without local changes the set itself is saved, and ✕ removes it at once.
+shell_eval "const model = $MANAGER.createSet($E2E.win('Host')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 30});
+    $MANAGER.commit(model);
+    global._quick = model.name;
+    $MANAGER.addCopy(model, $E2E.win('Split'));
+    null;" >/dev/null
+QUICK=$(shell_eval "global._quick")
+click_actor "$E2E.button($E2E.row('onScreen', '$QUICK'), 'Remove from screen')"
+expect "$E2E.views('Host').length + ' ' + $E2E.views('Split').length" '0 2' \
+    '✕ removes a set at once when no unlinked copy has local changes'
+
+# The delete dialog says how many views leave the screen.
+shell_eval "const model = $MANAGER.createSet($E2E.win('Host')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 30});
+    $MANAGER.commit(model);
+    global._doomed = model.name;
+    global._doomedId = model.id;
+    $MANAGER.addCopy(model, $E2E.win('Split'));
+    $MANAGER.addCopy(model, $E2E.win('Split'));
+    null;" >/dev/null
+DOOMED=$(shell_eval "global._doomed")
+DOOMED_ID=$(shell_eval "global._doomedId")
+open_menu
+click_actor "$E2E.button($E2E.row('library', '$DOOMED'), 'Delete')"
+wait_for "!!$E2E.dialog()?.visible"
+expect "$E2E.labels($E2E.dialog()).some(text => text.includes('3 views will leave the screen'))" true \
+    'the delete dialog says how many views will leave the screen'
+click_actor "$E2E.button($E2E.dialog(), 'Delete')"
+expect "!!$MANAGER.modelOf('$DOOMED_ID') + ' ' + $E2E.views('Host').length + ' ' + $E2E.views('Split').length" 'false 0 2' \
+    'deleting the set removes the main view and its copies'
+
+# Save as new set… on an unlinked copy: the copy becomes the main view of the new set, with its content,
+# and the set it came from does not change.
+shell_eval "const model = $MANAGER.createSet($E2E.win('Host')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 30});
+    $MANAGER.commit(model);
+    global._origin = model.id;
+    const copy = $MANAGER.addCopy(model, $E2E.win('Split'));
+    $MANAGER.unlink(copy);
+    copy.local.content.helpers[0].x = 5;
+    $MANAGER.commit(copy.local);" >/dev/null
+ORIGIN=$(shell_eval "global._origin")
+press_keys Super_L Shift_L m
+pointer_move 1450 700
+click_actor "$E2E.set('$ORIGIN').copies[0].badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Save as new set…')"
+wait_for "!!$E2E.dialog()?.visible"
+type_keys F o r k Return
+FORK=$(shell_eval "$E2E.entry('Fork')?.id")
+expect "(view => [view.isMain, view.linked, view.set.name, view.set.id === '$FORK', view.set.content.helpers[0].x].join())($E2E.views('Split').find(view => view.set.id === '$FORK'))" \
+    'true,true,Fork,true,5' 'Save as new set… makes the copy the main view of a new set with its content'
+expect "$E2E.fileHelpers('$FORK') + ' ' + $E2E.fileHelpers('$ORIGIN') + ' ' + $E2E.set('$ORIGIN').copies.length" 'V 5 V 30 0' \
+    'the new set is saved, and the set it came from is unchanged'
+press_keys Escape
+# On the main view, its linked and unlinked copies follow the new set.
+ORIGIN_NAME=$(shell_eval "$E2E.file('$ORIGIN').name")
+shell_eval "const model = $E2E.set('$ORIGIN');
+    $MANAGER.addCopy(model, $E2E.win('Split'));
+    $MANAGER.unlink($MANAGER.addCopy(model, $E2E.win('Split')));
+    global._forked = model;
+    $MANAGER.saveAsNew(model, 'Main fork');" >/dev/null
+expect "(m => m.name + ' ' + (m.id !== '$ORIGIN') + ' ' + [m.view, ...m.copies].map(v => v.linked + '/' + (v.set === m)).join())(global._forked) + ' ' + $E2E.file('$ORIGIN').name" \
+    "Main fork true true/true,true/true,false/true $ORIGIN_NAME" \
+    'Save as new set… on a main view moves its linked and unlinked copies to the new set'
+
+# Tidy: every set made here leaves the screen and the library, and its windows close.
+shell_eval "for (const model of [...$MANAGER.models]) {
+        if (!['Page', 'Other'].includes(model.view.window.title))
+            $MANAGER.removeFromScreen(model);
+    }
+    for (const id of $MANAGER.store.entries().map(entry => entry.id)) {
+        if (!global._libraryBefore.includes(id))
+            $MANAGER.delete(id);
+    }
+    null;" >/dev/null
+wait_for "$MANAGER.store.entries().length === global._libraryBefore.length"
+shell_eval "$E2E.win('Split').delete(global.get_current_time()); $E2E.win('Host').delete(global.get_current_time());" >/dev/null
+wait_for "!$E2E.win('Split') && !$E2E.win('Host')"
+
 # The grid shortcut acts on the focused window.
 shell_eval "$E2E.win('Other').activate(global.get_current_time())" >/dev/null
 wait_for "$E2E.win('Other').has_focus()"
@@ -784,6 +1214,10 @@ check 'a missing sets folder is created again on write' "[[ -f $SETS/$PAGE.json 
 rm -r "$SETS"
 mv "$SETS.off" "$SETS"
 shell_eval "$MANAGER.removeFromScreen($MANAGER.modelOf('$PAGE'))" >/dev/null
+
+# The preferences list the edit mode keys the overlay handles, `A` and the zone edges among them.
+check 'the preferences list A and the zone edges among the edit mode keys' \
+    "grep -q \"title: 'Add a linked copy of the set edited last'.*keys: 'a'\" '$ROOT/src/prefs.js' && grep -q \"title: 'Resize a zone'\" '$ROOT/src/prefs.js'"
 
 # A global shortcut changed in the preferences: found with Ctrl+F, captured as pressed, and bound
 # by the shell at once.

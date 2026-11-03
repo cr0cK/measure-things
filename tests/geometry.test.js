@@ -220,11 +220,20 @@ test('lets an override-redirect window block whatever its type', () => {
 });
 
 test('hides the helpers outside a zone, and keeps those that intersect it', () => {
-    const inside = helper => isInZone(helper, 300, 200);
+    const inside = helper => isInZone(helper, {x: 0, y: 0, width: 300, height: 200});
     assert.deepEqual([0, 299, 300, -1].map(x => inside({kind: 'vertical', x})), [true, true, false, false]);
     assert.deepEqual([0, 199, 200, -1].map(y => inside({kind: 'horizontal', y})), [true, true, false, false]);
     assert.equal(inside(rect(-50, 10, 60, 5)), true);
     assert.equal(inside(rect(-50, 10, 50, 5)), false);
     assert.equal(inside(rect(10, 200, 5, 5)), false);
     assert.equal(inside(rect(299, 199, 50, 50)), true);
+});
+
+test('hides the helpers outside the visible part of a zone that starts before the frame', () => {
+    const visible = {x: 100, y: 50, width: 200, height: 100};
+    const inside = helper => isInZone(helper, visible);
+    assert.deepEqual([99, 100, 299, 300].map(x => inside({kind: 'vertical', x})), [false, true, true, false]);
+    assert.deepEqual([49, 50, 149, 150].map(y => inside({kind: 'horizontal', y})), [false, true, true, false]);
+    assert.equal(inside(rect(0, 60, 100, 10)), false);
+    assert.equal(inside(rect(0, 60, 101, 10)), true);
 });

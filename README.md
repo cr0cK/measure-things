@@ -21,7 +21,9 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 ## Features
 
 - **Sets on windows**: drawing on a window starts a set, `Untitled 1`, saved at once in its own file. Its helpers are drawn inside the window: they move with it, hide behind the windows in front of it, and positions are relative to its top-left corner. A badge in the window's bottom-right corner names the set; in edit mode, a click on it opens the set's menu.
-- **Library**: the top bar menu lists the sets on screen, which the eye hides and ✕ removes from the screen and a click edits in its window, and every saved set, which a click loads onto a window. Sets can be renamed and deleted to the trash, on screen or not, and saved under a new name. A set that cannot go to the trash stays, with a notice.
+- **Copies**: one set can show on several windows at once. <kbd>A</kbd> in edit mode, or **Add a copy…** in the badge menu, adds a linked copy: it follows the set live, during a drag, and editing it edits the set. Unlink a copy to try changes on its own, then relink it (keeping or discarding what you changed) or **Save as new set…**. Copies last for the session. When the main view's window closes, the oldest linked copy takes over. Comparing two versions of a page, in two windows or in the two views of a split view, shows layout regressions at a glance.
+- **Zones**: a view can cover part of a window. In edit mode each view shows a dashed frame with a handle on each edge; drag an edge to frame it, snapping to the screen content, then place the helpers, which follow the zone's top-left corner. **Reset zone** gives the whole window back. Several views can share a window, each in its own zone.
+- **Library**: the top bar menu lists the sets on screen, with their number of copies, which the eye hides and ✕ removes from the screen, with their copies, and a click edits in its window, and every saved set, which a click loads onto a window, as a copy when it is on screen already. Sets can be renamed and deleted to the trash, on screen or not, and saved under a new name. A set that cannot go to the trash stays, with a notice.
 - **Guides**: horizontal and vertical 1-pixel lines labeled with their position. The gap between neighboring parallel guides is shown live, which makes alignment checks quick.
 - **Measuring rectangles**: drag to draw, then move, resize from any edge or corner, or nudge with the arrow keys. The label shows the size, the position too when the rectangle is selected, and the distance to the nearest helper on each side.
 - **Area measuring**: press <kbd>D</kbd> in edit mode to see the width and height of the area under the pointer, found from the screen pixels, like a button or a padding. <kbd>Enter</kbd> turns it into a rectangle.
@@ -43,7 +45,7 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Show or hide the column grid of the focused window's set |
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Pick a color |
 
-The top bar menu has the same actions, the sets on screen, and the library. A set's badge menu, in edit mode, turns its helpers, grid, and mockup on and off, and has **Set settings…**, **Save as new set…**, and **Clear helpers**. The shortcuts can be changed in the preferences, which also list the keys of edit mode.
+The top bar menu has the same actions, the sets on screen, and the library. A set's badge menu, in edit mode, turns its helpers, grid, and mockup on and off, and has **Add a copy…**, **Set settings…**, **Save as new set…**, **Reset zone**, and **Clear helpers**. The badge of a copy has a **Linked** switch, **Reset zone**, **Save as new set…** once unlinked, and **Remove copy**. The shortcuts can be changed in the preferences, which also list the keys of edit mode.
 
 In edit mode, a hint bar lists the keys:
 
@@ -64,11 +66,13 @@ In edit mode, a hint bar lists the keys:
 | Right-drag, <kbd>Ctrl</kbd>+arrows | Move the mockup |
 | <kbd>[</kbd> / <kbd>]</kbd> | Lower or raise the mockup opacity |
 | <kbd>G</kbd> | Toggle the column grid |
+| <kbd>A</kbd> | Add a linked copy of the set edited last on the window under the pointer |
+| Drag a dashed zone edge | Frame the view's zone; edges snap to the screen content (<kbd>Ctrl</kbd>: no snapping) |
 | <kbd>Esc</kbd> | Cancel the current drag, or leave edit mode |
 
 In the color picker, <kbd>Tab</kbd> switches between hex, `rgb()`, and `hsl()`.
 
-Edit mode acts on the window under the pointer. Positions are relative to the window's top-left corner. CSS pixel values follow the browser zoom of the set, 100% by default. Area measuring, snapping, and the color picker read a still capture of the screen taken when edit mode or the picker starts.
+Edit mode acts on the view under the pointer: the smallest zone there. A press on a helper, a badge, or a zone edge keeps its view as the target until the next press elsewhere or until the pointer leaves the window. Positions are relative to the zone's top-left corner. CSS pixel values follow the browser zoom of the set, 100% by default. Area measuring, snapping, and the color picker read a still capture of the screen taken when edit mode or the picker starts.
 
 ## Requirements
 
