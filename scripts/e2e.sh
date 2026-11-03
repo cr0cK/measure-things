@@ -761,11 +761,12 @@ click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
 expect "$HOST_COPY.linked + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box)[1] + ' ' + $E2E.item($OVERLAY.badgeMenu, 'Save as new set…').visible" \
     'false Unlinked true' 'the Linked switch unlinks the copy'
 press_keys Escape
+SET_REVISION=$(shell_eval "$E2E.file('$SPLIT_SET').revision")
 pointer_drag 100 880 120 880
 expect "[$HOST_COPY.local.content.helpers[0].x, $M.content.helpers[0].x, $HOST_COPY.local.localChanges].join()" '100,80,1' \
     'an edit of an unlinked copy stays in the copy'
 expect "$E2E.fileHelpers('$SPLIT_SET') + ' ' + $E2E.view('Split')._helperViews.get(1).shape.x + ' ' + $E2E.file('$SPLIT_SET').revision" \
-    "V 80 80 $(shell_eval "$M.revision")" 'and is never saved'
+    "V 80 80 $SET_REVISION" 'and is never saved'
 shell_eval "$M.content.helpers[0].x = 60; $MANAGER.commit($M);" >/dev/null
 expect "$HOST_COPY.local.content.helpers[0].x + ' ' + $HOST_COPY._helperViews.get(1).shape.x" '100 100' \
     'a change of the set does not reach an unlinked copy'
@@ -993,6 +994,11 @@ shell_eval "const model = $MANAGER.createSet($E2E.win('PromoB')).model;
     global._wrap = model.id;" >/dev/null
 expect "(rs => rs.every(r => r.x >= 0) && rs.every((a, i) => rs.every((b, j) => i === j || a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y)) && new Set(rs.map(r => r.y)).size)($E2E.views('PromoB').map(view => view.badgeRect))" \
     2 'badges that would cross the left edge of the frame start a new row above, without overlapping'
+expect "$E2E.bounds($E2E.views('PromoB')[0]._badgeBox) + ' ' + $E2E.views('PromoB')[0]._badgeBox.clip_to_allocation" \
+    '740,780,200,200 true' 'badges are clipped to the window frame'
+shell_eval "const view = $E2E.views('PromoB')[0]; view.setCaptureHidden(true); view.sync();" >/dev/null
+expect "$E2E.views('PromoB')[0]._badgeBox.visible" false 'a view hidden for a capture stays hidden when it is laid out again'
+shell_eval "$E2E.views('PromoB')[0].setCaptureHidden(false)" >/dev/null
 shell_eval "$MANAGER.delete(global._wrap)" >/dev/null
 wait_for "$E2E.views('PromoB').length === 0"
 
@@ -1024,8 +1030,13 @@ shell_eval "const model = $MANAGER.createSet($E2E.win('PromoC')).model;
     $MANAGER.commit(unlinked.local);" >/dev/null
 PROMO=$(shell_eval "global._promo")
 PROMO_SET="$E2E.set('$PROMO')"
+# A badge menu open on the copy that takes over closes, since it no longer describes a copy.
+press_keys Super_L Shift_L m
+shell_eval "$OVERLAY.openBadgeMenu($PROMO_SET.copies[0]); null" >/dev/null
+expect "$OVERLAY.badgeMenu?.view === $PROMO_SET.copies[0]" true 'a badge menu is open on the oldest linked copy'
 shell_eval "$E2E.win('PromoC').delete(global.get_current_time())" >/dev/null
 wait_for "!$E2E.win('PromoC')"
+expect "$OVERLAY.badgeMenu" null 'the badge menu of a copy that becomes the main view closes'
 expect "$PROMO_SET.view.window.title + ' ' + $PROMO_SET.view.isMain + ' ' + $PROMO_SET.copies.map(c => c.window.title + ' ' + c.linked).join()" \
     'PromoB true Host true,Host false' 'when the main view window closes, the oldest linked copy becomes the main view'
 expect "$PROMO_SET.view._badgeLabel.text + ' ' + $PROMO_SET.view._badgeLink.visible" "$(shell_eval "$PROMO_SET.name") false" \
@@ -1034,6 +1045,7 @@ shell_eval "$E2E.win('PromoB').delete(global.get_current_time())" >/dev/null
 wait_for "!$E2E.win('PromoB')"
 expect "$PROMO_SET.view.window.title + ' ' + $PROMO_SET.copies.map(c => c.linked).join()" 'Host false' \
     'the next linked copy takes over in turn'
+press_keys Escape
 
 # Loading a set that is already on screen adds a linked copy, and the panel menu counts the copies.
 PROMO_NAME=$(shell_eval "$PROMO_SET.name")
@@ -1129,6 +1141,21 @@ expect "(m => m.name + ' ' + (m.id !== '$ORIGIN') + ' ' + [m.view, ...m.copies].
     "Main fork true true/true,true/true,false/true $ORIGIN_NAME" \
     'Save as new set… on a main view moves its linked and unlinked copies to the new set'
 
+# Loading a set does not change the set A copies once a set was edited.
+shell_eval "global._lastEdited = $MANAGER.lastEdited; $MANAGER.load('$ORIGIN', $E2E.win('Host')); null" >/dev/null
+expect "$MANAGER.lastEdited === global._lastEdited && !!global._lastEdited" true \
+    'loading a set does not take the place of the set edited last'
+# After A, the keys act on the new view without the pointer moving.
+open_window Fresh 440 780 280x200 '#241f31'
+press_keys Super_L Shift_L m
+pointer_move 580 880
+shell_eval "global._helpers = global._forked.content.helpers.length; global._models = $MANAGER.models.length" >/dev/null
+press_keys a
+press_keys h
+expect "$MANAGER.models.length - global._models + ' ' + (global._forked.content.helpers.length - global._helpers)" '0 1' \
+    'after A, the keys act on the new view without the pointer moving, not on a new set'
+press_keys Escape
+
 # Tidy: every set made here leaves the screen and the library, and its windows close.
 shell_eval "for (const model of [...$MANAGER.models]) {
         if (!['Page', 'Other'].includes(model.view.window.title))
@@ -1140,8 +1167,8 @@ shell_eval "for (const model of [...$MANAGER.models]) {
     }
     null;" >/dev/null
 wait_for "$MANAGER.store.entries().length === global._libraryBefore.length"
-shell_eval "$E2E.win('Split').delete(global.get_current_time()); $E2E.win('Host').delete(global.get_current_time());" >/dev/null
-wait_for "!$E2E.win('Split') && !$E2E.win('Host')"
+shell_eval "for (const title of ['Split', 'Host', 'Fresh']) $E2E.win(title).delete(global.get_current_time());" >/dev/null
+wait_for "!$E2E.win('Split') && !$E2E.win('Host') && !$E2E.win('Fresh')"
 
 # The grid shortcut acts on the focused window.
 shell_eval "$E2E.win('Other').activate(global.get_current_time())" >/dev/null

@@ -134,6 +134,7 @@ export class View {
         this._attached = false;
         this._badgeAttached = false;
         this._badgeShown = false;
+        this._captureHidden = false;
 
         this.layer = new St.Widget({name: 'measure-things-view', clip_to_allocation: true});
         // In the window actor's units.
@@ -153,8 +154,11 @@ export class View {
         this._frame = new St.DrawingArea();
         this._frame.connect('repaint', area => this._paintFrame(area));
         this._zoneHandles = [0, 1, 2, 3].map(() => new St.Widget({style_class: 'measure-things-handle'}));
-        // A child of the window actor of its own, above every view's layer.
+        // Children of the window actor of their own, above every view's layer: the box clips the
+        // badge to the window frame.
+        this._badgeBox = new St.Widget({name: 'measure-things-badge-box', clip_to_allocation: true});
         this._badge = new St.BoxLayout({style_class: 'measure-things-badge'});
+        this._badgeBox.add_child(this._badge);
         this._badgeDot = new St.Widget({style_class: 'measure-things-badge-dot', y_align: Clutter.ActorAlign.CENTER});
         this._badgeLabel = new St.Label({style_class: 'measure-things-badge-label', y_align: Clutter.ActorAlign.CENTER});
         this._badgeLink = new St.Icon({icon_name: 'insert-link-symbolic', icon_size: 12, y_align: Clutter.ActorAlign.CENTER});
@@ -193,7 +197,7 @@ export class View {
         this._setBadgeAttached(false);
         this._watchMockup(null);
         this.layer.destroy();
-        this._badge.destroy();
+        this._badgeBox.destroy();
         this._helperViews.clear();
         this._mockupPath = null;
         this._mockupLoad = null;
@@ -221,8 +225,9 @@ export class View {
 
     /** Hides the view for a capture of the screen, without detaching it. */
     setCaptureHidden(hidden) {
+        this._captureHidden = hidden;
         this.layer.visible = !hidden;
-        this._badge.visible = !hidden && this._badgeShown;
+        this._badgeBox.visible = !hidden && this._badgeShown;
     }
 
     /** The model its edits go to: the set's, or an unlinked copy's own. */
@@ -376,9 +381,9 @@ export class View {
             return;
         this._badgeAttached = attached;
         if (attached)
-            this._actor.add_child(this._badge);
+            this._actor.add_child(this._badgeBox);
         else
-            this._actor.remove_child(this._badge);
+            this._actor.remove_child(this._badgeBox);
     }
 
     /** Whether its badge shows. */
@@ -394,7 +399,10 @@ export class View {
 
     /** The layer and the badge, each when attached to the window actor. */
     get attached() {
-        return {layer: this._attached ? this.layer : null, badge: this._badgeAttached ? this._badge : null};
+        return {
+            layer: this._attached ? this.layer : null,
+            badge: this._badgeAttached ? this._badgeBox : null,
+        };
     }
 
     /** Lays the view out again from the window and the set. */
@@ -743,6 +751,7 @@ export class View {
         const badge = this._badge;
         this._badgeShown = Boolean(this.geometry) && this._showsBadge();
         this._setBadgeAttached(this._badgeShown);
+        this._badgeBox.visible = this._badgeShown && !this._captureHidden;
         this._badge.visible = this._badgeShown;
         if (!this._badgeShown) {
             this.badgeRect = null;
@@ -782,6 +791,8 @@ export class View {
     placeBadge(x, y) {
         const {frame} = this.geometry;
         this.badgeRect = {x, y, width: this.badgeSize.width, height: this.badgeSize.height};
-        this._badge.set_position(frame.layerX + x / frame.k, frame.layerY + y / frame.k);
+        this._badgeBox.set_position(frame.layerX, frame.layerY);
+        this._badgeBox.set_size(frame.width / frame.k, frame.height / frame.k);
+        this._badge.set_position(x / frame.k, y / frame.k);
     }
 }

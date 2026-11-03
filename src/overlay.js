@@ -80,6 +80,10 @@ export class Overlay {
         // Shared by every line request, so a pending line calls it back once.
         this._onLineRead = () => this._refreshPointer();
         manager.onViewRemoved = view => this._onViewRemoved(view);
+        manager.onViewPromoted = view => {
+            if (this._badgeMenu?.view === view)
+                this._badgeMenu.close();
+        };
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});
         this.actor.add_constraint(new Clutter.BindConstraint({
@@ -125,6 +129,7 @@ export class Overlay {
             GLib.source_remove(this._recaptureId);
         this._recaptureId = 0;
         this._manager.onViewRemoved = () => {};
+        this._manager.onViewPromoted = () => {};
         this.actor.destroy();
     }
 
@@ -1054,6 +1059,8 @@ export class Overlay {
             return;
         }
         this._manager.addCopy(model, window);
+        // The window has a view now: what the pointer targets changes without it moving.
+        this._refreshPointer();
         this._onStateChanged();
     }
 
@@ -1084,8 +1091,10 @@ export class Overlay {
         return new Promise(resolve => {
             this._copyPick.done = resolve;
         }).then(window => {
-            if (window && this.editing && this._manager.models.includes(model))
+            if (window && this.editing && this._manager.models.includes(model)) {
                 this._manager.addCopy(model, window);
+                this._refreshPointer();
+            }
             this._onStateChanged();
         });
     }

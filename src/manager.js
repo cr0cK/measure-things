@@ -44,9 +44,12 @@ export class Manager {
         this.editing = false;
         this._seq = 0;
         // The set `A` adds a copy of: the last one edited, else the last one loaded or created.
+        // Once any set has been edited, loading or creating one does not take its place.
         this.lastEdited = null;
-        // Set by the overlay: a view left the screen.
+        this._anyEdit = false;
+        // Set by the overlay: a view left the screen, or became a set's main view.
         this.onViewRemoved = () => {};
+        this.onViewPromoted = () => {};
         this.store = new SetStore({onChanged: () => this._changed()});
         this._mutterSignal = this._mutterSettings.connect('changed::experimental-features',
             () => this._syncViews());
@@ -147,10 +150,22 @@ export class Manager {
             model.view.setEditing(true);
         this.models.push(model);
         if (!model.provisional)
-            this.lastEdited = model;
+            this._fallbackEdited(model);
         this._layoutBadges(window);
         this._changed();
         return model.view;
+    }
+
+    /** A set loaded or created becomes the one `A` copies, until a set is edited. */
+    _fallbackEdited(model) {
+        if (!this._anyEdit)
+            this.lastEdited = model;
+    }
+
+    /** A set whose content just changed becomes the one `A` copies. */
+    _edited(set) {
+        this._anyEdit = true;
+        this.lastEdited = set;
     }
 
     /** Adds a linked copy of a set on a window, with an automatic zone. */
@@ -204,6 +219,8 @@ export class Manager {
         model.copies.splice(model.copies.indexOf(next), 1);
         model.view = next;
         this._dropView(view);
+        // A menu open on the copy shows what it was, not what it is now.
+        this.onViewPromoted(next);
         next.sync();
         this._changed();
     }
@@ -316,7 +333,7 @@ export class Manager {
             }
             model.history.record(state);
             model.localChanges++;
-            this.lastEdited = set;
+            this._edited(set);
             this.syncModel(model);
             this._changed();
             return true;
@@ -326,7 +343,7 @@ export class Manager {
             return false;
         }
         model.history.record(state);
-        this.lastEdited = set;
+        this._edited(set);
         return true;
     }
 
@@ -399,7 +416,7 @@ export class Manager {
         if (state === null)
             return;
         this._apply(model, state);
-        this.lastEdited = this.setOf(model);
+        this._edited(this.setOf(model));
         if (model.local) {
             model.localChanges += change;
             this._changed();
@@ -471,7 +488,7 @@ export class Manager {
             return null;
         const model = shown ?? this._model(set);
         const view = shown ? this.addCopy(model, window) : this._show(model, window);
-        this.lastEdited = model;
+        this._fallbackEdited(model);
         // A load counts as an edit for the library's order.
         this._write(model);
         return view;
@@ -532,7 +549,7 @@ export class Manager {
         Object.assign(model, {id: set.id, name, revision: 0, edited: set.edited, migrated: false});
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
         this.store.write(set);
-        this.lastEdited = model;
+        this._edited(model);
         this.syncModel(model);
         this._changed();
     }
@@ -565,7 +582,7 @@ export class Manager {
         view.set = model;
         this.models.push(model);
         this.store.write(set);
-        this.lastEdited = model;
+        this._edited(model);
         view.sync();
         this._changed();
     }
