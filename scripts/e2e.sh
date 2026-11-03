@@ -960,6 +960,15 @@ pointer_move 1140 840
 pointer_button RELEASED
 expect "$E2E.view('Split').geometry.visibleInFrame.height + ' ' + $SPLIT_COPY.geometry.visibleInFrame.height" '360 300' \
     'a zone edge wins over the zone it crosses, so a larger zone can be resized from inside a smaller one'
+# Escape cancels a zone edge drag and restores the zone.
+pointer_move 1140 840
+pointer_button PRESSED
+pointer_move 1140 860
+pointer_move 1140 890
+press_keys Escape
+pointer_button RELEASED
+expect "$E2E.view('Split').geometry.visibleInFrame.height + ' ' + $OVERLAY._drag" '360 null' \
+    'Escape cancels a zone edge drag'
 # A fixed zone keeps its place when the window is resized; what lies outside the frame is not shown.
 shell_eval "for (const view of $E2E.views('Host'))
         $MANAGER.removeCopy(view);

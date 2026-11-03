@@ -269,6 +269,7 @@ export class Manager {
         if (view.linked)
             return;
         view.local = null;
+        view.selectedId = null;
         view.sync();
         this._changed();
     }
