@@ -34,10 +34,16 @@ jobs:
         run: make check
 
   e2e:
-    name: End-to-end test
+    name: End-to-end test (GNOME ${{ matrix.gnome }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {gnome: 49, fedora: 43}
+          - {gnome: 50, fedora: 44}
     # A headless GNOME Shell renders with Mesa's software rasterizer; no GPU needed.
-    container: fedora:43
+    container: fedora:${{ matrix.fedora }}
     timeout-minutes: 20
     steps:
       - name: Install GNOME Shell and build tools

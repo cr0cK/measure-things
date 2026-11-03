@@ -68,7 +68,7 @@ Positions are relative to the monitor they are on. CSS pixel values follow the b
 
 ## Requirements
 
-- GNOME Shell 49 on Wayland
+- GNOME Shell 49 or 50 on Wayland
 
 ## Install
 

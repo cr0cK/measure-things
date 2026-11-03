@@ -1,11 +1,11 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
-import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {setCursor} from './cursor.js';
 import {nearestBoundary, regionAround} from './edges.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {
@@ -104,7 +104,7 @@ export class Overlay {
         this.actor.connect('button-release-event', (_actor, event) => this._onRelease(event));
         this.actor.connect('key-press-event', (_actor, event) => this._onKeyPress(event));
 
-        Main.layoutManager.addTopChrome(this.actor, {affectsInputRegion: false});
+        Main.layoutManager.addTopChrome(this.actor);
         this._signals = [
             [Main.layoutManager, Main.layoutManager.connect('monitors-changed', () => this._syncAll())],
             [global.workspace_manager,
@@ -140,29 +140,21 @@ export class Overlay {
         return this._helpers.length > 0;
     }
 
-    /** Takes the modal grab; returns false when another grab holds the keyboard. */
+    /** Takes the modal grab. */
     enterEdit() {
         if (this._grab)
-            return true;
+            return;
 
         this.actor.reactive = true;
-        const grab = Main.pushModal(this.actor, {actionMode: Shell.ActionMode.POPUP});
-        if (!(grab.get_seat_state() & Clutter.GrabState.KEYBOARD)) {
-            Main.popModal(grab);
-            this.actor.reactive = false;
-            return false;
-        }
-
-        this._grab = grab;
+        this._grab = Main.pushModal(this.actor, {actionMode: Shell.ActionMode.POPUP});
         this._captureSnapshot();
-        global.display.set_cursor(Meta.Cursor.CROSSHAIR);
+        setCursor(this.actor, 'CROSSHAIR');
         const [x, y] = global.get_pointer();
         this._cursorGroup.show();
         this._placeHint();
         this._updateCursor(x, y);
         this._syncAll();
         this._onStateChanged();
-        return true;
     }
 
     /**
@@ -209,7 +201,7 @@ export class Overlay {
         this._measuring = false;
         this._region = null;
         this.actor.reactive = false;
-        global.display.set_cursor(Meta.Cursor.DEFAULT);
+        setCursor(this.actor, 'DEFAULT');
         this._cursorGroup.hide();
         this._selectedId = null;
         this._syncAll();
@@ -226,8 +218,7 @@ export class Overlay {
     /** Adds a guide through the center of the primary monitor, then edits it. */
     addGuide(kind) {
         const monitor = Main.layoutManager.primaryMonitor;
-        if (!this.enterEdit())
-            return;
+        this.enterEdit();
         this._addGuideAt(kind,
             Math.round(monitor.x + monitor.width / 2),
             Math.round(monitor.y + monitor.height / 2));
@@ -561,7 +552,7 @@ export class Overlay {
         const helper = hit && this._find(hit.id);
         const cursor = !helper || (hit.part === 'inside' && hit.id !== this._selectedId)
             ? 'CROSSHAIR' : cursorFor(helper.kind, hit.part);
-        global.display.set_cursor(Meta.Cursor[cursor]);
+        setCursor(this.actor, cursor);
     }
 
     /**

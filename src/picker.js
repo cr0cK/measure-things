@@ -1,10 +1,10 @@
 import Clutter from 'gi://Clutter';
 import Cogl from 'gi://Cogl';
-import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import {setCursor} from './cursor.js';
 import {COLOR_FORMATS, formatColor} from './format.js';
 import {Snapshot} from './snapshot.js';
 
@@ -102,20 +102,13 @@ export class ColorPicker {
     }
 
     /**
-     * Resolves with the color text, or null when cancelled or when the keyboard is taken. Hide
-     * what must not be sampled before calling it.
+     * Resolves with the color text, or null when cancelled. Hide what must not be sampled
+     * before calling it.
      */
     pick() {
-        Main.layoutManager.addTopChrome(this._actor, {affectsInputRegion: false});
-        const grab = Main.pushModal(this._actor, {actionMode: Shell.ActionMode.POPUP});
-        if (!(grab.get_seat_state() & Clutter.GrabState.KEYBOARD)) {
-            Main.popModal(grab);
-            this._actor.destroy();
-            return Promise.resolve(null);
-        }
-
-        this._grab = grab;
-        global.display.set_cursor(Meta.Cursor.CROSSHAIR);
+        Main.layoutManager.addTopChrome(this._actor);
+        this._grab = Main.pushModal(this._actor, {actionMode: Shell.ActionMode.POPUP});
+        setCursor(this._actor, 'CROSSHAIR');
         const result = new Promise(resolve => {
             this._done = resolve;
         });
@@ -152,7 +145,7 @@ export class ColorPicker {
         const done = this._done;
         this._done = null;
         Main.popModal(this._grab);
-        global.display.set_cursor(Meta.Cursor.DEFAULT);
+        setCursor(this._actor, 'DEFAULT');
         this._actor.destroy();
         done(result);
     }

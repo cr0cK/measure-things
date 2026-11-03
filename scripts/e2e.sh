@@ -59,6 +59,12 @@ expect "JSON.stringify($OVERLAY._helpers[0])" \
     '{"id":1,"kind":"rectangle","x":400,"y":300,"width":321,"height":180}' 'Alt+Right widens a rectangle'
 expect "$CLIPBOARD" '321 × 180' 'Ctrl+C copies the selected measurement'
 
+# GNOME 50 sets cursors per actor; GNOME 49 sets one on the display, which Eval cannot read.
+if [[ $(shell_eval "'get_cursor_type' in $OVERLAY.actor") == true ]]; then
+    pointer_move 560 480
+    expect "$OVERLAY.actor.get_cursor_type() === imports.gi.Clutter.CursorType.S_RESIZE" true \
+        'an edge of the selected rectangle shows a resize cursor'
+fi
 pointer_drag 560 480 560 500
 expect "JSON.stringify($OVERLAY._helpers[0])" \
     '{"id":1,"kind":"rectangle","x":400,"y":300,"width":321,"height":200}' 'dragging an edge resizes'

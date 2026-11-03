@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents working on Measure Things, a GNOME Shell 49 extension with measuring tools
+Guidance for AI agents working on Measure Things, a GNOME Shell 49 and 50 extension with measuring tools
 for web and UI work: guides, measuring rectangles, area measuring with snapping, a column grid, a
 mockup image, and a color picker, drawn above every window. Read CONTRIBUTING.md for the human workflow; this file holds what the code does not
 tell you.
@@ -17,6 +17,7 @@ new `src/*.js` modules on its own.
 | `src/mockup.js` | The mockup image in the layer |
 | `src/snapshot.js` | Still capture of the screen, read by areas and lines on demand |
 | `src/picker.js` | Modal color picker with its loupe |
+| `src/cursor.js` | Pointer cursor over an actor, across the GNOME 49 and 50 APIs |
 | `src/prefs.js` | Adwaita preferences window; every row writes its setting directly. Its list of edit mode keys mirrors `_onKeyPress()` in `overlay.js`: change both together |
 | `src/geometry.js` | Helper storage, hit testing, drag math, grid layout, pixel units (pure) |
 | `src/format.js` | Length and color formatting (pure) |
@@ -55,8 +56,8 @@ user-visible change also gets a new check in `scripts/e2e.sh`.
   every new actor non-reactive.
 - Edit mode takes a modal grab (`Main.pushModal`, `Shell.ActionMode.POPUP`) on the overlay,
   which then handles every pointer and key event itself. `POPUP` keeps the extension's own
-  shortcuts working during the grab. Always check `grab.get_seat_state()` for the keyboard and
-  pop the grab when it is missing.
+  shortcuts working during the grab. A Wayland grab always gets the keyboard, so there is no
+  seat state to check; Mutter 50 removed `Clutter.Grab.get_seat_state()`.
 - Helpers are stored in stage pixels. Labels convert to the display unit with
   `pixelRatios()`: in logical layout mode (fractional scaling) the stage is in logical pixels,
   which are CSS pixels at 100% zoom; in physical mode the stage is in device pixels. The layout
@@ -129,7 +130,8 @@ a headless shell; reuse it rather than starting from scratch:
 The e2e test turns on Mutter's logical layout mode, then switches the virtual monitor to 125%
 through `org.gnome.Mutter.DisplayConfig` for its last checks, which cover fractional scaling.
 
-CI runs the e2e test in a `fedora:43` container with Mesa's software renderer. The Shell aborts
+CI runs the e2e test in `fedora:43` (GNOME 49) and `fedora:44` (GNOME 50) containers with
+Mesa's software renderer, so every change is proven on both supported Shells. The Shell aborts
 at startup there unless the workflow starts a system D-Bus and deletes `/run/systemd/seats`:
 installing systemd creates that directory, which makes the Shell expect logind.
 

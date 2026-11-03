@@ -5,7 +5,7 @@ Thanks for helping improve Measure Things. By participating, you agree to follow
 
 ## Development setup
 
-You need GNOME Shell 49, GLib schema tools, Node.js 24, Python 3, and
+You need GNOME Shell 49 or 50, GLib schema tools, Node.js 24, Python 3, and
 [pre-commit](https://pre-commit.com). Node.js and Python are only used for development; the
 extension does not need them at runtime.
 

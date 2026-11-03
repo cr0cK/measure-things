@@ -27,7 +27,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
 
 ## Audience and environment
 
-- Web and UI developers on GNOME Shell 49, Wayland.
+- Web and UI developers on GNOME Shell 49 or 50, Wayland.
 - Single and multi-monitor setups, at any monitor scale, fractional ones included.
 
 ## Vocabulary
@@ -276,8 +276,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
 ## Edit mode
 
 - Entered with the edit shortcut (`Super+Shift+M`), **Edit helpers**, or a click on a set in
-  the menu's **On screen** list. It takes a modal grab. When another grab holds the keyboard, it
-  does not start.
+  the menu's **On screen** list. It takes a modal grab.
 - Edit mode shows every view, hidden sets included, and every badge.
 - **Targeting**: the target is the topmost visible window under the pointer. Inside it, the
   target is the smallest zone under the pointer, the newest on equal sizes. The panel, the
