@@ -1145,14 +1145,24 @@ expect "(m => m.name + ' ' + (m.id !== '$ORIGIN') + ' ' + [m.view, ...m.copies].
 shell_eval "global._lastEdited = $MANAGER.lastEdited; $MANAGER.load('$ORIGIN', $E2E.win('Host')); null" >/dev/null
 expect "$MANAGER.lastEdited === global._lastEdited && !!global._lastEdited" true \
     'loading a set does not take the place of the set edited last'
+# Save as new set… is not an edit: before any edit, the set loaded last is the one A copies.
+shell_eval "const manager = $MANAGER;
+    manager._anyEdit = false;
+    manager.lastEdited = manager.modelOf('$ORIGIN');
+    manager.saveAsNew(manager.lastEdited, 'Third fork');
+    manager.load('$FORK', $E2E.win('Host'));
+    global._third = manager.lastEdited?.id;
+    manager._anyEdit = true;
+    null;" >/dev/null
+expect "global._third" "$FORK" 'Save as new set… is not an edit for the set A copies'
 # After A, the keys act on the new view without the pointer moving.
 open_window Fresh 440 780 280x200 '#241f31'
 press_keys Super_L Shift_L m
 pointer_move 580 880
-shell_eval "global._helpers = global._forked.content.helpers.length; global._models = $MANAGER.models.length" >/dev/null
+shell_eval "global._copied = $MANAGER.lastEdited; global._helpers = global._copied.content.helpers.length; global._models = $MANAGER.models.length" >/dev/null
 press_keys a
 press_keys h
-expect "$MANAGER.models.length - global._models + ' ' + (global._forked.content.helpers.length - global._helpers)" '0 1' \
+expect "$MANAGER.models.length - global._models + ' ' + (global._copied.content.helpers.length - global._helpers)" '0 1' \
     'after A, the keys act on the new view without the pointer moving, not on a new set'
 press_keys Escape
 

@@ -549,7 +549,6 @@ export class Manager {
         Object.assign(model, {id: set.id, name, revision: 0, edited: set.edited, migrated: false});
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
         this.store.write(set);
-        this._edited(model);
         this.syncModel(model);
         this._changed();
     }
@@ -582,7 +581,8 @@ export class Manager {
         view.set = model;
         this.models.push(model);
         this.store.write(set);
-        this._edited(model);
+        // A new set, not a change of content: it counts as created.
+        this._fallbackEdited(model);
         view.sync();
         this._changed();
     }
