@@ -11,7 +11,7 @@ import {BadgeMenu} from './badge.js';
 import {setCursor} from './cursor.js';
 import {nearestBoundary, regionAround} from './edges.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
-import {cursorFor, dragHelper, hitTest, monitorAt, rectFromPoints, targetAt} from './geometry.js';
+import {cursorFor, dragHelper, hitTest, monitorAt, rectFromPoints, targetAt, windowRole} from './geometry.js';
 import {roundCss} from './sets.js';
 import {Snapshot} from './snapshot.js';
 import {windowGeometry} from './view.js';
@@ -28,10 +28,21 @@ const HINT_TEXT = [
     'Ctrl+Z  undo   ·   Ctrl+C  copy   ·   Ctrl+drag  no snapping   ·   Right-drag  move mockup   ·   ' +
         'G  grid   ·   Esc  done',
 ].join('\n');
-const {WindowType} = Meta;
-const TARGET_TYPES = [WindowType.NORMAL, WindowType.DIALOG, WindowType.MODAL_DIALOG, WindowType.UTILITY,
-    WindowType.TOOLBAR, WindowType.SPLASHSCREEN];
-const IGNORED_TYPES = [WindowType.DESKTOP, WindowType.DOCK];
+const TYPE_NAMES = new Map(Object.entries(Meta.WindowType).map(([name, type]) => [type, name]));
+// What a target window does that edit mode must react to.
+const WINDOW_CHANGES = ['position-changed', 'size-changed', 'highest-scale-monitor-changed',
+    'notify::minimized', 'workspace-changed'];
+
+/** How a window counts for targeting: `window`, `blocker`, or `ignore`. */
+export function roleOf(window) {
+    return windowRole(TYPE_NAMES.get(window.get_window_type()), window.is_override_redirect());
+}
+
+/** Whether a window is on screen: not minimized, and on the active workspace. */
+export function isShown(window) {
+    return !window.minimized &&
+        window.located_on_workspace(global.workspace_manager.get_active_workspace());
+}
 
 /**
  * The stage-wide layer for input: edit mode takes a modal grab on it and handles every pointer and
@@ -53,13 +64,15 @@ export class Overlay {
         this._snapshot = null;
         this._snapshotToken = null;
         this._recaptureId = 0;
+        this._watched = null;
+        this._watchIds = [];
+        this._globalIds = [];
         this._measuring = false;
         this._region = null;
         this._badgeMenu = null;
         this._loadDone = null;
         // Shared by every line request, so a pending line calls it back once.
         this._onLineRead = () => this._refreshPointer();
-        manager.onViewMoved = view => this._onViewMoved(view);
         manager.onViewRemoved = view => this._onViewRemoved(view);
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});
@@ -105,7 +118,6 @@ export class Overlay {
         if (this._recaptureId)
             GLib.source_remove(this._recaptureId);
         this._recaptureId = 0;
-        this._manager.onViewMoved = () => {};
         this._manager.onViewRemoved = () => {};
         this.actor.destroy();
     }
@@ -140,6 +152,12 @@ export class Overlay {
 
         this._pushModal();
         this._mode = 'edit';
+        this._globalIds = [
+            [global.workspace_manager, global.workspace_manager.connect('active-workspace-changed',
+                () => this._onWorkspaceSwitched())],
+            [Main.layoutManager, Main.layoutManager.connect('monitors-changed',
+                () => this._onMonitorsChanged())],
+        ];
         this._manager.setEditing(true);
         this._captureSnapshot();
         setCursor(this.actor, 'CROSSHAIR');
@@ -161,10 +179,13 @@ export class Overlay {
             this._cancelDrag();
         this._popModal();
         this._mode = null;
+        for (const [object, id] of this._globalIds)
+            object.disconnect(id);
+        this._globalIds = [];
         this._dropSnapshot();
         this._measuring = false;
         this._region = null;
-        this._target = null;
+        this._setTarget(null);
         this._cursorGroup.hide();
         this._manager.setEditing(false);
         this._onStateChanged();
@@ -239,15 +260,60 @@ export class Overlay {
         this._snapshot = null;
     }
 
-    /** A target view moved, resized, changed scale or monitor, or left the workspace. */
-    _onViewMoved(view) {
+    /** Watches the target window: edit mode reacts to it moving, hiding, or closing. */
+    _watch(window) {
+        if (this._watched === window)
+            return;
+        this._unwatch();
+        if (!window)
+            return;
+        this._watched = window;
+        this._watchIds = [
+            ...WINDOW_CHANGES.map(name => window.connect(name, () => this._onWindowChanged(window))),
+            window.connect('unmanaged', () => this._onWindowChanged(window, true)),
+        ];
+    }
+
+    _unwatch() {
+        for (const id of this._watchIds)
+            this._watched.disconnect(id);
+        this._watched = null;
+        this._watchIds = [];
+    }
+
+    /**
+     * The target window moved, resized, changed scale or monitor, was minimized, left the
+     * workspace, or closed: a gesture on it is cancelled, and a window no longer shown loses its
+     * target and selection. Otherwise the screen is captured again.
+     */
+    _onWindowChanged(window, closed = false) {
         if (!this.editing)
             return;
-        if (this._drag?.view === view || this._drag?.window === view.window)
+        if (this._drag?.window === window)
             this._cancelDrag();
-        if (this._target?.window !== view.window)
+        if (closed || !isShown(window)) {
+            this._setTarget(null);
+            this._refreshPointer();
             return;
-        // Windows send several changes in a row: capture once they settle.
+        }
+        this._scheduleRecapture();
+    }
+
+    _onWorkspaceSwitched() {
+        const window = this._drag?.window ?? this._target?.window;
+        if (window)
+            this._onWindowChanged(window);
+        else
+            this._scheduleRecapture();
+    }
+
+    _onMonitorsChanged() {
+        this._cancelDrag();
+        this._scheduleRecapture();
+    }
+
+    /** Windows send several changes in a row: the screen is captured again once they settle. */
+    _scheduleRecapture() {
         if (this._recaptureId)
             GLib.source_remove(this._recaptureId);
         this._recaptureId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
@@ -261,8 +327,10 @@ export class Overlay {
     _onViewRemoved(view) {
         if (this._drag?.view === view)
             this._drag = null;
-        if (this._target?.view === view)
+        if (this._target?.view === view) {
             this._target = null;
+            this._unwatch();
+        }
         if (this._badgeMenu?.view === view)
             this._badgeMenu.close();
     }
@@ -280,11 +348,9 @@ export class Overlay {
         const windows = [];
         for (const actor of global.get_window_actors().reverse()) {
             const window = actor.meta_window;
-            if (!actor.visible || !window || window.minimized)
+            if (!actor.visible || !window || !isShown(window))
                 continue;
-            const type = window.get_window_type();
-            const role = TARGET_TYPES.includes(type) ? 'window' : IGNORED_TYPES.includes(type) ? 'ignore' : 'blocker';
-            windows.push({window, rect: window.get_frame_rect(), role});
+            windows.push({window, rect: window.get_frame_rect(), role: roleOf(window)});
         }
         const index = targetAt(windows, x, y);
         if (index < 0)
@@ -298,6 +364,7 @@ export class Overlay {
         if (view && view !== target?.view && view.selectedId !== null)
             view.select(null);
         this._target = target;
+        this._watch(this.editing ? target?.window ?? null : null);
     }
 
     /** The zone of a target: its view's, or the window's frame when it has no view. */
@@ -558,6 +625,8 @@ export class Overlay {
             }
             drag.id = this._manager.addHelper(drag.view.model, {kind: 'rectangle', x: 0, y: 0, width: 1, height: 1}).id;
             drag.view.selectedId = drag.id;
+            // A view with nothing to show is not attached to its window yet.
+            drag.view.sync();
         }
 
         const view = drag.view;

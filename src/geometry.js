@@ -248,3 +248,24 @@ export function targetAt(windows, x, y) {
     }
     return -1;
 }
+
+// How windows of each Meta.WindowType count for targeting. A `window` can be targeted and shows a
+// view; a `blocker`, such as a popup menu, hides what lies below it; every other type, such as
+// docks, the desktop, toolbars, splash screens, and notifications, lets the pointer through.
+const WINDOW_ROLES = {
+    NORMAL: 'window',
+    DIALOG: 'window',
+    MODAL_DIALOG: 'window',
+    UTILITY: 'window',
+    MENU: 'blocker',
+    DROPDOWN_MENU: 'blocker',
+    POPUP_MENU: 'blocker',
+    TOOLTIP: 'blocker',
+    COMBO: 'blocker',
+    OVERRIDE_OTHER: 'blocker',
+};
+
+/** The role of a window from its type's name, such as `POPUP_MENU`; override-redirect ones block. */
+export function windowRole(typeName, overrideRedirect = false) {
+    return overrideRedirect ? 'blocker' : WINDOW_ROLES[typeName] ?? 'ignore';
+}

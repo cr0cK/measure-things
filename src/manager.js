@@ -38,8 +38,7 @@ export class Manager {
         this._images = new ImageCache();
         this.models = [];
         this.editing = false;
-        // Set by the overlay: a view moved, resized, or left the workspace, or left the screen.
-        this.onViewMoved = () => {};
+        // Set by the overlay: a view left the screen.
         this.onViewRemoved = () => {};
         this.store = new SetStore({onChanged: () => this._changed()});
         this._mutterSignal = this._mutterSettings.connect('changed::experimental-features',
@@ -121,7 +120,6 @@ export class Manager {
             images: this._images,
             isLogical: () => this.isLogical(),
             onClosed: view => this._onWindowClosed(view),
-            onMoved: view => this.onViewMoved(view),
         });
         if (this.editing)
             model.view.setEditing(true);
@@ -136,8 +134,8 @@ export class Manager {
     }
 
     /**
-     * A set for a window no zone covers, shown as its main view. It is written by its first
-     * commit; until then discard() drops it.
+     * A set for a window no zone covers, shown as its main view. It is provisional, with no badge
+     * and out of the menu, until its first commit writes it; until then discard() drops it.
      */
     createSet(window) {
         const used = this.onScreen.map(model => model.content.color);
@@ -295,25 +293,39 @@ export class Manager {
 
     /** Renames a set from the library. It is not an undo step: the history keeps the new name. */
     rename(id, name) {
-        name = uniqueName(name.trim(), this.takenNames(this.modelOf(id) ?? this.store.get(id)));
         const model = this.modelOf(id);
+        const current = model ?? this.store.get(id);
+        if (!current)
+            return;
+        name = uniqueName(name.trim(), this.takenNames(current));
+        if (name === current.name)
+            return;
         if (model) {
             model.name = name;
             model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
             this._write(model);
         } else {
-            const set = this.store.get(id);
-            if (set)
-                this.store.write({...set, name, revision: set.revision + 1, edited: Date.now()});
+            this.store.write({...current, name, revision: current.revision + 1, edited: Date.now()});
             this._changed();
         }
     }
 
-    delete(id) {
+    /**
+     * Moves a set's file to the trash. The set stays, on screen too, until the file is there; when
+     * it cannot go, nothing changes and a notice says so.
+     */
+    async delete(id) {
+        const name = this.modelOf(id)?.name ?? this.store.get(id)?.name ?? id;
+        const trashed = await this.store.trash(id);
+        if (trashed === null)
+            return;
+        if (!trashed) {
+            notify(`Could not delete “${name}”: its file cannot go to the trash.`);
+            return;
+        }
         const model = this.modelOf(id);
         if (model)
             this.removeFromScreen(model);
-        this.store.trash(id);
     }
 
     /**
@@ -333,10 +345,7 @@ export class Manager {
         };
         Object.assign(model, {id: set.id, name, revision: 0, edited: set.edited, migrated: false});
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
-        this.store.write(set).then(written => {
-            if (!written)
-                notify(`Could not save “${name}”.`);
-        });
+        this.store.write(set);
         model.view?.sync();
         this._changed();
     }
@@ -363,7 +372,7 @@ export class Manager {
         const primary = Main.layoutManager.primaryMonitor ?? {x: 0, y: 0, geometry_scale: 1};
         const scale = this.isLogical() ? 1 : primary.geometry_scale;
         const zoom = settings.get_int('zoom') / 100;
-        const content = migrated ? null : migrateSettings({
+        const result = migrated ? null : migrateSettings({
             helpers: settings.get_string('helpers'),
             showHelpers: settings.get_boolean('show-helpers'),
             color: settings.get_string('color'),
@@ -378,7 +387,8 @@ export class Manager {
             mockupDensity: settings.get_int('mockup-density'),
             mockupPosition: settings.get_value('mockup-position').deepUnpack(),
         }, {origin: [primary.x, primary.y], toCss: value => value / scale / zoom});
-        if (content) {
+        if (result) {
+            const {content, leftOut} = result;
             const written = await this.store.write({
                 id: GLib.uuid_string_random(),
                 name: uniqueName('Untitled 1', this.takenNames()),
@@ -389,6 +399,8 @@ export class Manager {
             });
             if (!written)
                 return;
+            if (leftOut > 0)
+                notify(`The v0.2 helpers past ${MAX_HELPERS} were left out: ${leftOut} in all.`);
             this._changed();
         }
         settings.set_boolean('migrated', true);

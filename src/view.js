@@ -1,15 +1,20 @@
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {columnGrid, guideGaps, highestScaleMonitor, rectangleGaps, scaleHelper, surfaceOffset} from './geometry.js';
-import {roundCss} from './sets.js';
+import {badgeName, roundCss} from './sets.js';
 
 const LABEL_MARGIN = 4;
 const HANDLE_SIZE = 7;
 const BADGE_MARGIN = 8;
+const BADGE_NAME_LENGTH = 24;
+// What a mockup file does that its view must read the image again for.
+const {CHANGES_DONE_HINT, CREATED, DELETED, MOVED_IN, MOVED_OUT, RENAMED} = Gio.FileMonitorEvent;
+const MOCKUP_FILE_EVENTS = [CHANGES_DONE_HINT, CREATED, DELETED, MOVED_IN, MOVED_OUT, RENAMED];
 const RECTANGLE_PARTS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 
 /**
@@ -64,7 +69,7 @@ export function windowGeometry(window, logical) {
  * stored in CSS pixels at the set's zoom, and drawn in the window actor's units.
  */
 export class View {
-    constructor(model, window, {settings, images, isLogical, onClosed, onMoved}) {
+    constructor(model, window, {settings, images, isLogical, onClosed}) {
         this.model = model;
         this.window = window;
         this.selectedId = null;
@@ -76,6 +81,9 @@ export class View {
         this._actor = window.get_compositor_private();
         this._helperViews = new Map();
         this._mockupPath = null;
+        this._mockupImage = null;
+        this._mockupMonitor = null;
+        this._mockupWatched = null;
         this._labelHeight = 0;
         this._attached = false;
 
@@ -103,16 +111,13 @@ export class View {
         this.layer.add_child(this._content);
         this.layer.add_child(this._chrome);
 
-        const sync = () => this._onWindowChanged();
+        const sync = () => this.sync();
         this._windowSignals = [
             window.connect('position-changed', sync),
             window.connect('size-changed', sync),
             window.connect('highest-scale-monitor-changed', sync),
-            window.connect('notify::minimized', () => onMoved(this)),
-            window.connect('workspace-changed', () => onMoved(this)),
             window.connect('unmanaged', () => onClosed(this)),
         ];
-        this._onMoved = onMoved;
         this._monitorsSignal = Main.layoutManager.connect('monitors-changed', sync);
         this._badgesSignal = settings.connect('changed::show-badges', () => this.sync());
         this._unitSignal = settings.connect('changed::unit', () => this.sync());
@@ -126,6 +131,7 @@ export class View {
         this._settings.disconnect(this._badgesSignal);
         this._settings.disconnect(this._unitSignal);
         this._setAttached(false);
+        this._watchMockup(null);
         this.layer.destroy();
         this._helperViews.clear();
         this._mockupPath = null;
@@ -134,11 +140,6 @@ export class View {
     /** Detaches from a window that is going away, before its actor is destroyed. */
     detach() {
         this._setAttached(false);
-    }
-
-    _onWindowChanged() {
-        this.sync();
-        this._onMoved(this);
     }
 
     setEditing(editing) {
@@ -224,8 +225,9 @@ export class View {
         return this.editing || this.content.helpersVisible;
     }
 
+    /** A set a gesture is still creating has no badge until its first commit. */
     _showsBadge() {
-        return this.editing || this._settings.get_boolean('show-badges');
+        return !this.model.provisional && (this.editing || this._settings.get_boolean('show-badges'));
     }
 
     _showsMockup() {
@@ -493,6 +495,8 @@ export class View {
         if (!this._showsMockup()) {
             this._mockup.hide();
             this._mockupPath = null;
+            this._mockupImage = null;
+            this._watchMockup(null);
             return;
         }
         if (this._mockupPath !== mockup.file) {
@@ -500,6 +504,7 @@ export class View {
             this._mockup.hide();
             this._mockupImage = null;
             const path = mockup.file;
+            this._watchMockup(path);
             this._images.load(path).then(image => {
                 if (this._mockupPath !== path)
                     return;
@@ -522,16 +527,40 @@ export class View {
         this._mockup.show();
     }
 
+    /** Reads the image again when its file appears, changes, or goes. */
+    _watchMockup(path) {
+        if (path === this._mockupWatched)
+            return;
+        this._mockupMonitor?.cancel();
+        this._mockupMonitor = null;
+        this._mockupWatched = path;
+        if (path === null)
+            return;
+        this._mockupMonitor = Gio.File.new_for_path(path).monitor_file(Gio.FileMonitorFlags.NONE, null);
+        this._mockupMonitor.connect('changed', (_monitor, _file, _other, event) => {
+            if (!MOCKUP_FILE_EVENTS.includes(event))
+                return;
+            this._mockupPath = null;
+            this._syncMockup();
+        });
+    }
+
     _syncBadge() {
         const badge = this._badge;
         badge.visible = this._showsBadge();
         if (!badge.visible)
             return;
         this._badgeDot.style = `background-color: ${this._color()};`;
-        this._badgeLabel.text = this.model.name;
-        const [, badgeWidth] = badge.get_preferred_width(-1);
-        const [, badgeHeight] = badge.get_preferred_height(-1);
         const {width, height} = this.geometry;
+        // The name is cut past 24 characters, or past half the frame's width.
+        let length = BADGE_NAME_LENGTH;
+        this._badgeLabel.text = badgeName(this.model.name, length);
+        let [, badgeWidth] = badge.get_preferred_width(-1);
+        while (badgeWidth > width / 2 && length > 1) {
+            this._badgeLabel.text = badgeName(this.model.name, --length);
+            [, badgeWidth] = badge.get_preferred_width(-1);
+        }
+        const [, badgeHeight] = badge.get_preferred_height(-1);
         badge.set_position(Math.round(width - badgeWidth - BADGE_MARGIN),
             Math.round(height - badgeHeight - BADGE_MARGIN));
     }

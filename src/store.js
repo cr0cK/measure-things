@@ -12,6 +12,14 @@ Gio._promisify(Gio.File.prototype, 'trash_async');
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+// Kept across a disable and re-enable, as the shell session outlives the extension: a write of
+// the previous run still in flight keeps its place in the queue of its file, and an ID deleted
+// this session stays deleted.
+const writes = new Map();
+const tombstones = new Set();
+// Sets being deleted: their commits wait in memory until the file is in the trash, or is not.
+const holds = new Map();
+
 /** The size in bytes of a set's file text. */
 export function fileBytes(text) {
     return encoder.encode(text).length;
@@ -20,7 +28,7 @@ export function fileBytes(text) {
 /**
  * The sets folder: one JSON file per set, named after its ID. It reads every file at start,
  * watches the folder for files that appear or go, and writes each set atomically, one write at a
- * time per set, the latest one winning.
+ * time per set, the commits not started yet merged into the latest one.
  */
 export class SetStore {
     constructor({onChanged}) {
@@ -30,9 +38,6 @@ export class SetStore {
         this._cancellable = new Gio.Cancellable();
         // File name → {name, set} for a valid file, or {name, title, error} for an unavailable one.
         this._entries = new Map();
-        // IDs deleted this session: a late write never brings them back.
-        this._tombstones = new Set();
-        this._writes = new Map();
         this._monitor = null;
     }
 
@@ -87,56 +92,97 @@ export class SetStore {
 
     /**
      * Writes a set and records it as the file's content. Resolves with whether the file was
-     * written; a deleted set is never written.
+     * written; a deleted set is never written, and a set being deleted only keeps its latest
+     * commit in memory.
      */
     write(set) {
-        if (this._tombstones.has(set.id))
+        const hold = holds.get(set.id);
+        if (tombstones.has(set.id) && !hold)
             return Promise.resolve(false);
-        const text = serializeSet(set);
         const name = `${set.id}.json`;
-        this._entries.set(name, {name, set: JSON.parse(JSON.stringify(set))});
+        const copy = JSON.parse(JSON.stringify(set));
+        this._entries.set(name, {name, set: copy});
+        if (hold) {
+            hold.pending = copy;
+            return Promise.resolve(false);
+        }
 
-        let job = this._writes.get(set.id);
+        const text = serializeSet(set);
+        let job = writes.get(set.id);
         if (job) {
             job.text = text;
             return job.done;
         }
         job = {text};
-        this._writes.set(set.id, job);
+        writes.set(set.id, job);
         job.done = (async () => {
             let written = false;
             while (job.text !== null) {
                 const bytes = new GLib.Bytes(encoder.encode(job.text));
                 job.text = null;
                 try {
-                    await this.folder.get_child(name).replace_contents_bytes_async(bytes, null, false,
-                        Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+                    await this._replace(name, bytes);
                     written = true;
                 } catch (error) {
                     written = false;
-                    if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                        console.warn(`Measure Things: could not save ${name}: ${error.message}`);
+                    console.warn(`Measure Things: could not save ${name}: ${error.message}`);
                 }
             }
-            this._writes.delete(set.id);
+            writes.delete(set.id);
             return written;
         })();
         return job.done;
     }
 
-    /** Moves a set's file to the trash, and remembers its ID for the session. */
+    /** Replaces a file's content, creating the sets folder first when it is missing. */
+    async _replace(name, bytes) {
+        const file = this.folder.get_child(name);
+        const replace = () => file.replace_contents_bytes_async(bytes, null, false,
+            Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        try {
+            await replace();
+        } catch (error) {
+            if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND))
+                throw error;
+            this.folder.make_directory_with_parents(null);
+            await replace();
+        }
+    }
+
+    /**
+     * Moves a set's file to the trash, once its writes are done, and remembers its ID for the
+     * session. Commits made meanwhile wait in memory. Resolves with whether the file is in the
+     * trash; when it could not go there, nothing changed: the ID is forgotten, the set stays, and
+     * the commits held go out as one write. Resolves with null when a deletion is already running.
+     */
     async trash(id) {
-        this._tombstones.add(id);
+        if (holds.has(id))
+            return null;
         const name = `${id}.json`;
-        this._entries.delete(name);
-        this._onChanged();
-        await this._writes.get(id)?.done;
+        const hold = {pending: null};
+        holds.set(id, hold);
+        await writes.get(id)?.done;
+        tombstones.add(id);
+        let trashed;
         try {
             await this.folder.get_child(name).trash_async(GLib.PRIORITY_DEFAULT, null);
+            trashed = true;
         } catch (error) {
-            if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+            // A file already gone needs no trash.
+            trashed = error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.NOT_FOUND);
+            if (!trashed)
                 console.warn(`Measure Things: could not move ${name} to the trash: ${error.message}`);
         }
+        holds.delete(id);
+        if (trashed) {
+            this._entries.delete(name);
+            this._onChanged();
+            return true;
+        }
+        tombstones.delete(id);
+        if (hold.pending)
+            this.write(hold.pending);
+        return false;
     }
 
     async _read(name) {
@@ -146,7 +192,7 @@ export class SetStore {
             const result = bytes.length > MAX_FILE_BYTES ? {error: 'too-large'}
                 : parseSet(decoder.decode(bytes), bytes.length);
             // A file is identified by its name: any other name is left to imports.
-            if (result.set && name === `${result.set.id}.json` && !this._tombstones.has(result.set.id))
+            if (result.set && name === `${result.set.id}.json` && !tombstones.has(result.set.id))
                 entry = {name, set: result.set};
             else
                 entry = {name, title: titleOf(bytes, name), error: result.error ?? 'misnamed'};

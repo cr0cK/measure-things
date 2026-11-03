@@ -8,10 +8,23 @@ import * as Dialog from 'resource:///org/gnome/shell/ui/dialog.js';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import {notify} from './manager.js';
 import {chooseImage} from './portal.js';
-import {DENSITY_RANGE, GRID_RANGES, MAX_NAME_LENGTH, OPACITY_RANGE, PALETTE, ZOOM_RANGE} from './sets.js';
+import {
+    DENSITY_RANGE,
+    GRID_RANGES,
+    MAX_NAME_LENGTH,
+    OPACITY_RANGE,
+    PALETTE,
+    ZOOM_RANGE,
+    readWholeNumber,
+} from './sets.js';
 
 // Open dialogs, which disabling the extension closes without saving.
 const openDialogs = new Set();
+
+/** Whether a dialog is open, its file chooser included, which the extension's shortcuts wait for. */
+export function dialogsOpen() {
+    return openDialogs.size > 0;
+}
 
 export function closeDialogs() {
     for (const dialog of [...openDialogs])
@@ -62,16 +75,16 @@ function addField(parent, title, child) {
     return field;
 }
 
-/** Asks for a set name; resolves with the trimmed name, or null when cancelled. */
+/**
+ * Asks for a set name; resolves with the trimmed name, `name` itself when it is left empty, or
+ * null when cancelled.
+ */
 export function askName({title, name, actionLabel}) {
     return runDialog((dialog, finish) => {
         dialog.contentLayout.add_child(new Dialog.MessageDialogContent({title}));
         const entry = addEntry(dialog.contentLayout, name);
         entry.clutter_text.max_length = MAX_NAME_LENGTH;
-        const accept = () => {
-            if (entry.text.trim())
-                finish(entry.text.trim());
-        };
+        const accept = () => finish(entry.text.trim() || name);
         entry.clutter_text.connect('activate', accept);
         dialog.setButtons([
             {label: 'Cancel', action: () => finish(null), key: Clutter.KEY_Escape},
@@ -92,12 +105,6 @@ export function askConfirm({title, description, actionLabel}) {
         ]);
         dialog.buttonLayout.get_last_child().add_style_class_name('measure-things-destructive');
     }, false);
-}
-
-/** An integer from an entry, clamped to a range, or `fallback` when it is not a number. */
-function readInteger(entry, [min, max], fallback) {
-    const value = Number.parseInt(entry.text, 10);
-    return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
 /**
@@ -245,12 +252,12 @@ export function editSetSettings(model, {onChooserOpen}) {
         const save = () => finish({
             name: nameEntry.text.trim() || model.name,
             color: draft.color,
-            zoom: readInteger(zoomEntry, ZOOM_RANGE, content.zoom),
+            zoom: readWholeNumber(zoomEntry.text, ZOOM_RANGE, content.zoom),
             grid: Object.fromEntries(Object.entries(gridEntries).map(([key, entry]) =>
-                [key, readInteger(entry, GRID_RANGES[key], content.grid[key])])),
+                [key, readWholeNumber(entry.text, GRID_RANGES[key], content.grid[key])])),
             mockup: {
                 file: draft.file,
-                opacity: readInteger(opacityEntry, OPACITY_RANGE, content.mockup.opacity),
+                opacity: readWholeNumber(opacityEntry.text, OPACITY_RANGE, content.mockup.opacity),
                 density: Math.min(DENSITY_RANGE[1], Math.max(DENSITY_RANGE[0], draft.density)),
             },
         });

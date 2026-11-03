@@ -15,6 +15,8 @@ export const OPACITY_RANGE = [5, 100];
 export const DENSITY_RANGE = [1, 4];
 export const MAX_NAME_LENGTH = 200;
 const ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
+// A set's name is counted in Unicode characters, not UTF-16 units.
+const BADGE_NAME_LENGTH = 24;
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
 /** A length rounded to two decimals, as set files store them. */
@@ -34,6 +36,21 @@ export function defaultContent(color = PALETTE[0]) {
         mockup: {file: '', visible: false, x: 0, y: 0, opacity: 50, density: 1},
         helpers: [],
     };
+}
+
+const characters = text => Array.from(text);
+const cut = (text, length) => characters(text).slice(0, length).join('');
+
+/** A number typed in an entry: rounded, clamped to a range; `fallback` when empty or not a number. */
+export function readWholeNumber(text, [min, max], fallback) {
+    const trimmed = text.trim();
+    const value = trimmed === '' ? NaN : Number(trimmed);
+    return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.round(value))) : fallback;
+}
+
+/** A set's name as its badge shows it: cut with `…` past 24 characters, or `length` when given. */
+export function badgeName(name, length = BADGE_NAME_LENGTH) {
+    return characters(name).length > length ? `${cut(name, Math.max(0, length - 1))}…` : name;
 }
 
 const inRange = (value, [min, max]) => Number.isInteger(value) && value >= min && value <= max;
@@ -112,10 +129,11 @@ export function parseSet(text, bytes = text.length) {
     if (raw.schema > SCHEMA_VERSION)
         return {error: 'newer'};
 
-    const edited = Date.parse(raw.edited);
-    const name = typeof raw.name === 'string' ? raw.name.trim() : '';
+    // A name read from a file is not normalized: it is invalid, not cut or trimmed.
+    const edited = typeof raw.edited === 'string' ? Date.parse(raw.edited) : NaN;
+    const name = typeof raw.name === 'string' ? raw.name : '';
     const content = parseContent(raw);
-    if (!ID_PATTERN.test(raw.id ?? '') || !name || name.length > MAX_NAME_LENGTH ||
+    if (!ID_PATTERN.test(raw.id ?? '') || !name.trim() || characters(name).length > MAX_NAME_LENGTH ||
         !Number.isInteger(raw.revision) || raw.revision < 0 || Number.isNaN(edited) ||
         (raw.migrated !== undefined && typeof raw.migrated !== 'boolean') || !content)
         return {error: 'invalid'};
@@ -156,11 +174,11 @@ export function nextUntitledName(names) {
  */
 export function uniqueName(name, takenNames) {
     const taken = new Set(takenNames);
-    const fitting = name.slice(0, MAX_NAME_LENGTH).trim();
+    const fitting = cut(name, MAX_NAME_LENGTH).trim();
     if (!taken.has(fitting))
         return fitting;
     let suffix = 2;
-    const withSuffix = () => `${name.slice(0, MAX_NAME_LENGTH - ` ${suffix}`.length).trim()} ${suffix}`;
+    const withSuffix = () => `${cut(name, MAX_NAME_LENGTH - ` ${suffix}`.length).trim()} ${suffix}`;
     while (taken.has(withSuffix()))
         suffix++;
     return withSuffix();
@@ -173,9 +191,10 @@ export function nextColor(usedColors) {
 }
 
 /**
- * The content of the set that v0.2 settings become, or null when they hold nothing worth keeping:
- * no helpers, no mockup image, and the default grid. `toCss` converts a stage-pixel length to CSS
- * pixels, and `origin` is the primary monitor's top-left corner in stage pixels.
+ * The set that v0.2 settings become, as `{content, leftOut}`, or null when they hold nothing worth
+ * keeping: no helpers, no mockup image, and the default grid. `leftOut` counts the helpers past
+ * the limit. `toCss` converts a stage-pixel length to CSS pixels, and `origin` is the primary
+ * monitor's top-left corner in stage pixels.
  */
 export function migrateSettings(old, {origin: [originX, originY], toCss}) {
     const defaults = defaultContent();
@@ -197,6 +216,7 @@ export function migrateSettings(old, {origin: [originX, originY], toCss}) {
         return null;
 
     const position = (value, axisOrigin) => roundCss(toCss(value - axisOrigin));
+    const leftOut = Math.max(0, helpers.length - MAX_HELPERS);
     helpers = helpers.slice(0, MAX_HELPERS).map(helper => {
         const moved = {kind: helper.kind};
         if ('x' in helper)
@@ -211,7 +231,7 @@ export function migrateSettings(old, {origin: [originX, originY], toCss}) {
     });
     const clamp = (value, [min, max], fallback) =>
         (Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback);
-    return {
+    const content = {
         ...defaults,
         color: COLOR_PATTERN.test(old.color) ? old.color.toLowerCase() : defaults.color,
         zoom: clamp(old.zoom, ZOOM_RANGE, defaults.zoom),
@@ -231,4 +251,5 @@ export function migrateSettings(old, {origin: [originX, originY], toCss}) {
         },
         helpers,
     };
+    return {content, leftOut};
 }

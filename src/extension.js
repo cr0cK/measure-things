@@ -1,5 +1,6 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
@@ -9,22 +10,31 @@ import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {askConfirm, askName, closeDialogs, editSetSettings} from './dialogs.js';
+import {askConfirm, askName, closeDialogs, dialogsOpen, editSetSettings} from './dialogs.js';
 import {formatAccelerator, formatEdited} from './format.js';
 import {Manager} from './manager.js';
-import {copyToClipboard, Overlay} from './overlay.js';
+import {copyToClipboard, isShown, Overlay, roleOf} from './overlay.js';
 import {ColorPicker} from './picker.js';
 import {uniqueName} from './sets.js';
 
 const SHORTCUTS = ['edit-shortcut', 'pick-color-shortcut', 'grid-shortcut'];
-// The grid shortcut acts on windows a view can show on.
-const GRID_WINDOW_TYPES = [Meta.WindowType.NORMAL, Meta.WindowType.DIALOG, Meta.WindowType.MODAL_DIALOG,
-    Meta.WindowType.UTILITY];
+// What the shell eases a window actor with when it unminimizes or maps.
+const WINDOW_TRANSITIONS = ['opacity', 'scale-x', 'scale-y', 'translation-x', 'translation-y'];
+const SHOWN_TIMEOUT = 2000;
+
+/** Whether a window is on screen and no longer animating in or out of it. */
+function isSettled(window) {
+    const actor = window.get_compositor_private();
+    return Boolean(actor) && isShown(window) && actor.visible &&
+        !WINDOW_TRANSITIONS.some(name => actor.get_transition(name)) &&
+        !Main.wm._workspaceAnimation?._switchData;
+}
 
 export default class MeasureThingsExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
         this._picker = null;
+        this._shownId = 0;
 
         this._indicator = new PanelMenu.Button(0.5, this.metadata.name, false);
         const icon = new St.Icon({
@@ -60,7 +70,8 @@ export default class MeasureThingsExtension extends Extension {
                 this._settings,
                 Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
                 Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
-                handlers[name]
+                // The shortcuts do nothing while a dialog or its file chooser is open.
+                () => (dialogsOpen() ? undefined : handlers[name]())
             );
         }
         this._settingsSignals = SHORTCUTS.map(key =>
@@ -71,6 +82,9 @@ export default class MeasureThingsExtension extends Extension {
 
     disable() {
         closeDialogs();
+        if (this._shownId)
+            GLib.source_remove(this._shownId);
+        this._shownId = 0;
         for (const name of SHORTCUTS)
             Main.wm.removeKeybinding(name);
         for (const id of this._settingsSignals)
@@ -89,7 +103,7 @@ export default class MeasureThingsExtension extends Extension {
     /** Toggles the grid of the set on the focused window, creating a set when it shows none. */
     _toggleFocusedGrid() {
         const window = global.display.focus_window;
-        if (!window || !GRID_WINDOW_TYPES.includes(window.get_window_type()))
+        if (!window || roleOf(window) !== 'window')
             return;
         this._manager.toggleGrid(this._manager.modelForWindow(window));
     }
@@ -189,15 +203,14 @@ export default class MeasureThingsExtension extends Extension {
                 y_align: Clutter.ActorAlign.CENTER,
             }));
             const title = model.view?.window.get_title() || 'Untitled window';
-            item.add_child(this._titles(model.name,
-                `main only · ${title}${model.hidden ? ' · hidden' : ''}`));
+            item.add_child(this._titles(model.name, `${title}${model.hidden ? ' · hidden' : ''}`));
             const eye = this._rowButton(model.hidden ? 'view-conceal-symbolic' : 'view-reveal-symbolic',
                 model.hidden ? 'Show' : 'Hide', () => this._manager.setHidden(model, !model.hidden));
             const remove = this._rowButton('window-close-symbolic', 'Remove from screen',
                 () => this._manager.removeFromScreen(model));
             item.add_child(eye);
             item.add_child(remove);
-            item.connect('activate', () => this._showSet(model));
+            item.connect('activate', () => this._showSet(model).catch(logError));
             item.set = model;
             section.addMenuItem(item);
         }
@@ -232,7 +245,6 @@ export default class MeasureThingsExtension extends Extension {
                     style_class: 'measure-things-pill',
                     y_align: Clutter.ActorAlign.CENTER,
                 }));
-                continue;
             }
             const actions = new St.BoxLayout({style_class: 'measure-things-row-actions', opacity: 0});
             actions.add_child(this._rowButton('document-edit-symbolic', 'Rename', () => this._rename(entry)));
@@ -241,7 +253,9 @@ export default class MeasureThingsExtension extends Extension {
             item.connect('notify::active', () => {
                 actions.opacity = item.active ? 255 : 0;
             });
-            item.connect('activate', () => this._load(entry));
+            // A set on screen cannot be loaded again.
+            if (!shown)
+                item.connect('activate', () => this._load(entry));
         }
     }
 
@@ -268,8 +282,12 @@ export default class MeasureThingsExtension extends Extension {
         return button;
     }
 
-    /** Activates a set's window, then edits it with its badge menu open. */
-    _showSet(model) {
+    /**
+     * Activates a set's window, switching workspace or unminimizing it as needed, then edits it
+     * with its badge menu open. Edit mode starts once the window is shown, so its capture does not
+     * hold the animation.
+     */
+    async _showSet(model) {
         this._closeMenu();
         const view = model.view;
         if (!view)
@@ -277,9 +295,28 @@ export default class MeasureThingsExtension extends Extension {
         if (model.hidden)
             this._manager.setHidden(model, false);
         Main.activateWindow(view.window);
-        if (this._picker || !this._overlay.enterEdit())
+        const overlay = this._overlay;
+        await this._whenShown(view.window);
+        if (this._overlay !== overlay || model.view !== view || this._picker || !overlay.enterEdit())
             return;
-        this._overlay.openBadgeMenu(view);
+        overlay.openBadgeMenu(view);
+    }
+
+    /** Resolves once a window is on screen and done animating; after two seconds anyway. */
+    _whenShown(window) {
+        return new Promise(resolve => {
+            const started = GLib.get_monotonic_time();
+            let settled = 0;
+            this._shownId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+                // Twice in a row, as an animation may not have started at the first look.
+                settled = isSettled(window) ? settled + 1 : 0;
+                if (settled < 2 && (GLib.get_monotonic_time() - started) / 1000 < SHOWN_TIMEOUT)
+                    return GLib.SOURCE_CONTINUE;
+                this._shownId = 0;
+                resolve();
+                return GLib.SOURCE_REMOVE;
+            });
+        });
     }
 
     async _load(entry) {
@@ -308,7 +345,7 @@ export default class MeasureThingsExtension extends Extension {
             actionLabel: 'Delete',
         });
         if (confirmed && this._manager)
-            this._manager.delete(entry.id);
+            await this._manager.delete(entry.id);
     }
 
     async _editSettings(model) {

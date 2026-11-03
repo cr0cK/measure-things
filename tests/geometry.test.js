@@ -15,6 +15,7 @@ import {
     scaleHelper,
     surfaceOffset,
     targetAt,
+    windowRole,
 } from '../src/geometry.js';
 
 const rect = (x, y, width, height, id = 1) => ({id, kind: 'rectangle', x, y, width, height});
@@ -185,4 +186,34 @@ test('targets the topmost window under a point, unless something blocks it', () 
     assert.equal(targetAt(windows, 10, 10), 3);
     assert.equal(targetAt(windows, 700, 300), 3);
     assert.equal(targetAt(windows, 1600, 300), -1);
+});
+
+test('classifies every window type as a target, a blocker, or transparent', () => {
+    // Every Meta.WindowType member.
+    const expected = {
+        NORMAL: 'window',
+        DIALOG: 'window',
+        MODAL_DIALOG: 'window',
+        UTILITY: 'window',
+        MENU: 'blocker',
+        DROPDOWN_MENU: 'blocker',
+        POPUP_MENU: 'blocker',
+        TOOLTIP: 'blocker',
+        COMBO: 'blocker',
+        OVERRIDE_OTHER: 'blocker',
+        DESKTOP: 'ignore',
+        DOCK: 'ignore',
+        TOOLBAR: 'ignore',
+        SPLASHSCREEN: 'ignore',
+        NOTIFICATION: 'ignore',
+        DND: 'ignore',
+    };
+    assert.equal(Object.keys(expected).length, 16);
+    for (const [type, role] of Object.entries(expected))
+        assert.equal(windowRole(type), role, type);
+});
+
+test('lets an override-redirect window block whatever its type', () => {
+    assert.equal(windowRole('NORMAL', true), 'blocker');
+    assert.equal(windowRole('DOCK', true), 'blocker');
 });

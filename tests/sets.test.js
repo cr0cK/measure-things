@@ -6,11 +6,13 @@ import {
     MAX_HELPERS,
     PALETTE,
     SCHEMA_VERSION,
+    badgeName,
     defaultContent,
     migrateSettings,
     nextColor,
     nextUntitledName,
     parseSet,
+    readWholeNumber,
     roundCss,
     serializeSet,
     uniqueName,
@@ -126,7 +128,7 @@ test('migrates nothing from default v0.2 settings', () => {
 });
 
 test('migrates v0.2 helpers relative to the primary monitor, in CSS pixels', () => {
-    const content = migrateSettings({
+    const {content, leftOut} = migrateSettings({
         ...V02,
         helpers: JSON.stringify([
             {kind: 'vertical', x: 1700},
@@ -138,6 +140,7 @@ test('migrates v0.2 helpers relative to the primary monitor, in CSS pixels', () 
         zoom: 125,
         mockupPosition: [1500, 0],
     }, {origin: [1600, 100], toCss: value => value / 1.25});
+    assert.equal(leftOut, 0);
     assert.deepEqual(content.helpers, [
         {kind: 'vertical', x: 80},
         {kind: 'horizontal', y: -40},
@@ -150,7 +153,7 @@ test('migrates v0.2 helpers relative to the primary monitor, in CSS pixels', () 
 });
 
 test('migrates a v0.2 mockup and non-default grid', () => {
-    const content = migrateSettings({
+    const {content} = migrateSettings({
         ...V02,
         gridColumns: 6,
         mockupFile: '/home/me/design.png',
@@ -161,4 +164,45 @@ test('migrates a v0.2 mockup and non-default grid', () => {
     assert.deepEqual(content.grid, {visible: false, columns: 6, gutter: 24, margin: 24, maxWidth: 0});
     assert.deepEqual(content.mockup, {file: '/home/me/design.png', visible: true, x: 0, y: 0, opacity: 70, density: 2});
     assert.deepEqual(content.helpers, []);
+});
+
+test('keeps the first 1,000 v0.2 helpers and counts the others', () => {
+    const helpers = Array.from({length: MAX_HELPERS + 24}, (_, i) => ({kind: 'vertical', x: i}));
+    const {content, leftOut} = migrateSettings({...V02, helpers: JSON.stringify(helpers)},
+        {origin: [0, 0], toCss: v => v});
+    assert.equal(content.helpers.length, MAX_HELPERS);
+    assert.equal(content.helpers.at(-1).x, MAX_HELPERS - 1);
+    assert.equal(leftOut, 24);
+});
+
+test('counts names in Unicode characters and does not normalize a name read from a file', () => {
+    const emoji = '🎨'.repeat(200);
+    assert.equal(parseSet(fileOf(sample(), {name: emoji})).set.name, emoji);
+    assert.deepEqual(parseSet(fileOf(sample(), {name: `${emoji}x`})), {error: 'invalid'});
+    assert.equal(parseSet(fileOf(sample(), {name: '  padded '})).set.name, '  padded ');
+    assert.equal(uniqueName(`${emoji}x`, []), emoji);
+    assert.equal(uniqueName(emoji, [emoji]), `${'🎨'.repeat(198)} 2`);
+});
+
+test('refuses an edited time that is not a date string', () => {
+    assert.deepEqual(parseSet(fileOf(sample(), {edited: 1762000000000})), {error: 'invalid'});
+});
+
+test('reads a number from an entry: rounded, clamped, or the previous value', () => {
+    const range = [1, 24];
+    assert.equal(readWholeNumber('12', range, 6), 12);
+    assert.equal(readWholeNumber(' 7.6 ', range, 6), 8);
+    assert.equal(readWholeNumber('99', range, 6), 24);
+    assert.equal(readWholeNumber('-3', range, 6), 1);
+    assert.equal(readWholeNumber('', range, 6), 6);
+    assert.equal(readWholeNumber('  ', range, 6), 6);
+    assert.equal(readWholeNumber('twelve', range, 6), 6);
+});
+
+test('cuts a long set name for its badge', () => {
+    assert.equal(badgeName('Project A'), 'Project A');
+    assert.equal(badgeName('x'.repeat(24)), 'x'.repeat(24));
+    assert.equal(badgeName('x'.repeat(25)), `${'x'.repeat(23)}…`);
+    assert.equal(badgeName('🎨'.repeat(30)), `${'🎨'.repeat(23)}…`);
+    assert.equal(badgeName('Project A', 5), 'Proj…');
 });

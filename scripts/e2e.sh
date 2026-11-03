@@ -39,6 +39,16 @@ expect() {
     fi
 }
 
+# Checks a condition of the shell script itself: check 'description' '[[ -f file ]]'.
+check() {
+    if eval "$2"; then
+        echo "ok   $1"
+    else
+        echo "FAIL $1"
+        FAILURES=$((FAILURES + 1))
+    fi
+}
+
 MANAGER="$EXTENSION._manager"
 E2E=global._e2e
 # Shortcuts for the checks: windows, views, and sets by title or name, helpers as short text
@@ -159,9 +169,17 @@ open_window Other 1100 150 400x300 '#241f31'
 press_keys Super_L Shift_L m
 expect "$OVERLAY.editing && Main.modalCount" 1 'the edit shortcut enters edit mode'
 
-pointer_drag 300 250 500 400
+pointer_move 300 250
+pointer_button PRESSED
+pointer_move 400 320
+pointer_move 500 400
+expect "$E2E.view('Page')._helperViews.size + ' ' + $E2E.view('Page').badgeActor.visible + ' ' + $MANAGER.onScreen.length" \
+    '1 false 0' 'a drag shows its rectangle, but the set has no badge and is not listed before its first commit'
+pointer_button RELEASED
 expect "$E2E.model('Page')?.name + ' / ' + $E2E.helpers('Page')" 'Untitled 2 / R 100,100 200x150' \
     'dragging on a window draws a rectangle in a new set, relative to the window'
+expect "$E2E.view('Page').badgeActor.visible + ' ' + $MANAGER.onScreen.length" 'true 1' \
+    'the first commit gives the set its badge and lists it'
 PAGE=$(shell_eval "$E2E.model('Page').id")
 expect "$E2E.fileHelpers('$PAGE')" 'R 100,100 200x150' 'the new set is saved to its file'
 expect "$E2E.view('Page').layer.get_parent() === $E2E.win('Page').get_compositor_private()" true \
@@ -221,6 +239,15 @@ expect "$E2E.helpers('Page') + ' / ' + $E2E.fileHelpers('$PAGE')" \
     'Ctrl+Shift+Z and Ctrl+Y redo, and the result is saved'
 pointer_click 820 650
 press_keys Delete
+
+# A drag cancelled before its first commit creates no set.
+pointer_move 1150 400
+pointer_button PRESSED
+pointer_move 1250 450
+press_keys Escape
+pointer_button RELEASED
+expect "$MANAGER.models.length + ' ' + $MANAGER.store.entries().length + ' ' + $OVERLAY.editing" '1 2 true' \
+    'cancelling a drag on a window with no set creates none'
 
 pointer_move 1200 300
 press_keys h
@@ -287,23 +314,30 @@ expect "$OVERLAY.badgeMenu + ' ' + $OVERLAY.editing" 'null true' 'Escape closes 
 click_actor "$E2E.view('Page').badgeActor"
 click_actor "$OVERLAY.badgeMenu.menu._getMenuItems()[2]"
 wait_for "!!$E2E.dialog()?.visible"
-shell_eval "const [name, , zoom, columns] = $E2E.entries($E2E.dialog());
+# Numbers are rounded; an empty entry keeps the previous value.
+shell_eval "const [name, , zoom, columns, gutter] = $E2E.entries($E2E.dialog());
     name.text = 'Landing page';
     zoom.text = '125';
-    columns.text = '6';" >/dev/null
+    columns.text = '5.6';
+    gutter.text = '';" >/dev/null
 click_actor "$E2E.button($E2E.dialog(), 'Save')"
 expect "[$E2E.model('Page').name, $E2E.model('Page').content.zoom, $E2E.view('Page')._grid.get_n_children(),
     $E2E.view('Page')._badgeLabel.text].join()" 'Landing page,125,6,Landing page' \
     'Save in Set settings applies the name, the zoom, and the grid'
 expect "$E2E.bounds($E2E.view('Page')._helperViews.get(1).shape) + ' ' + $E2E.view('Page')._helperViews.get(1).label.text" \
     '350,287.5,251.25,212.5 201 × 170' 'the zoom scales helpers from the window corner, in CSS pixels'
-expect "(f => f.name + ' ' + f.zoom + ' ' + f.grid.columns)($E2E.file('$PAGE'))" 'Landing page 125 6' \
-    'Set settings are saved to the file'
+expect "(f => f.name + ' ' + f.zoom + ' ' + f.grid.columns + ' ' + f.grid.gutter)($E2E.file('$PAGE'))" \
+    'Landing page 125 6 24' 'Set settings are saved to the file, with numbers rounded and empty ones kept'
 pointer_move 600 600
 press_keys Control_L z
 expect "$E2E.model('Page').name + ' ' + $E2E.model('Page').content.zoom" 'Untitled 2 100' \
     'Ctrl+Z undoes Set settings in one step'
 press_keys Control_L y
+
+# A long name is cut in the badge.
+shell_eval "const model = $E2E.model('Page'); model.name = 'x'.repeat(40); model.view.sync();" >/dev/null
+expect "$E2E.view('Page')._badgeLabel.text" "$(printf 'x%.0s' $(seq 23))…" 'the badge cuts a long name'
+shell_eval "const model = $E2E.model('Page'); model.name = 'Landing page'; model.view.sync();" >/dev/null
 
 # The file chooser: the dialog steps aside while it is open, and keeps its draft.
 click_actor "$E2E.view('Page').badgeActor"
@@ -319,6 +353,10 @@ if [[ $(shell_eval "!!$CHOOSER") == true ]]; then
         'while the file chooser is open, the dialog hides and releases its grab, and edit mode ends'
     shell_eval "$CHOOSER.activate(global.get_current_time())" >/dev/null
     wait_for "$CHOOSER.has_focus()"
+    press_keys Super_L Shift_L m
+    press_keys Super_L Shift_L g
+    expect "$OVERLAY.editing + ' ' + $MANAGER.models.length + ' ' + !!$EXTENSION._picker" 'false 2 false' \
+        'the shortcuts do nothing while Set settings or its file chooser is open'
     press_keys Escape
 else
     echo 'skip the file chooser portal is not available'
@@ -383,6 +421,23 @@ expect "(m => [m.x, m.y, m.opacity].join())($E2E.file('$V2').mockup) + ' ' + $MO
     'right-drag and Ctrl+arrows move the mockup, ] raises its opacity after the drag'
 expect "$E2E.helpers('Page')" 'R 120,110 201x170 | V 510' 'moving the mockup leaves the helpers alone'
 
+# An image replaced at the same path shows its new content, one that goes is not drawn, and it
+# comes back with its file.
+shell_eval "const {GdkPixbuf} = imports.gi;
+    const image = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, false, 8, 200, 100);
+    image.fill(0xe66100ff);
+    image.savev('$WORK/mockup.png', 'png', [], []);" >/dev/null
+expect "$E2E.bounds($MOCKUP).split(',').slice(2).join() + ' ' + $MOCKUP.visible" '250,125 true' \
+    'a mockup image replaced at the same path shows its new content'
+rm "$WORK/mockup.png"
+expect "$MOCKUP.visible" false 'a mockup image that goes is not drawn'
+shell_eval "const {GdkPixbuf} = imports.gi;
+    const image = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, false, 8, 400, 200);
+    image.fill(0x2ec27eff);
+    image.savev('$WORK/mockup.png', 'png', [], []);" >/dev/null
+expect "$E2E.bounds($MOCKUP).split(',').slice(2).join() + ' ' + $MOCKUP.visible" '500,250 true' \
+    'a mockup image that comes back is drawn again'
+
 press_keys Escape
 expect "$OVERLAY.editing + ' ' + $OVERLAY.actor.reactive + ' ' + Main.modalCount" 'false false 0' \
     'Escape leaves edit mode and releases the grab'
@@ -406,19 +461,52 @@ shell_eval "$E2E.win('Page').unminimize()" >/dev/null
 # The panel menu lists the sets on screen and the library.
 open_menu
 expect "$EXTENSION._onScreen.section._getMenuItems().map(item => $E2E.labels(item).join(' / ')).join(' | ')" \
-    'v2 / main only · Page | Untitled 3 / main only · Other' 'the menu lists the sets on screen'
+    'v2 / Page | Untitled 3 / Other' 'the menu lists the sets on screen'
 expect "$EXTENSION._library.header.count.text + ' ' + $E2E.labels($E2E.row('library', 'v2')).join(' / ')" \
     '4 v2 / edited just now / On screen' 'the library lists every set, and marks those on screen'
 click_actor "$E2E.button($E2E.row('onScreen', 'Untitled 3'), 'Hide')"
 expect "$E2E.model('Other').hidden + ' ' + $E2E.view('Other').layer.get_parent() + ' ' +
-    $E2E.labels($E2E.row('onScreen', 'Untitled 3'))[1]" 'true null main only · Other · hidden' \
+    $E2E.labels($E2E.row('onScreen', 'Untitled 3'))[1]" 'true null Other · hidden' \
     'the eye hides a set'
 click_actor "$E2E.button($E2E.row('onScreen', 'Untitled 3'), 'Show')"
 expect "$E2E.model('Other').hidden" false 'the eye shows it again'
+# A click on a set on screen shows its window first: a minimized one comes back, and edit mode
+# starts once the window stopped animating, so its capture holds no animation frame.
+shell_eval "$E2E.win('Page').minimize()" >/dev/null
+wait_for "$E2E.win('Page').minimized"
+shell_eval "const overlay = $OVERLAY, enter = overlay.enterEdit.bind(overlay);
+    overlay.enterEdit = () => {
+        const window = $E2E.win('Page'), actor = window.get_compositor_private();
+        global._enterState = [window.minimized,
+            ['opacity', 'scale-x', 'scale-y'].some(name => actor.get_transition(name))].join();
+        return enter();
+    };" >/dev/null
 click_actor "$E2E.row('onScreen', 'v2')"
-expect "$OVERLAY.editing + ' ' + $OVERLAY.badgeMenu?.view.model.name" 'true v2' \
-    'a set on screen opens in edit mode with its badge menu'
+wait_for "$OVERLAY.editing"
+expect "global._enterState + ' ' + $OVERLAY.badgeMenu?.view.model.name" 'false,false v2' \
+    'a set on screen opens in edit mode, with its badge menu, once its window is shown'
+shell_eval "delete $OVERLAY.enterEdit" >/dev/null
 press_keys Escape
+
+# The selection and the gesture belong to a window that stays on screen.
+pointer_click 450 380
+expect "$E2E.view('Page').selectedId" 1 'a click inside a rectangle selects it'
+pointer_move 600 600
+pointer_button PRESSED
+pointer_move 650 640
+shell_eval "$E2E.win('Page').minimize()" >/dev/null
+expect "$OVERLAY._drag + ' ' + $E2E.view('Page').selectedId + ' ' + $E2E.helpers('Page')" \
+    'null null R 120,110 201x170 | V 510' 'minimizing the window cancels the gesture and clears the selection'
+pointer_button RELEASED
+shell_eval "$E2E.win('Page').unminimize()" >/dev/null
+wait_for "$E2E.win('Page').get_compositor_private().visible"
+pointer_click 450 380
+expect "$E2E.view('Page').selectedId" 1 'the rectangle can be selected again'
+shell_eval "const workspaces = global.workspace_manager;
+    workspaces.append_new_workspace(false, global.get_current_time()).activate(global.get_current_time());" >/dev/null
+expect "$E2E.view('Page').selectedId" null 'leaving the workspace clears the selection'
+shell_eval "global.workspace_manager.get_workspace_by_index(0).activate(global.get_current_time())" >/dev/null
+wait_for "$E2E.win('Page').get_compositor_private().visible"
 press_keys Escape
 
 # Loading a set onto a window replaces the set shown there.
@@ -436,6 +524,15 @@ expect "$OVERLAY._mode + ' ' + Main.modalCount + ' ' + $MANAGER.models.length" '
 
 # Rename and delete from the library, with the buttons that show on hover.
 open_menu
+UNTITLED3=$(shell_eval "$E2E.entry('Untitled 3').id")
+REVISION=$(shell_eval "$E2E.file('$UNTITLED3').revision")
+click_actor "$E2E.button($E2E.row('library', 'Untitled 3'), 'Rename')"
+wait_for "!!$E2E.dialog()?.visible"
+shell_eval "$E2E.entries($E2E.dialog())[0].text = ''" >/dev/null
+type_keys Return
+expect "$E2E.dialog() + ' ' + $E2E.file('$UNTITLED3').name + ' ' + ($E2E.file('$UNTITLED3').revision === $REVISION)" \
+    'null Untitled 3 true' 'an empty name keeps the current one, and writes nothing'
+open_menu
 click_actor "$E2E.button($E2E.row('library', 'Untitled 3'), 'Rename')"
 wait_for "!!$E2E.dialog()?.visible"
 type_keys d o c s Return
@@ -446,8 +543,70 @@ click_actor "$E2E.button($E2E.row('library', 'docs'), 'Delete')"
 wait_for "!!$E2E.dialog()?.visible"
 click_actor "$E2E.button($E2E.dialog(), 'Delete')"
 expect "$E2E.file('$UNTITLED3') + ' ' + $MANAGER.store.entries().length" 'null 3' 'Delete removes a set'
-[[ -f $XDG_DATA_HOME/Trash/files/$UNTITLED3.json ]] && echo 'ok   the file moves to the trash' ||
-    { echo 'FAIL the file moves to the trash'; FAILURES=$((FAILURES + 1)); }
+check 'the file moves to the trash' "[[ -f $XDG_DATA_HOME/Trash/files/$UNTITLED3.json ]]"
+
+# Rename and delete work on a set on screen too: its view follows the rename, and leaves once the
+# file is in the trash.
+open_window Third 100 780 300x200 '#26a269'
+shell_eval "const model = $MANAGER.createSet($E2E.win('Third')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 50});
+    $MANAGER.commit(model);" >/dev/null
+THIRD=$(shell_eval "$E2E.model('Third').id")
+THIRD_NAME=$(shell_eval "$E2E.model('Third').name")
+open_menu
+click_actor "$E2E.button($E2E.row('library', '$THIRD_NAME'), 'Rename')"
+wait_for "!!$E2E.dialog()?.visible"
+shell_eval "$E2E.entries($E2E.dialog())[0].text = 'scratch'" >/dev/null
+type_keys Return
+expect "$E2E.model('Third').name + ' ' + $E2E.view('Third')._badgeLabel.text + ' ' + $E2E.file('$THIRD').name" \
+    'scratch scratch scratch' 'renaming a set on screen renames its view and its file'
+open_menu
+click_actor "$E2E.button($E2E.row('library', 'scratch'), 'Delete')"
+wait_for "!!$E2E.dialog()?.visible"
+click_actor "$E2E.button($E2E.dialog(), 'Delete')"
+expect "$MANAGER.modelOf('$THIRD') + ' ' + $E2E.file('$THIRD') + ' ' + $E2E.win('Third').get_compositor_private().get_children().some(c => c.name === 'measure-things-view')" \
+    'null null false' 'deleting a set on screen removes its views'
+check 'the file of a set deleted on screen moves to the trash' "[[ -f $XDG_DATA_HOME/Trash/files/$THIRD.json ]]"
+
+# A delete issued while a write is in flight leaves the file in the trash, as that write left it;
+# the commit made after the delete does not bring the file back.
+shell_eval "const model = $MANAGER.createSet($E2E.win('Third')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 60});
+    $MANAGER.commit(model);
+    global._deleted = model.id;
+    $MANAGER.delete(model.id);
+    model.content.helpers.length = 0;
+    $MANAGER.commit(model);" >/dev/null
+DELETED=$(shell_eval "global._deleted")
+wait_for "!$MANAGER.modelOf('$DELETED')"
+sleep 0.5
+check 'a delete issued while a write is in flight leaves the file in the trash' \
+    "grep -q '\"x\": 60' $XDG_DATA_HOME/Trash/files/$DELETED.json && [[ ! -e $XDG_DATA_HOME/measure-things/sets/$DELETED.json ]]"
+
+# When the file cannot go to the trash, nothing changes: the set stays on screen and in the
+# library, the commit made meanwhile is saved, and a notice says so. The ID is forgotten, so a
+# later delete works.
+mv "$XDG_DATA_HOME/Trash" "$XDG_DATA_HOME/Trash.off"
+touch "$XDG_DATA_HOME/Trash"
+shell_eval "const model = $MANAGER.createSet($E2E.win('Third')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 70});
+    $MANAGER.commit(model);
+    global._kept = model.id;
+    $MANAGER.delete(model.id);
+    $MANAGER.addHelper(model, {kind: 'horizontal', y: 80});
+    $MANAGER.commit(model);" >/dev/null
+KEPT=$(shell_eval "global._kept")
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).some(n => n.body.includes('Could not delete'))" \
+    true 'a file that cannot go to the trash shows a notice'
+expect "!!$MANAGER.modelOf('$KEPT') + ' ' + $MANAGER.store.entries().some(e => e.id === '$KEPT') + ' ' + $E2E.fileHelpers('$KEPT')" \
+    'true true V 70 | H 80' 'the set stays on screen, with the commits made meanwhile saved'
+rm "$XDG_DATA_HOME/Trash"
+mv "$XDG_DATA_HOME/Trash.off" "$XDG_DATA_HOME/Trash"
+shell_eval "$MANAGER.delete('$KEPT')" >/dev/null
+expect "$MANAGER.modelOf('$KEPT')" null 'the set can be deleted once the trash works'
+check 'and its file is in the trash' "[[ -f $XDG_DATA_HOME/Trash/files/$KEPT.json ]]"
+shell_eval "$E2E.win('Third').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('Third')"
 
 # The grid shortcut acts on the focused window.
 shell_eval "$E2E.win('Other').activate(global.get_current_time())" >/dev/null
@@ -559,7 +718,10 @@ pointer_click 600 440
 wait_for "$EXTENSION._picker === null"
 expect "$CLIPBOARD" '#e01b24' 'at 125%, the picker reads the pixel under the pointer'
 
-if grep -E -A4 'JS (ERROR|WARNING)|Exception in callback|Measure Things:' "$WORK/shell.log"; then
+# The warnings the checks above provoke on purpose: a mockup image that went away, and a trash that
+# does not exist.
+if grep -vE 'Measure Things: could not (load the mockup|move .* to the trash)' "$WORK/shell.log" |
+    grep -E -A4 'JS (ERROR|WARNING)|Exception in callback|Measure Things:'; then
     echo 'FAIL the shell logged JavaScript errors'
     FAILURES=$((FAILURES + 1))
 fi

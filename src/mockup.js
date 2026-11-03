@@ -5,25 +5,36 @@ import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 Gio._promisify(Gio.File.prototype, 'read_async');
+Gio._promisify(Gio.File.prototype, 'query_info_async');
 Gio._promisify(GdkPixbuf.Pixbuf, 'new_from_stream_async');
 
 /**
- * Mockup images, loaded once per path and shared by every view that shows them. Each image
- * resolves with `{content, width, height}` in image pixels; a failed load is retried next time.
+ * Mockup images, decoded once per path, modification time, and size, and shared by every view
+ * that shows them: a file replaced at the same path is decoded again. Each image resolves with
+ * `{content, width, height}` in image pixels; a path that cannot be read rejects.
  */
 export class ImageCache {
     constructor() {
         this._images = new Map();
     }
 
-    load(path) {
-        let image = this._images.get(path);
-        if (!image) {
-            image = loadImage(path);
-            this._images.set(path, image);
-            image.catch(() => this._images.delete(path));
-        }
-        return image;
+    async load(path) {
+        const info = await Gio.File.new_for_path(path).query_info_async(
+            'standard::size,time::modified,time::modified-usec', Gio.FileQueryInfoFlags.NONE,
+            GLib.PRIORITY_DEFAULT, null);
+        const key = [info.get_size(), info.get_attribute_uint64('time::modified'),
+            info.get_attribute_uint32('time::modified-usec')].join();
+        const cached = this._images.get(path);
+        if (cached?.key === key)
+            return cached.image;
+        const entry = {key, image: loadImage(path)};
+        this._images.set(path, entry);
+        // A failed decode is tried again next time.
+        entry.image.catch(() => {
+            if (this._images.get(path) === entry)
+                this._images.delete(path);
+        });
+        return entry.image;
     }
 
     clear() {
