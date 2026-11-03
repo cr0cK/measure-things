@@ -26,6 +26,7 @@ new `src/*.js` modules on its own.
 | `src/cursor.js` | Pointer cursor over an actor, across the GNOME 49 and 50 APIs |
 | `src/prefs.js` | Adwaita preferences window; every row writes its setting directly. Its list of edit mode keys mirrors `_onKeyPress()` in `overlay.js`: change both together |
 | `src/geometry.js` | Helper storage, hit testing, drag math, grid layout, pixel units (pure) |
+| `src/zones.js` | Zone geometry, targeting among the views of a window, badge placement (pure) |
 | `src/format.js` | Length and color formatting (pure) |
 | `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |
 | `src/history.js` | Undo and redo history (pure) |
