@@ -31,4 +31,6 @@ test('finds the nearest boundary within a radius', () => {
     // Boundaries past the limits are not candidates, even when they are the nearest.
     assert.equal(nearestBoundary(pixels, 4, 2, undefined, {from: 4}), null);
     assert.equal(nearestBoundary(pixels, 6, 3, undefined, {from: 4, to: 7}), 7);
+    // A farther boundary inside the limits wins over a nearer one outside them.
+    assert.equal(nearestBoundary(pixels, 6, 3, undefined, {to: 6}), 3);
 });

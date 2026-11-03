@@ -251,7 +251,7 @@ export class View {
         if (!this.editing && this.model.hidden)
             return false;
         return this._showsBadge() || this.content.grid.visible || this._showsMockup() ||
-            (this._showsHelpers() && this.content.helpers.length > 0);
+            (this._showsHelpers() && this.zoneHelpers().length > 0);
     }
 
     _setAttached(attached) {
@@ -312,6 +312,7 @@ export class View {
                 this._helperViews.delete(id);
             }
         }
+        let created = false;
         for (const helper of helpers) {
             let views = this._helperViews.get(helper.id);
             if (!views || views.kind !== helper.kind) {
@@ -319,9 +320,13 @@ export class View {
                     actor.destroy();
                 views = this._createHelperViews(helper);
                 this._helperViews.set(helper.id, views);
+                created = true;
             }
             this._updateHelperViews(views, helper);
         }
+        // New actors go on top; a helper that comes back into the zone keeps its place in the list.
+        if (created)
+            this.restack();
         this._syncGaps(helpers);
     }
 

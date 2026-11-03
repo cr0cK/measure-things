@@ -664,13 +664,23 @@ mv "$XDG_DATA_HOME/Trash.off" "$XDG_DATA_HOME/Trash"
 shell_eval "$MANAGER.delete('$KEPT')" >/dev/null
 expect "$MANAGER.modelOf('$KEPT')" null 'the set can be deleted once the trash works'
 check 'and its file is in the trash' "[[ -f $XDG_DATA_HOME/Trash/files/$KEPT.json ]]"
-# A helper outside its zone is hidden, and neither drawn nor selectable, but still stored.
+# A helper outside its zone is hidden, and neither drawn nor selectable, but still stored. It comes
+# back in its place in the stack, and a view with nothing left to show leaves its window.
 shell_eval "const model = $MANAGER.createSet($E2E.win('Third')).model;
-    $MANAGER.addHelper(model, {kind: 'vertical', x: 50});
     $MANAGER.addHelper(model, {kind: 'rectangle', x: -500, y: 10, width: 50, height: 20});
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 50});
     $MANAGER.commit(model);" >/dev/null
 expect "(v => v.zoneHelpers().length + ' ' + v.content.helpers.length + ' ' + v._helperViews.size)($E2E.view('Third'))" \
     '1 2 1' 'a helper outside its zone is hidden, but still stored'
+shell_eval "const model = $E2E.model('Third'); model.content.helpers[0].x = 10; $MANAGER.commit(model);" >/dev/null
+expect "(v => v._shapes.get_children().map(a => [...v._helperViews].find(([, views]) => views.shape === a)[0]).join())($E2E.view('Third'))" \
+    '1,2' 'a helper that comes back into its zone keeps its place in the stack'
+shell_eval "const model = $E2E.model('Third');
+    model.content.helpers = [{...model.content.helpers[0], x: -500}];
+    $EXTENSION._settings.set_boolean('show-badges', false);
+    $MANAGER.commit(model);" >/dev/null
+expect "$E2E.view('Third').layer.get_parent()" null 'a view with nothing to show in its zone is not attached to its window'
+shell_eval "$EXTENSION._settings.set_boolean('show-badges', true)" >/dev/null
 HIDDEN=$(shell_eval "$E2E.model('Third').id")
 shell_eval "$MANAGER.delete('$HIDDEN')" >/dev/null
 wait_for "!$MANAGER.modelOf('$HIDDEN')"
