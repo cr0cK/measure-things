@@ -21,7 +21,7 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 ## Features
 
 - **Sets on windows**: drawing on a window starts a set, `Untitled 1`, saved at once in its own file. Its helpers are drawn inside the window: they move with it, hide behind the windows in front of it, and positions are relative to its top-left corner. A badge in the window's bottom-right corner names the set; in edit mode, a click on it opens the set's menu.
-- **Library**: the top bar menu lists the sets on screen, which the eye hides and ✕ removes from the screen, and every saved set, which a click loads onto a window. Sets can be renamed, deleted, and saved under a new name.
+- **Library**: the top bar menu lists the sets on screen, which the eye hides and ✕ removes from the screen and a click edits in its window, and every saved set, which a click loads onto a window. Sets can be renamed and deleted to the trash, on screen or not, and saved under a new name. A set that cannot go to the trash stays, with a notice.
 - **Guides**: horizontal and vertical 1-pixel lines labeled with their position. The gap between neighboring parallel guides is shown live, which makes alignment checks quick.
 - **Measuring rectangles**: drag to draw, then move, resize from any edge or corner, or nudge with the arrow keys. The label shows the size, the position too when the rectangle is selected, and the distance to the nearest helper on each side.
 - **Area measuring**: press <kbd>D</kbd> in edit mode to see the width and height of the area under the pointer, found from the screen pixels, like a button or a padding. <kbd>Enter</kbd> turns it into a rectangle.
@@ -29,7 +29,7 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 - **Undo**: <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> in edit mode, per set.
 - **Click-through**: helpers let the pointer through to their window. Only edit mode captures input.
 - **Column grid**: a layout grid (columns, gutter, side margin, optional centered max width) laid over the set's window.
-- **Mockup**: lays a design image over the window at its CSS size and half opacity, to compare a page with it. Move it with a right-drag in edit mode.
+- **Mockup**: lays a design image over the window at its CSS size and half opacity, to compare a page with it. Move it with a right-drag in edit mode. An image replaced at the same path shows its new content.
 - **Set settings**: from the badge menu, each set has its name, helper color, browser zoom, grid, and mockup image.
 - **Color picker**: a loupe magnifies the pixels under the pointer; a click copies the color as hex, `rgb()`, or `hsl()`.
 - **CSS pixels**: values are shown in CSS pixels, so they match your stylesheet on a scaled display (for example 125%). Set the browser zoom of a set when the page is not at 100%, or switch to device pixels in the preferences.

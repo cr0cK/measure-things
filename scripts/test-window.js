@@ -2,8 +2,10 @@
 // A plain GTK 4 window for the headless tests: a flat background with colored blocks at known CSS
 // positions, and no visible title bar, so CSS (0, 0) is the frame's top-left corner.
 // Usage: test-window.js TITLE WIDTHxHEIGHT BACKGROUND [X,Y,WIDTH,HEIGHT,COLOR ...]
+// With TEST_WINDOW_MENU=X,Y it also opens a native popup menu there, once the window shows.
 import Gdk from 'gi://Gdk?version=4.0';
 import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk?version=4.0';
 import {programArgs} from 'system';
 
@@ -38,5 +40,19 @@ app.connect('activate', () => {
     window.set_titlebar(new Gtk.Box());
     window.set_child(fixed);
     window.present();
+
+    const menuAt = GLib.getenv('TEST_WINDOW_MENU');
+    if (menuAt) {
+        const [x, y] = menuAt.split(',').map(Number);
+        const menu = new Gio.Menu();
+        menu.append('First entry', null);
+        menu.append('Second entry', null);
+        const button = new Gtk.MenuButton({popover: Gtk.PopoverMenu.new_from_model(menu), label: 'Menu'});
+        fixed.put(button, x, y);
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+            button.popup();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
 });
 app.run([]);

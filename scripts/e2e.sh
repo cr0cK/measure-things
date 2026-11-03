@@ -161,6 +161,22 @@ expect "(f => [f.migrated, f.zoom, f.grid.columns, f.grid.visible].join())($E2E.
     'true,125,4,false' 'the migrated set keeps the zoom and the grid settings, and says where it comes from'
 expect "$MANAGER.models.length" 0 'the migrated set is not shown'
 
+# Past 1,000 helpers, the migration keeps the first 1,000 and says how many it left out. The check
+# migrates again from 1,003 helpers, then puts the library back as it was.
+shell_eval "const settings = $EXTENSION._settings;
+    settings.set_string('helpers', JSON.stringify(Array.from({length: 1003}, (_, i) => ({kind: 'vertical', x: i}))));
+    settings.set_boolean('migrated', false);
+    $MANAGER.store._entries.delete('$MIGRATED.json');
+    $MANAGER._migrate();" >/dev/null
+wait_for "$EXTENSION._settings.get_boolean('migrated')"
+expect "$MANAGER.store.entries().filter(e => e.id !== '$MIGRATED').map(e => $MANAGER.store.get(e.id).content.helpers.length).join()" \
+    1000 'the migration keeps at most 1,000 helpers'
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).some(n => n.body.includes('3 v0.2 helpers'))" \
+    true 'the migration says how many helpers it left out'
+EXTRA=$(shell_eval "$MANAGER.store.entries().find(e => e.id !== '$MIGRATED').id")
+shell_eval "$MANAGER.delete('$EXTRA'); $MANAGER.store._read('$MIGRATED.json'); $EXTENSION._settings.reset('helpers');" >/dev/null
+expect "$MANAGER.store.entries().map(e => e.name).join()" 'Untitled 1' 'the library is back to the migrated set'
+
 # A page: a dark backdrop with a red block at CSS (300, 200), 240 × 160. Its frame is at (200, 150),
 # so the block covers stage pixels 500 to 740 across and 350 to 510 down.
 open_window Page 200 150 800x600 '#3d3846' '300,200,240,160,#e01b24'
@@ -608,6 +624,23 @@ check 'and its file is in the trash' "[[ -f $XDG_DATA_HOME/Trash/files/$KEPT.jso
 shell_eval "$E2E.win('Third').delete(global.get_current_time())" >/dev/null
 wait_for "!$E2E.win('Third')"
 
+# A native popup menu stays mapped when edit mode takes its grab, and blocks targeting below it.
+TEST_WINDOW_MENU=60,60 open_window Menu 1100 500 400x300 '#241f31'
+POPUP="global.get_window_actors().map(a => a.meta_window).find(w => w.get_window_type() === imports.gi.Meta.WindowType.DROPDOWN_MENU)"
+wait_for "!!$POPUP" 20
+press_keys Super_L Shift_L m
+read -r POPUP_X POPUP_Y < <(shell_eval "(r => r.x + 20 + ' ' + (r.y + 20))($POPUP.get_frame_rect())")
+expect "$OVERLAY.editing + ' ' + !!$POPUP + ' ' + $POPUP.get_compositor_private().visible" 'true true true' \
+    'a native popup menu stays mapped when edit mode takes its grab'
+expect "$OVERLAY._targetAt($POPUP_X, $POPUP_Y) + ' ' + $OVERLAY._targetAt(1480, 780).window.title" 'null Menu' \
+    'a native popup menu blocks targeting below it'
+pointer_drag "$POPUP_X" "$POPUP_Y" $((POPUP_X + 30)) $((POPUP_Y + 20))
+expect "$MANAGER.models.map(m => m.view.window.title).sort().join()" 'Other,Page' \
+    'a drag on a popup menu draws nothing'
+press_keys Escape
+shell_eval "$E2E.win('Menu').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('Menu')"
+
 # The grid shortcut acts on the focused window.
 shell_eval "$E2E.win('Other').activate(global.get_current_time())" >/dev/null
 wait_for "$E2E.win('Other').has_focus()"
@@ -650,6 +683,17 @@ shell_eval "$E2E.win('Page').delete(global.get_current_time())" >/dev/null
 wait_for "!$E2E.win('Page')"
 expect "$MANAGER.models.length + ' ' + $E2E.fileHelpers('$V2')" '0 R 120,110 201x170 | V 510' \
     'closing a window removes its view and keeps its set'
+
+# A missing sets folder is created again by the next write, and loading a set is a write.
+SETS=$XDG_DATA_HOME/measure-things/sets
+mv "$SETS" "$SETS.off"
+shell_eval "void $MANAGER.load('$PAGE', $E2E.win('Other'))" >/dev/null
+wait_for "$MANAGER.models.length === 1"
+sleep 0.5
+check 'a missing sets folder is created again on write' "[[ -f $SETS/$PAGE.json ]]"
+rm -r "$SETS"
+mv "$SETS.off" "$SETS"
+shell_eval "$MANAGER.removeFromScreen($MANAGER.modelOf('$PAGE'))" >/dev/null
 
 # A global shortcut changed in the preferences: found with Ctrl+F, captured as pressed, and bound
 # by the shell at once.

@@ -400,7 +400,7 @@ export class Manager {
             if (!written)
                 return;
             if (leftOut > 0)
-                notify(`The v0.2 helpers past ${MAX_HELPERS} were left out: ${leftOut} in all.`);
+                notify(`${leftOut} v0.2 helpers were left out: a set holds at most ${MAX_HELPERS}.`);
             this._changed();
         }
         settings.set_boolean('migrated', true);
