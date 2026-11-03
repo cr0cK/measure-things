@@ -17,7 +17,7 @@ above every window, which let the pointer through to the page until they are edi
 
 ## Audience and environment
 
-- Web and UI developers on GNOME Shell 49, Wayland.
+- Web and UI developers on GNOME Shell 49 or 50, Wayland.
 - Single and multi-monitor setups, at any monitor scale, fractional ones included.
 
 ## Layer
@@ -55,8 +55,7 @@ above every window, which let the pointer through to the page until they are edi
 
 - Entered with the edit shortcut (`Super+Shift+M`), **Edit helpers**, **Add vertical guide**, or
   **Add horizontal guide**; the last two add a guide through the center of the primary monitor
-  and select it. Edit mode takes a modal grab; when another grab holds the keyboard, it does not
-  start.
+  and select it. Edit mode takes a modal grab.
 - The pointer is a crosshair with full-screen lines and a position readout, and a hint bar lists
   the keys.
 - Dragging on empty space, or inside a rectangle that is not selected, draws a rectangle once the

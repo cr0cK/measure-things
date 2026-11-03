@@ -47,7 +47,7 @@ headless_start() {
     # Eval and Screenshot refuse callers outside unsafe mode; this throwaway extension enables it.
     cat > "$extensions/unsafe@headless/metadata.json" <<'JSON'
 {"uuid": "unsafe@headless", "name": "Unsafe mode", "description": "Tests only",
- "shell-version": ["49"]}
+ "shell-version": ["49", "50"]}
 JSON
     cat > "$extensions/unsafe@headless/extension.js" <<'JS'
 export default class {

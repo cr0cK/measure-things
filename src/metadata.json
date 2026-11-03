@@ -3,7 +3,8 @@
   "name": "Measure Things",
   "description": "Measuring tools for web and UI work, drawn above every window: pixel guides with live gaps, measuring rectangles, a column grid over the focused window, and a color picker. Helpers let clicks through to the page until you edit them.",
   "shell-version": [
-    "49"
+    "49",
+    "50"
   ],
   "url": "https://github.com/cr0cK/measure-things",
   "settings-schema": "org.gnome.shell.extensions.measure-things",
