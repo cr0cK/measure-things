@@ -1638,19 +1638,20 @@ shell_eval "global._restoreRemove()" >/dev/null
 rm "${SETS:?}/stubborn.json"
 expect "$MANAGER.store.entries().some(e => e.name === 'P3 stubborn')" false 'it leaves the library when it goes'
 
-# The name an import is about to take is taken: a set created meanwhile does not choose it.
+# The name an import is about to take is taken: a set created meanwhile does not choose it. The
+# import is held back for three seconds, and the set is created once, right after the drop.
 shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
     global._restoreReplaceP3 = () => { proto._replace = replace; };
     proto._replace = async function (...args) {
-        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1500,
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 3000,
             () => { resolve(); return false; }));
         return replace.apply(this, args);
     }; 1" >/dev/null
 drop_copy "$IMPORT" untitled-nine.json 'd["id"] = "zz-nine"; d["name"] = "Untitled 9"'
 sleep 1
-expect "(view => { const name = view.model.name; $MANAGER.removeFromScreen(view.model); return name; })($MANAGER.createSet($E2E.win('LibA')))" \
-    'Untitled 10' 'a set created while an import is about to take a name does not choose it'
-wait_for "$MANAGER.store.entries().some(e => e.name === 'Untitled 9')"
+CHOSEN=$(shell_eval "(view => { const name = view.model.name; $MANAGER.removeFromScreen(view.model); return name; })($MANAGER.createSet($E2E.win('LibA')))")
+check 'a set created while an import is about to take a name does not choose it' "[[ '$CHOSEN' == 'Untitled 10' ]]"
+wait_for "$MANAGER.store.entries().some(e => e.name === 'Untitled 9')" 30
 shell_eval "global._restoreReplaceP3()" >/dev/null
 
 # An import still under way when the extension is disabled ends before the next run reads the

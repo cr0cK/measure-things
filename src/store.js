@@ -44,6 +44,9 @@ const tombstones = new Set();
 // import, a retry): the next run waits for all of them, and for the deletions in progress.
 const failures = new Set();
 const inflight = new Set();
+// Set ID → how many times the file superseded the set in memory (an external edit, a removal, a
+// reload after a conflict): a retry made from an older state does not run.
+const epochs = new Map();
 // Sets being deleted: their commits wait in memory until the file is in the trash, or is not.
 const holds = new Map();
 
@@ -89,8 +92,8 @@ export class SetStore {
         // File name → the timeout of a name that is settling, and the chain of what runs on it.
         this._timers = new Map();
         this._chains = new Map();
-        // The names of the copies being imported, which no other import may take.
-        this._reserved = new Set();
+        // Copy ID → its name, for the imports under way: no other set may take these names.
+        this._reserved = new Map();
         this._ready = new Promise(resolve => {
             this._markReady = resolve;
         });
@@ -180,18 +183,18 @@ export class SetStore {
         if (this._entries.get(name)?.error)
             return Promise.resolve(false);
         const copy = clone(set);
-        if (hold) {
-            hold.pending = copy;
-            return Promise.resolve(false);
-        }
-
-        const text = serializeSet(set);
         let job = writes.get(name);
         if (job?.reloading && !afterReload) {
             // Made from a state the file has left: dropped with the commits of the conflict.
             job.reloading.dropped++;
             return job.done;
         }
+        if (hold) {
+            hold.pending = copy;
+            return Promise.resolve(false);
+        }
+
+        const text = serializeSet(set);
         if (job) {
             job.text = text;
             job.set = copy;
@@ -211,9 +214,9 @@ export class SetStore {
         return done;
     }
 
-    /** The names that imports under way are about to take. */
-    reservedNames() {
-        return [...this._reserved];
+    /** The names that imports under way are about to take, but for the one of set `exceptId`. */
+    reservedNames(exceptId = null) {
+        return [...this._reserved].filter(([id]) => id !== exceptId).map(([, name]) => name);
     }
 
     /** The queue of a set's file, as a promise of its last write, or null when it is idle. */
@@ -224,6 +227,11 @@ export class SetStore {
     /** Whether the last write of a set failed. */
     hasFailed(id) {
         return failures.has(id);
+    }
+
+    /** How many times the file superseded a set in memory; a state kept from before is stale. */
+    epoch(id) {
+        return epochs.get(id) ?? 0;
     }
 
     /**
@@ -543,8 +551,10 @@ export class SetStore {
         });
         this._remember(name, disk);
         // What the shell tried to write is superseded by the file: it is never tried again.
-        if (held && verdict.action !== 'none')
+        if (held && verdict.action !== 'none') {
             failures.delete(held.id);
+            epochs.set(held.id, (epochs.get(held.id) ?? 0) + 1);
+        }
         switch (verdict.action) {
         case 'none':
             break;
@@ -615,9 +625,9 @@ export class SetStore {
      * own events judge it again.
      */
     _import(name, disk, copy) {
-        this._reserved.add(copy.name);
+        this._reserved.set(copy.id, copy.name);
         const done = this.track(this._importNow(name, disk, copy).finally(() => {
-            this._reserved.delete(copy.name);
+            this._reserved.delete(copy.id);
         }));
         return done;
     }

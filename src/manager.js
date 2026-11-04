@@ -142,7 +142,7 @@ export class Manager {
             if (model.id !== except?.id)
                 names.add(model.name);
         }
-        for (const name of this.store.reservedNames())
+        for (const name of this.store.reservedNames(except?.id))
             names.add(name);
         return [...names];
     }
@@ -451,9 +451,11 @@ export class Manager {
             return;
         const {id, name, revision, edited, migrated, content} = model;
         const set = {id, name, revision, edited, migrated, content: JSON.parse(JSON.stringify(content))};
-        // Tracked: a run that starts right after a disable waits for it.
+        const epoch = this.store.epoch(id);
+        // Tracked: a run that starts right after a disable waits for it. A file that superseded
+        // the set meanwhile, such as after a conflict, is not written over.
         this.store.track(Promise.resolve(pending).then(() => {
-            if (!this.store.hasFailed(id))
+            if (!this.store.hasFailed(id) || this.store.epoch(id) !== epoch)
                 return null;
             return this.store.write(set).then(written => {
                 if (!written)
