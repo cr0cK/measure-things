@@ -68,8 +68,9 @@ export class Finder {
         if (!geometry || !this._manager.models.includes(view.model) || view.model.view !== view)
             return null;
         const {originX, originY, width, height, k, visible} = geometry;
-        return JSON.stringify([view.model.id, view.model.revision, originX, originY, width, height, k,
-            visible, view.content.zoom]);
+        const epoch = this._manager.store.epoch(view.model.id);
+        return JSON.stringify([view.model.id, view.model.revision, epoch, originX, originY, width, height,
+            k, visible, view.content.zoom]);
     }
 
     /** Whether a window above the target's in the stack overlaps the zone. */
