@@ -301,6 +301,11 @@ export class BadgeMenu {
         this.destroy();
     }
 
+    /** Closes the menu from inside one of its items: it is destroyed once the click is handled. */
+    dismiss() {
+        this.menu?.close(BoxPointer.PopupAnimation.NONE);
+    }
+
     destroy() {
         if (this._destroyId)
             GLib.source_remove(this._destroyId);

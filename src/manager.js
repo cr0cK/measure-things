@@ -353,10 +353,10 @@ export class Manager {
     /**
      * Saves a set's current content as one undo step, and writes its file. A change that would
      * make the file too large is refused and undone. A commit clears the set's `found` mark, which
-     * only the Find helpers commit sets: that one, made while the mark is set, takes the place of
-     * the previous run's step instead of adding one.
+     * only the Find helpers commit sets; with `replace` and the mark set, it takes the place of the
+     * previous run's step instead of adding one.
      */
-    commit(model, {found = false} = {}) {
+    commit(model, {found = false, replace = false} = {}) {
         const set = this.setOf(model);
         if (!this.models.includes(set))
             return false;
@@ -384,7 +384,7 @@ export class Manager {
             this._apply(model, model.history.current);
             return false;
         }
-        if (found && model.found)
+        if (found && replace && model.found)
             model.history.replace(state);
         else
             model.history.record(state);
@@ -395,9 +395,10 @@ export class Manager {
 
     /**
      * Replaces a set's helpers with the ones Find helpers found, in CSS pixels, and saves the
-     * tolerance they were found at: one undo step. Marks the set as just found.
+     * tolerance they were found at: one undo step, or the previous run's with `replace`. Marks the
+     * set as just found.
      */
-    applyFound(model, helpers, tolerance) {
+    applyFound(model, helpers, tolerance, {replace = false} = {}) {
         if (!this.models.includes(model))
             return false;
         model.content.helpers = helpers.map(helper => ({id: model.nextId++, ...helper}));
@@ -406,7 +407,7 @@ export class Manager {
             if (view)
                 view.selectedId = null;
         }
-        return this.commit(model, {found: true});
+        return this.commit(model, {found: true, replace});
     }
 
     /** Whether a model's file would pass the size limit; a notice says so when it does not. */

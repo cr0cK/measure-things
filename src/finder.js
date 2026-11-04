@@ -3,15 +3,13 @@ import GLib from 'gi://GLib';
 import {Detector} from './detect.js';
 import {notify} from './manager.js';
 import {Snapshot} from './snapshot.js';
-import {covers} from './zones.js';
+import {covers, pixelRange} from './zones.js';
 
 // The zone is read this many rows at a time: each band's readback is synchronous on the GPU, so
 // the band size is what keeps every stall of the shell short. The detector gets it in smaller
 // pieces, with the main loop running in between.
 const BAND_ROWS = 256;
 const CHUNK_ROWS = 64;
-// Stage positions times the scale that are whole pixels, up to rounding.
-const EPSILON = 1e-3;
 
 const MESSAGES = {
     covered: 'Find helpers: another window covers the zone, so nothing changed. Move it away and try again.',
@@ -37,11 +35,12 @@ function yieldToLoop() {
  * in bands, and commits only if nothing changed meanwhile. A new run cancels the one in progress.
  */
 export class Finder {
-    constructor(manager, {hold, release, isShown}) {
+    constructor(manager, {hold, release, isShown, isBusy}) {
         this._manager = manager;
         this._hold = hold;
         this._release = release;
         this._isShown = isShown;
+        this._isBusy = isBusy;
         this._token = null;
     }
 
@@ -84,28 +83,43 @@ export class Finder {
     }
 
     /**
-     * Runs Find helpers on the main view of a set at a tolerance level, and commits what it finds.
+     * What stops a run from going on, as a status, or null: the window left the screen, another
+     * covers the zone, or a gesture is changing the set. Checked around the capture and before the
+     * commit, since windows come and go while a run reads.
+     */
+    _blocked(view, zone) {
+        if (!this._isShown(view.window))
+            return 'capture';
+        if (this._covered(view.window, zone))
+            return 'covered';
+        return this._isBusy(view) ? 'stale' : null;
+    }
+
+    /**
+     * Runs Find helpers on the main view of a set at a tolerance level, and commits what it finds;
+     * with `replace`, the commit takes the place of the previous run's undo step.
      * Resolves to `found`, `none`, `covered`, `capture`, `stale`, `cancelled`, or `refused` (the
      * manager could not save it, and said so); all but `found` changed nothing, and all but
      * `cancelled` and `refused` have told the user.
      */
-    async run(view, level) {
+    async run(view, level, {replace = false} = {}) {
         const token = {};
         this._token = token;
-        const status = await this._run(view, level, token);
+        const status = await this._run(view, level, token, replace);
         if (status in MESSAGES && this._token === token)
             notify(MESSAGES[status]);
         return status;
     }
 
-    async _run(view, level, token) {
+    async _run(view, level, token, replace) {
         const model = view.model;
         const stamp = this._stamp(view);
         const zone = this._zoneOf(view);
-        if (!stamp || !zone || !this._isShown(view.window))
+        if (!stamp || !zone)
             return 'capture';
-        if (this._covered(view.window, zone))
-            return 'covered';
+        const blocked = this._blocked(view, zone);
+        if (blocked && blocked !== 'stale')
+            return blocked;
         if (zone.x < 0 || zone.y < 0 || zone.x + zone.width > global.stage.width ||
             zone.y + zone.height > global.stage.height)
             return 'capture';
@@ -123,18 +137,16 @@ export class Finder {
             return 'cancelled';
         if (!snapshot)
             return 'capture';
-
-        // The pixels inside the zone: at a fractional scale the pixels on its edge are partly the
-        // window's and partly what lies beside it, and would show as edges of their own.
         const {scale} = snapshot;
-        const left = Math.max(0, Math.ceil(zone.x * scale - EPSILON));
-        const top = Math.max(0, Math.ceil(zone.y * scale - EPSILON));
-        const right = Math.min(snapshot.width, Math.floor((zone.x + zone.width) * scale + EPSILON));
-        const bottom = Math.min(snapshot.height, Math.floor((zone.y + zone.height) * scale + EPSILON));
-        const width = right - left;
-        const height = bottom - top;
-        if (width < 2 || height < 2)
+        const pixels = pixelRange(zone, scale, snapshot.width, snapshot.height);
+        if (!pixels)
             return 'capture';
+        const {left, top, width, height} = pixels;
+        if (this._stamp(view) !== stamp)
+            return 'stale';
+        const afterCapture = this._blocked(view, zone);
+        if (afterCapture)
+            return afterCapture;
 
         const detector = new Detector(width, height, level);
         for (let y = 0; y < height; y += BAND_ROWS) {
@@ -163,10 +175,13 @@ export class Finder {
         const found = detector.finish();
         if (this._stamp(view) !== stamp)
             return 'stale';
+        const beforeCommit = this._blocked(view, zone);
+        if (beforeCommit)
+            return beforeCommit;
         const helpers = this._helpers(view, found, {left, top, scale});
         if (helpers.length === 0)
             return 'none';
-        return this._manager.applyFound(model, helpers, level) ? 'found' : 'refused';
+        return this._manager.applyFound(model, helpers, level, {replace}) ? 'found' : 'refused';
     }
 
     /**

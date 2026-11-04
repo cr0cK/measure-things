@@ -119,8 +119,8 @@ in `Manager`; a view draws a model inside one window.
   second), so nothing is downsampled. A boundary of the capture becomes a stage position the way
   `_nearest()` does, `boundary / scale`, then goes through `view.toCss()`: a found guide and a snapped
   one are the same number. A run commits only if `_stamp()` (set revision, zone geometry, zoom) is
-  what it was at the start; `View.geometry` follows `position-changed` one move late, so a test that
-  moves a window must open the set after the move.
+  what it was at the start. In the headless shell `View.geometry` lags one window move behind, so the
+  e2e test opens sets on windows after they are placed.
 - `_pickColor()` resolves only when the picker closes; do not await it from Eval. disable()
   cancels it, and the Shell can re-enable right away, so the continuation checks that the
   overlay and picker it started with are still the current ones.

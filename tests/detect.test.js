@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {test} from 'node:test';
 
 import {Detector, LEVELS, MAX_PER_KIND, PARAMETERS, detect, selectHelpers} from '../src/detect.js';
+import {pixelRange} from '../src/zones.js';
 import {IMAGES, WIDTH, draw, goldenPath} from './fixtures/images.js';
 import {CLASSES, compare} from './fixtures/match.js';
 
@@ -117,9 +118,21 @@ test('a guide within a pixel of a rectangle edge is dropped, one elsewhere is ke
     assert.deepEqual(detect(narrow, 'medium').guides.map(g => g.x), [100, 108]);
 });
 
-test('a one-pixel line gives one guide, at its first boundary', () => {
-    const image = boxes(400, 300, [255, 255, 255], [[100, 150, 200, 1, [20, 40, 160]]]);
-    assert.deepEqual(detect(image, 'low').guides, [{kind: 'horizontal', y: 150}]);
+test('a one-pixel line gives one guide, at its first boundary, and a two-pixel one gives two', () => {
+    const thin = boxes(400, 300, [255, 255, 255], [[100, 150, 200, 1, [20, 40, 160]]]);
+    assert.deepEqual(detect(thin, 'low').guides, [{kind: 'horizontal', y: 150}]);
+    const thick = boxes(400, 300, [255, 255, 255], [[100, 150, 200, 2, [20, 40, 160]]]);
+    assert.deepEqual(detect(thick, 'low').guides, [{kind: 'horizontal', y: 150}, {kind: 'horizontal', y: 152}]);
+});
+
+test('Low keeps the quarters of a layout and not a card, at every size above its share', () => {
+    const panels = [[0, 0, 200, 150, [230, 234, 242]], [200, 150, 200, 150, [255, 243, 224]]];
+    const quarters = detect(boxes(400, 300, [255, 255, 255], panels), 'low').rectangles;
+    assert.deepEqual(quarters.map(r => [r.x, r.y, r.width, r.height]),
+        [[0, 0, 200, 150], [200, 0, 200, 150], [0, 150, 200, 150], [200, 150, 200, 150]]);
+    const card = boxes(400, 300, [255, 255, 255], [[50, 50, 100, 60, [230, 234, 242]]]);
+    assert.deepEqual(detect(card, 'low').rectangles, []);
+    assert.equal(detect(card, 'medium').rectangles.length, 1);
 });
 
 test('an edge needs the level\'s tolerance, a gradient is not one', () => {
@@ -181,6 +194,25 @@ test('at most 30 of each kind, a kind that finds fewer leaving its slots to the 
     assert.equal(kept.guides.at(-1).x, 5000 + 56 * 5);
 });
 
+test('rectangles that take the slots guides leave also take those their own edges free', () => {
+    // 60 rectangles, 5 guides on the edges of the last 30 of them, 10 elsewhere: the guides on
+    // rectangles 31 to 35 are dropped once those are kept, so more rectangles fit.
+    const rects = Array.from({length: 60}, (_, i) => ({kind: 'rectangle', x: i * 20, y: 0, width: 10, height: 100 - i}));
+    const onRects = rects.slice(30, 35).map((rect, i) => ({kind: 'vertical', x: rect.x, cover: 500 - i}));
+    const elsewhere = Array.from({length: 10}, (_, i) => ({kind: 'vertical', x: 5000 + i * 5, cover: 100 - i}));
+    const kept = selectHelpers(rects, [...onRects, ...elsewhere]);
+    assert.equal(kept.rectangles.length, 50);
+    assert.equal(kept.guides.length, 10);
+    assert.deepEqual(kept.guides.map(guide => guide.x), elsewhere.map(guide => guide.x));
+    assert.ok(kept.rectangles.length + kept.guides.length <= 60);
+
+    // With 30 guides to place, the rectangles stay at 30.
+    const many = Array.from({length: 30}, (_, i) => ({kind: 'vertical', x: 5000 + i * 5, cover: 100 - i}));
+    const full = selectHelpers(rects, many);
+    assert.equal(full.rectangles.length, 30);
+    assert.equal(full.guides.length, 30);
+});
+
 test('ties are broken by position, top to bottom then left to right', () => {
     const same = [
         {kind: 'rectangle', x: 50, y: 20, width: 30, height: 30},
@@ -203,4 +235,18 @@ test('ties are broken by position, top to bottom then left to right', () => {
 test('the test images are as wide as the layout says, and the 4K one scales it', () => {
     assert.equal(draw('dense').width, WIDTH);
     assert.equal(draw('dense', 3).width, 3 * WIDTH);
+});
+
+test('the pixels of a zone are those fully inside it, and none outside the capture', () => {
+    const zone = {x: 100.4, y: 50, width: 800, height: 600};
+    assert.deepEqual(pixelRange({x: 20, y: 40, width: 1000, height: 700}, 1, 1600, 1000),
+        {left: 20, top: 40, width: 1000, height: 700});
+    // At 125% the edge pixels, partly outside the window, are left out.
+    assert.deepEqual(pixelRange(zone, 1.25, 1600, 1000), {left: 126, top: 63, width: 999, height: 749});
+    assert.deepEqual(pixelRange({x: 100, y: 100, width: 800, height: 600}, 1.25, 1600, 1000),
+        {left: 125, top: 125, width: 1000, height: 750});
+    // A capture shorter than the zone, or a zone beyond it, is refused rather than cropped.
+    assert.equal(pixelRange({x: 20, y: 40, width: 1000, height: 700}, 1, 1000, 1000), null);
+    assert.equal(pixelRange({x: -5, y: 0, width: 100, height: 100}, 1, 1600, 1000), null);
+    assert.equal(pixelRange({x: 10, y: 10, width: 1, height: 100}, 1, 1600, 1000), null);
 });

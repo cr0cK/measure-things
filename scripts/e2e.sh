@@ -1857,6 +1857,22 @@ expect "$E2E.helpers('Found')" "$FIND_HIGH" 'at High, it adds the chip'
 screenshot "$WORK/find-high.png"
 check 'one screenshot per level' "[[ -s $WORK/find-low.png && -s $WORK/find-medium.png && -s $WORK/find-high.png ]]"
 
+# Only a tolerance chosen after a run replaces its undo step: Find helpers chosen again is a step of
+# its own, and one undo returns to the run before it.
+HISTORY=$(shell_eval "$E2E.model('Found').history._index")
+open_found_menu
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Find helpers')"
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Replace')"
+wait_for "$E2E.model('Found').history._index === $((HISTORY + 1))"
+expect "$E2E.helpers('Found')" "$FIND_HIGH" 'a second run adds an undo step'
+press_keys Control_L z
+expect "$E2E.helpers('Found')" "$FIND_HIGH" 'one undo returns to the first run'
+press_keys Control_L z
+expect "$E2E.helpers('Found')" 'V 900' 'and another to the state before it'
+press_keys Control_L Shift_L z
+press_keys Control_L Shift_L z
+expect "$E2E.helpers('Found')" "$FIND_HIGH" 'redo puts the second run back'
+
 # When it finds nothing, nothing changes and a notice says so: a blank window has nothing to find.
 HIST="$E2E.model('Found').history._index"
 open_window Blank 1050 40 500x400 '#ffffff'
@@ -1929,6 +1945,26 @@ expect "global._first.then(status => status)" cancelled 'a new run cancels the o
 expect "global._second.then(status => status)" found 'which finishes'
 expect "$E2E.helpers('Found')" "$FIND_HIGH" 'with its own result'
 expect "$OVERLAY.actor.opacity + ' ' + $E2E.view('Found').layer.visible" '255 true' 'every actor is shown again after the runs'
+
+# A gesture on the set, or a window that leaves the screen, while a run reads makes it stop.
+shell_eval "global._busy = $(find_run Found medium); $OVERLAY._drag = {view: $E2E.view('Found')}; 1" >/dev/null
+expect "global._busy.then(status => status)" stale 'a gesture on the set while it ran makes the result stale'
+shell_eval "$OVERLAY._drag = null; 1" >/dev/null
+clear_notices
+shell_eval "global._gone = $(find_run Found medium); $E2E.win('Found').minimize(); 1" >/dev/null
+expect "global._gone.then(status => status)" capture 'a window minimized while it ran is not captured'
+clear_notices
+shell_eval "$E2E.win('Found').unminimize(); 1" >/dev/null
+wait_for "!$E2E.win('Found').minimized"
+sleep 1
+
+# The picker keeps the views hidden when a Find helpers capture ends during its own.
+shell_eval "$OVERLAY.setHidden(true); $OVERLAY._holdHidden(1); $OVERLAY._holdHidden(-1); 1" >/dev/null
+expect "$E2E.view('Found').layer.visible + ' ' + $OVERLAY.actor.visible" 'false false' \
+    'a Find helpers capture that ends does not show what the picker hides'
+shell_eval "$OVERLAY.setHidden(false); 1" >/dev/null
+expect "$E2E.view('Found').layer.visible + ' ' + $OVERLAY.actor.visible + ' ' + $OVERLAY.actor.opacity" 'true true 255' \
+    'and everything is back when the picker is done'
 
 # Tidy: the sets made here leave the screen and the library, and the windows close.
 shell_eval "$OVERLAY.exitEdit();

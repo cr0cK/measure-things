@@ -1,0 +1,70 @@
+{
+ "guides": [
+  {
+   "kind": "horizontal",
+   "y": 44
+  },
+  {
+   "kind": "horizontal",
+   "y": 72
+  }
+ ],
+ "rectangles": [
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 0,
+   "width": 640,
+   "height": 360
+  },
+  {
+   "kind": "rectangle",
+   "x": 640,
+   "y": 0,
+   "width": 640,
+   "height": 360
+  },
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 360,
+   "width": 640,
+   "height": 360
+  },
+  {
+   "kind": "rectangle",
+   "x": 640,
+   "y": 360,
+   "width": 640,
+   "height": 360
+  },
+  {
+   "kind": "rectangle",
+   "x": 660,
+   "y": 24,
+   "width": 280,
+   "height": 160
+  },
+  {
+   "kind": "rectangle",
+   "x": 960,
+   "y": 24,
+   "width": 280,
+   "height": 160
+  },
+  {
+   "kind": "rectangle",
+   "x": 24,
+   "y": 384,
+   "width": 280,
+   "height": 160
+  },
+  {
+   "kind": "rectangle",
+   "x": 24,
+   "y": 120,
+   "width": 120,
+   "height": 36
+  }
+ ]
+}

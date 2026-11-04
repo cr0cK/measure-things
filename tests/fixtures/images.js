@@ -316,7 +316,27 @@ function dense(scale) {
     return d.image();
 }
 
-export const IMAGES = {dashboard, landing, form, dense};
+/** Four panels, one in each quarter, with cards and elements in two of them: no band or column. */
+function quadrants(scale) {
+    const d = new Drawing(5, scale, WHITE);
+    d.rect(0, 0, 640, 360, PANEL, 'block');
+    d.rect(640, 0, 640, 360, WHITE, 'block');
+    d.rect(0, 360, 640, 360, [255, 243, 224], 'block');
+    d.rect(640, 360, 640, 360, [226, 240, 230], 'block');
+    d.text(24, 24, 300, 3, INK, 14);
+    d.rect(24, 120, 120, 36, BLUE, 'element');
+    d.card(660, 24, 280, 160);
+    d.rect(680, 44, 80, 28, [255, 138, 76], 'element');
+    d.text(680, 100, 220, 3, MUTED);
+    d.card(960, 24, 280, 160);
+    d.rect(980, 44, 80, 28, [76, 175, 124], 'element');
+    d.card(24, 384, 280, 160, 'card', [255, 250, 240]);
+    d.rect(44, 404, 80, 28, BLUE, 'element');
+    d.text(664, 384, 300, 4, MUTED);
+    return d.image();
+}
+
+export const IMAGES = {dashboard, landing, form, dense, quadrants};
 
 /** An image by name, at `scale` times the 1280 × 720 layout. */
 export function draw(name, scale = 1) {

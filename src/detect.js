@@ -22,8 +22,9 @@ export const LEVELS = ['low', 'medium', 'high'];
 //   of the zone's size along the edge, with a floor in pixels;
 // - `coverage`: the fraction of the zone's size along the edge that its runs must reach;
 // - `minWidth`, `minHeight`: the smallest rectangle, as a fraction of the zone's size with a floor;
-// - `spans`: the share of the zone's width or height that a rectangle must reach in one of them,
-//   so that the lowest level keeps the bands and columns of the layout, not the cards in them;
+// - `spans`, `area`: a rectangle must reach `spans` of the zone's width or height, or `area` of its
+//   area, so that the lowest level keeps the bands, columns, and quarters of the layout, not the
+//   cards in them;
 // - `fill`: the share of its box that a region must span, row by row, to be a rectangle.
 export const PARAMETERS = {
     low: {
@@ -33,6 +34,7 @@ export const PARAMETERS = {
         minWidth: {fraction: 0.08, floor: 64},
         minHeight: {fraction: 0.05, floor: 32},
         spans: 0.8,
+        area: 0.15,
         fill: 0.85,
     },
     medium: {
@@ -42,6 +44,7 @@ export const PARAMETERS = {
         minWidth: {fraction: 0.05, floor: 40},
         minHeight: {fraction: 0.04, floor: 24},
         spans: 0,
+        area: 0,
         fill: 0.85,
     },
     high: {
@@ -51,6 +54,7 @@ export const PARAMETERS = {
         minWidth: {fraction: 0, floor: 16},
         minHeight: {fraction: 0, floor: 12},
         spans: 0,
+        area: 0,
         fill: 0.85,
     },
 };
@@ -58,9 +62,8 @@ export const PARAMETERS = {
 // At most this many guides and rectangles each; a kind that finds fewer leaves its slots to the other.
 export const MAX_PER_KIND = 30;
 // A guide within this many pixels of a rectangle's edge is dropped, and two guides this close
-// are one: the one with the longer coverage is kept.
+// are one, as the two boundaries of a one-pixel line: the one with the longer coverage is kept.
 const NEAR = 1;
-const MERGE = 2;
 // A region at least this share of the zone in both directions is the background.
 const BACKGROUND = 0.95;
 
@@ -160,6 +163,7 @@ export class Detector {
         this._minWidth = size(parameters.minWidth, width);
         this._minHeight = size(parameters.minHeight, height);
         this._spans = parameters.spans;
+        this._area = parameters.area;
         this._fill = parameters.fill;
 
         this._previous = new Uint8Array(width * 3);
@@ -297,7 +301,8 @@ export class Detector {
         const height = maxY[id] + 1 - minY[id];
         if (width < this._minWidth || height < this._minHeight)
             return;
-        if (width < this._spans * this.width && height < this._spans * this.height)
+        if (width < this._spans * this.width && height < this._spans * this.height &&
+            width * height < this._area * this.width * this.height)
             return;
         if (span[id] < this._fill * width * height)
             return;
@@ -359,7 +364,7 @@ const same = (a, b) => Math.abs(a.x - b.x) <= NEAR && Math.abs(a.y - b.y) <= NEA
 
 /**
  * Applies the rules on what is kept: rectangles that repeat a larger one are dropped; so are guides
- * within 2 pixels of a longer one and those on a rectangle's edge; at most 30 of each kind, the
+ * within a pixel of a longer one and those on a rectangle's edge; at most 30 of each kind, the
  * rectangles largest first and the guides longest first, the slots one kind leaves unused going to
  * the other. Ties go by position, top to bottom then left to right.
  */
@@ -379,17 +384,27 @@ export function selectHelpers(rectangles, candidates) {
     candidates.sort((a, b) => b.cover - a.cover || byPosition(a, b));
     const merged = [];
     for (const guide of candidates) {
-        if (!merged.some(kept => kept.kind === guide.kind && Math.abs(along(kept) - along(guide)) <= MERGE))
+        if (!merged.some(kept => kept.kind === guide.kind && Math.abs(along(kept) - along(guide)) <= NEAR))
             merged.push(guide);
     }
 
-    let rects = rectangles.slice(0, MAX_PER_KIND);
-    let guides = merged.filter(guide => !rects.some(rect => onEdge(guide, rect)))
-        .slice(0, total - rects.length);
-    if (guides.length < MAX_PER_KIND && rectangles.length > rects.length) {
-        rects = rectangles.slice(0, Math.min(rectangles.length, total - guides.length));
-        guides = guides.filter(guide => !rects.some(rect => onEdge(guide, rect)));
+    // The rectangles are the first `kept`; the guides are those not on their edges. More than 30
+    // rectangles are kept only while the guides left do not need their slots, and since every
+    // rectangle kept can drop guides, the most that fit is searched for, down from all of them.
+    const guidesWithout = count => merged.filter(guide =>
+        !rectangles.slice(0, count).some(rect => onEdge(guide, rect)));
+    let kept = Math.min(rectangles.length, MAX_PER_KIND);
+    let guides = guidesWithout(kept);
+    for (let count = rectangles.length; count > kept; count--) {
+        const candidate = guidesWithout(count);
+        if (count <= total - Math.min(candidate.length, MAX_PER_KIND)) {
+            kept = count;
+            guides = candidate;
+            break;
+        }
     }
+    guides = guides.slice(0, total - kept);
+    const rects = rectangles.slice(0, kept);
     return {
         guides: guides.map(({cover: _cover, ...guide}) => guide),
         rectangles: rects,

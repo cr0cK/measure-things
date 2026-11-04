@@ -70,6 +70,7 @@ export class Overlay {
         // the layer and the views stay hidden while any is.
         this._capturing = false;
         this._finding = 0;
+        this._pickerHidden = false;
         this._destroyed = false;
         this._recaptureId = 0;
         this._watched = null;
@@ -96,6 +97,9 @@ export class Overlay {
             hold: () => this._holdHidden(1),
             release: () => this._holdHidden(-1),
             isShown,
+            // A gesture on the set has changes in memory that its revision does not show yet.
+            isBusy: view => Boolean(this._drag?.view) &&
+                this._manager.setOf(this._drag.view.model) === view.model,
         });
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});
@@ -232,7 +236,8 @@ export class Overlay {
     /** Hides the layer and every view while the color picker reads the screen. */
     setHidden(hidden) {
         this.actor.visible = !hidden;
-        this._manager.setCaptureHidden(hidden);
+        this._pickerHidden = hidden;
+        this._syncHidden();
     }
 
     /** Opens the badge menu of a view, in edit mode. */
@@ -259,9 +264,10 @@ export class Overlay {
     }
 
     /** Runs Find helpers on a main view, after closing its badge menu. */
-    _find(view, level) {
-        this._badgeMenu?.close();
-        this._finder.run(view, level)
+    _find(view, level, options) {
+        // Called from a menu item: the menu goes once its click is handled.
+        this._badgeMenu?.dismiss();
+        this._finder.run(view, level, options)
             .catch(error => console.warn(`Measure Things: Find helpers failed: ${error.message}`));
     }
 
@@ -274,7 +280,7 @@ export class Overlay {
         if (level === model.content.tolerance)
             return;
         if (model.found) {
-            this._find(view, level);
+            this._find(view, level, {replace: true});
             return;
         }
         model.content.tolerance = level;
@@ -283,7 +289,7 @@ export class Overlay {
 
     /** Hides or shows the layer and the views for a capture, whichever is capturing. */
     _syncHidden() {
-        const hidden = this._capturing || this._finding > 0;
+        const hidden = this._capturing || this._finding > 0 || this._pickerHidden;
         this.actor.opacity = hidden ? 0 : 255;
         this._manager.setCaptureHidden(hidden);
     }
