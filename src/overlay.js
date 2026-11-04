@@ -165,6 +165,7 @@ export class Overlay {
         this._placeHint(this._hint);
         this._refreshPointer();
         this._onStateChanged();
+        return true;
     }
 
     exitEdit() {
