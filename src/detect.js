@@ -34,7 +34,7 @@ export const PARAMETERS = {
         minWidth: {fraction: 0.08, floor: 64},
         minHeight: {fraction: 0.05, floor: 32},
         spans: 0.8,
-        area: 0.15,
+        area: 0.10,
         fill: 0.85,
     },
     medium: {

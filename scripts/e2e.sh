@@ -1954,7 +1954,7 @@ expect "global._outcome.then(status => status)" stale 'a gesture on the set whil
 shell_eval "$OVERLAY._drag = null; 1" >/dev/null
 clear_notices
 # An unlinked copy edits a model of its own: its gesture does not change the set.
-run_then "$OVERLAY._drag = {view: {model: {local: true}}};"
+run_then "$OVERLAY._drag = {view: {model: {local: true, set: $FOUND_VIEW.model}}};"
 expect "global._outcome.then(status => status)" found 'a gesture on an unlinked copy does not stop a run on the main view'
 shell_eval "$OVERLAY._drag = null; 1" >/dev/null
 # A window minimized and restored during the run is a change, though it is back when the run ends.

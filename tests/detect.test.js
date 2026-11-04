@@ -135,6 +135,15 @@ test('Low keeps the quarters of a layout and not a card, at every size above its
     assert.equal(detect(card, 'medium').rectangles.length, 1);
 });
 
+test('Low keeps padded quarters and a side column of a layout', () => {
+    const c = [230, 234, 242];
+    const padded = boxes(640, 360, [255, 255, 255], [[80, 40, 235, 135, c], [325, 40, 235, 135, c],
+        [80, 185, 235, 135, c], [325, 185, 235, 135, c]]);
+    assert.equal(detect(padded, 'low').rectangles.length, 4);
+    const page = boxes(640, 360, [255, 255, 255], [[0, 0, 640, 80, [31, 42, 68]], [0, 80, 90, 280, c]]);
+    assert.ok(detect(page, 'low').rectangles.some(r => r.width === 90 && r.height === 280));
+});
+
 test('an edge needs the level\'s tolerance, a gradient is not one', () => {
     const data = new Uint8Array(400 * 300 * 4);
     for (let y = 0; y < 300; y++) {
