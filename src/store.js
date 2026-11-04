@@ -191,6 +191,7 @@ export class SetStore {
         }
         if (hold) {
             hold.pending = copy;
+            hold.commits++;
             return Promise.resolve(false);
         }
 
@@ -266,11 +267,20 @@ export class SetStore {
                     failures.add(set.id);
                     this._cb.onWriteResult(set.id, false);
                 } else {
-                    // Everything queued came from a state the file has left.
+                    // Everything queued came from a state the file has left, what a deletion in
+                    // progress holds included.
                     written = false;
-                    job.reload = {dropped: commits + job.commits, missing: outcome.status === 'missing'};
+                    const hold = holds.get(set.id);
+                    job.reload = {
+                        dropped: commits + job.commits + (hold?.commits ?? 0),
+                        missing: outcome.status === 'missing',
+                    };
                     job.text = null;
                     job.commits = 0;
+                    if (hold) {
+                        hold.pending = null;
+                        hold.commits = 0;
+                    }
                 }
                 continue;
             }
@@ -349,7 +359,7 @@ export class SetStore {
         if (holds.has(id))
             return null;
         const name = `${id}.json`;
-        const hold = {pending: null};
+        const hold = {pending: null, commits: 0};
         hold.released = new Promise(resolve => {
             hold.release = resolve;
         });

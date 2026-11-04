@@ -1482,6 +1482,18 @@ expect "$(notices 'P3 conflict') + ' ' + $E2E.fileHelpers('$CONFLICT')" '1 V 40 
     'the folder event that follows the conflict is ignored'
 leave "$CONFLICT"
 
+# A name that collides is suffixed even when it is found during the reload after a conflict, and
+# the suffix is written to the file.
+COLLIDE_A=$(new_set 'P3 collide a' LibA 40)
+COLLIDE_B=$(new_set 'P3 collide' LibB 40)
+hold_events
+edit_file "$SETS/$COLLIDE_A.json" 'd["name"] = "P3 collide"'
+shell_eval "const model = $E2E.set('$COLLIDE_A'); model.content.helpers[0].x = 11; $MANAGER.commit(model); 1" >/dev/null
+expect "$E2E.set('$COLLIDE_A').name + ' | ' + $E2E.file('$COLLIDE_A').name" 'P3 collide 2 | P3 collide 2' \
+    'a name found during the reload after a conflict is suffixed, and the suffix is written to the file'
+replay_events
+leave "$COLLIDE_A" "$COLLIDE_B"
+
 # Commits made while the file is read again after a conflict are dropped too, and never overwrite it.
 RACE=$(new_set 'P3 race' LibA 40)
 hold_events
@@ -1649,8 +1661,14 @@ shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto
     }; 1" >/dev/null
 drop_copy "$IMPORT" untitled-nine.json 'd["id"] = "zz-nine"; d["name"] = "Untitled 9"'
 sleep 1
-CHOSEN=$(shell_eval "(view => { const name = view.model.name; $MANAGER.removeFromScreen(view.model); return name; })($MANAGER.createSet($E2E.win('LibA')))")
-check 'a set created while an import is about to take a name does not choose it' "[[ '$CHOSEN' == 'Untitled 10' ]]"
+CHOSEN=$(shell_eval "(() => {
+    const held = $MANAGER.store.reservedNames().includes('Untitled 9');
+    const view = $MANAGER.createSet($E2E.win('LibA'));
+    const name = view.model.name;
+    $MANAGER.removeFromScreen(view.model);
+    return held + ' ' + name;
+})()")
+check 'a set created while an import is about to take a name does not choose it' "[[ '$CHOSEN' == 'true Untitled 10' ]]"
 wait_for "$MANAGER.store.entries().some(e => e.name === 'Untitled 9')" 30
 shell_eval "global._restoreReplaceP3()" >/dev/null
 

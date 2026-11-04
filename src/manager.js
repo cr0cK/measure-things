@@ -455,7 +455,8 @@ export class Manager {
         // Tracked: a run that starts right after a disable waits for it. A file that superseded
         // the set meanwhile, such as after a conflict, is not written over.
         this.store.track(Promise.resolve(pending).then(() => {
-            if (!this.store.hasFailed(id) || this.store.epoch(id) !== epoch)
+            // A set back on screen, or superseded by its file, owns a newer state than this one.
+            if (!this.store.hasFailed(id) || this.store.epoch(id) !== epoch || this.modelOf(id))
                 return null;
             return this.store.write(set).then(written => {
                 if (!written)
