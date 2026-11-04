@@ -127,6 +127,9 @@ export class View {
             window.connect('highest-scale-monitor-changed', sync),
             window.connect('unmanaged', () => onClosed(this)),
         ];
+        // The window reports a move before its actor follows it, and the geometry reads the actor.
+        this._actorSignals = this._actor
+            ? ['notify::x', 'notify::y'].map(name => this._actor.connect(name, sync)) : [];
         this._monitorsSignal = Main.layoutManager.connect('monitors-changed', sync);
         this._badgesSignal = settings.connect('changed::show-badges', () => this.sync());
         this._unitSignal = settings.connect('changed::unit', () => this.sync());
@@ -136,6 +139,7 @@ export class View {
     destroy() {
         for (const id of this._windowSignals)
             this.window.disconnect(id);
+        this._disconnectActor();
         Main.layoutManager.disconnect(this._monitorsSignal);
         this._settings.disconnect(this._badgesSignal);
         this._settings.disconnect(this._unitSignal);
@@ -149,7 +153,14 @@ export class View {
 
     /** Detaches from a window that is going away, before its actor is destroyed. */
     detach() {
+        this._disconnectActor();
         this._setAttached(false);
+    }
+
+    _disconnectActor() {
+        for (const id of this._actorSignals)
+            this._actor.disconnect(id);
+        this._actorSignals = [];
     }
 
     setEditing(editing) {

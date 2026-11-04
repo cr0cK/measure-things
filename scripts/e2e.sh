@@ -513,6 +513,14 @@ shell_eval "$E2E.win('Page').move_frame(true, 250, 200)" >/dev/null
 expect "$E2E.bounds($E2E.view('Page')._helperViews.get(1).shape).split(',').slice(0, 2).join()" 400,337.5 \
     'helpers move with their window'
 shell_eval "$E2E.win('Page').move_frame(true, 200, 150)" >/dev/null
+# A view's geometry follows the window actor: the window reports a move before its actor moves.
+for point in '300 220' '120 90'; do
+    shell_eval "$E2E.win('Page').move_frame(true, ${point% *}, ${point#* })" >/dev/null
+    expect "(v => [v.geometry.originX - v._actor.x - v.geometry.layerX * v.geometry.k,
+        v.geometry.originY - v._actor.y - v.geometry.layerY * v.geometry.k].map(d => Math.round(d * 1000) / 1000).join())($E2E.view('Page'))" \
+        '0,0' "a view's geometry follows its window actor after a move to $point"
+done
+shell_eval "$E2E.win('Page').move_frame(true, 200, 150)" >/dev/null
 shell_eval "$E2E.win('Page').minimize()" >/dev/null
 expect "$E2E.win('Page').get_compositor_private().visible" false 'helpers hide with a minimized window'
 shell_eval "$E2E.win('Page').unminimize()" >/dev/null
