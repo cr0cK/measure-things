@@ -1953,6 +1953,10 @@ run_then "$OVERLAY._drag = {view: $E2E.view('Found')};"
 expect "global._outcome.then(status => status)" stale 'a gesture on the set while it ran makes the result stale'
 shell_eval "$OVERLAY._drag = null; 1" >/dev/null
 clear_notices
+# An unlinked copy edits a model of its own: its gesture does not change the set.
+run_then "$OVERLAY._drag = {view: {model: {local: true}}};"
+expect "global._outcome.then(status => status)" found 'a gesture on an unlinked copy does not stop a run on the main view'
+shell_eval "$OVERLAY._drag = null; 1" >/dev/null
 # A window minimized and restored during the run is a change, though it is back when the run ends.
 run_then "$E2E.win('Found').minimize(); $E2E.win('Found').unminimize();"
 expect "global._outcome.then(status => status)" stale 'a window minimized and restored while it ran makes the result stale'
