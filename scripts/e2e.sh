@@ -1559,7 +1559,9 @@ replay_events
 PENDING=$(new_set 'P3 pending' LibB 40)
 shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
     global._restoreReplaceP3 = () => { proto._replace = replace; };
+    global._attemptsP3 = 0;
     proto._replace = async function () {
+        global._attemptsP3++;
         await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 300,
             () => { resolve(); return false; }));
         throw new Error('disk full');
@@ -1568,6 +1570,7 @@ shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto
     $MANAGER.removeFromScreen(model); 1" >/dev/null
 expect "Main.messageTray.getSources().flatMap(source => source.notifications).filter(n => n.body.includes('P3 pending') && n.body.includes('its unsaved changes are lost')).length" \
     1 'a set that left the screen with a write in flight is written once more when that fails'
+expect "global._attemptsP3" 2 'the write is tried again once, not more'
 shell_eval "global._restoreReplaceP3()" >/dev/null
 
 # A file turned unavailable while its set is shown removes the set; once valid again, it is a new file.
@@ -1634,6 +1637,21 @@ check 'and its copy is removed again' "[[ \$(ls '$SETS' | wc -l) -eq $((FILES_BE
 shell_eval "global._restoreRemove()" >/dev/null
 rm "${SETS:?}/stubborn.json"
 expect "$MANAGER.store.entries().some(e => e.name === 'P3 stubborn')" false 'it leaves the library when it goes'
+
+# The name an import is about to take is taken: a set created meanwhile does not choose it.
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
+    global._restoreReplaceP3 = () => { proto._replace = replace; };
+    proto._replace = async function (...args) {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1500,
+            () => { resolve(); return false; }));
+        return replace.apply(this, args);
+    }; 1" >/dev/null
+drop_copy "$IMPORT" untitled-nine.json 'd["id"] = "zz-nine"; d["name"] = "Untitled 9"'
+sleep 1
+expect "(view => { const name = view.model.name; $MANAGER.removeFromScreen(view.model); return name; })($MANAGER.createSet($E2E.win('LibA')))" \
+    'Untitled 10' 'a set created while an import is about to take a name does not choose it'
+wait_for "$MANAGER.store.entries().some(e => e.name === 'Untitled 9')"
+shell_eval "global._restoreReplaceP3()" >/dev/null
 
 # An import still under way when the extension is disabled ends before the next run reads the
 # files: the copy is written, the original is not removed yet, and nothing is imported twice.

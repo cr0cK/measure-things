@@ -142,6 +142,8 @@ export class Manager {
             if (model.id !== except?.id)
                 names.add(model.name);
         }
+        for (const name of this.store.reservedNames())
+            names.add(name);
         return [...names];
     }
 
@@ -449,14 +451,15 @@ export class Manager {
             return;
         const {id, name, revision, edited, migrated, content} = model;
         const set = {id, name, revision, edited, migrated, content: JSON.parse(JSON.stringify(content))};
-        Promise.resolve(pending).then(() => {
+        // Tracked: a run that starts right after a disable waits for it.
+        this.store.track(Promise.resolve(pending).then(() => {
             if (!this.store.hasFailed(id))
                 return null;
             return this.store.write(set).then(written => {
                 if (!written)
                     notify(`“${name}” could not be saved, and its unsaved changes are lost.`);
             });
-        });
+        }));
     }
 
     /**

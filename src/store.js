@@ -40,9 +40,10 @@ const known = new Map();
 // of that file, to tell a read that overlapped one: it is read again.
 const generations = new Map();
 const tombstones = new Set();
-// The IDs of sets whose last write failed, and the imports under way: a run waits for both.
+// The IDs of sets whose last write failed, and the operations under way besides the queues (an
+// import, a retry): the next run waits for all of them, and for the deletions in progress.
 const failures = new Set();
-const imports = new Set();
+const inflight = new Set();
 // Sets being deleted: their commits wait in memory until the file is in the trash, or is not.
 const holds = new Map();
 
@@ -97,9 +98,15 @@ export class SetStore {
 
     async load() {
         try {
-            // A write or an import of the previous run, still in flight, must end before the files
-            // are read, or an import would be done twice.
-            await Promise.all([...writes.values()].map(job => job.done).concat([...imports]));
+            // What the previous run left in flight must end before the files are read: an import
+            // would be done twice, a deletion undone, a retry missed.
+            while (writes.size > 0 || inflight.size > 0 || holds.size > 0) {
+                await Promise.all([
+                    ...[...writes.values()].map(job => job.done),
+                    ...inflight,
+                    ...[...holds.values()].map(hold => hold.released),
+                ]);
+            }
             try {
                 this.folder.make_directory_with_parents(null);
             } catch (error) {
@@ -165,7 +172,7 @@ export class SetStore {
      * file that went, a deleted set, and a file that is unavailable, which is never written to; a
      * set being deleted only keeps its latest commit in memory.
      */
-    write(set) {
+    write(set, {afterReload = false} = {}) {
         const hold = holds.get(set.id);
         if (tombstones.has(set.id) && !hold)
             return Promise.resolve(false);
@@ -180,7 +187,7 @@ export class SetStore {
 
         const text = serializeSet(set);
         let job = writes.get(name);
-        if (job?.reloading) {
+        if (job?.reloading && !afterReload) {
             // Made from a state the file has left: dropped with the commits of the conflict.
             job.reloading.dropped++;
             return job.done;
@@ -195,6 +202,18 @@ export class SetStore {
         writes.set(name, job);
         job.done = this._run(name, job);
         return job.done;
+    }
+
+    /** Registers an operation that the next run, after a disable, must wait for. */
+    track(promise) {
+        const done = promise.finally(() => inflight.delete(done));
+        inflight.add(done);
+        return done;
+    }
+
+    /** The names that imports under way are about to take. */
+    reservedNames() {
+        return [...this._reserved];
     }
 
     /** The queue of a set's file, as a promise of its last write, or null when it is idle. */
@@ -365,11 +384,11 @@ export class SetStore {
     }
 
     /** A file as it is on disk: null when gone, undefined when the store was destroyed meanwhile. */
-    async _readDisk(name) {
+    async _readDisk(name, cancellable = this._cancellable) {
         let bytes;
         let etag;
         try {
-            [bytes, etag] = await this.folder.get_child(name).load_contents_async(this._cancellable);
+            [bytes, etag] = await this.folder.get_child(name).load_contents_async(cancellable);
         } catch (error) {
             if (!(error instanceof GLib.Error))
                 throw error;
@@ -523,6 +542,9 @@ export class SetStore {
             isTaken: id => this._isTaken(id),
         });
         this._remember(name, disk);
+        // What the shell tried to write is superseded by the file: it is never tried again.
+        if (held && verdict.action !== 'none')
+            failures.delete(held.id);
         switch (verdict.action) {
         case 'none':
             break;
@@ -568,12 +590,13 @@ export class SetStore {
 
     /** A set found in the folder under a name that is taken gets a suffix, written to its file once. */
     _giveFreeName(name, set) {
-        const free = uniqueName(set.name, [...this._cb.takenNames(set), ...this._reserved]);
+        const free = uniqueName(set.name, this._cb.takenNames(set));
         if (free === set.name)
             return set;
         const renamed = renamedSet(set, free);
         this._entries.set(name, {name, set: renamed});
-        this.write(renamed);
+        // Kept even while the file is read again after a conflict: it is the file's own naming.
+        this.write(renamed, {afterReload: true});
         return renamed;
     }
 
@@ -581,7 +604,7 @@ export class SetStore {
         return importedSet(set, {
             id: GLib.uuid_string_random(),
             now: Date.now(),
-            taken: [...this._cb.takenNames(null), ...this._reserved],
+            taken: this._cb.takenNames(null),
         });
     }
 
@@ -593,11 +616,9 @@ export class SetStore {
      */
     _import(name, disk, copy) {
         this._reserved.add(copy.name);
-        const done = this._importNow(name, disk, copy).finally(() => {
+        const done = this.track(this._importNow(name, disk, copy).finally(() => {
             this._reserved.delete(copy.name);
-            imports.delete(done);
-        });
-        imports.add(done);
+        }));
         return done;
     }
 
@@ -608,7 +629,8 @@ export class SetStore {
             this._cb.onChanged();
             return;
         }
-        const current = await this._readDisk(name);
+        // Not cancelled by a disable: the source is removed only once it is known to be unchanged.
+        const current = await this._readDisk(name, null);
         if (current && !isOwn({etag: disk.etag, text: disk.text}, current)) {
             // Another program replaced it while the copy was written: nothing of it is lost.
             this._entries.delete(name);
