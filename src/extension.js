@@ -231,9 +231,12 @@ export default class MeasureThingsExtension extends Extension {
         }
     }
 
-    /** ✕: removes a set from the screen, asking first when unlinked copies would lose changes. */
+    /**
+     * ✕: removes a set from the screen, asking first when unlinked copies would lose changes or
+     * the set is not saved.
+     */
     _removeFromScreen(model) {
-        if (this._manager.localChanges(model) === 0) {
+        if (this._manager.localChanges(model) === 0 && model.saved) {
             this._manager.removeFromScreen(model);
             return;
         }
@@ -247,9 +250,13 @@ export default class MeasureThingsExtension extends Extension {
         const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false,
             style_class: 'measure-things-confirm'});
         const box = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true});
+        const losses = [];
+        if (!model.saved)
+            losses.push('Its changes are not saved: they are written once more, and lost if that fails.');
+        if (count > 0)
+            losses.push(`${count} local change${count === 1 ? '' : 's'} in its unlinked copies will be lost.`);
         const label = new St.Label({
-            text: `Remove “${model.name}” from the screen? ${count} local change${count === 1 ? '' : 's'} ` +
-                'in its unlinked copies will be lost.',
+            text: `Remove “${model.name}” from the screen? ${losses.join(' ')}`,
             style_class: 'measure-things-confirm-text',
         });
         label.clutter_text.line_wrap = true;

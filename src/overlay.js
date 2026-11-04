@@ -362,13 +362,12 @@ export class Overlay {
 
     /**
      * Another program edited the file of a set: a gesture on the set is cancelled, and the badge
-     * menus of its views close. An unlinked copy is not affected.
+     * menu of any of its views closes. An unlinked copy keeps its own gesture and state.
      */
     _onSetReplaced(set) {
-        const shared = view => view.linked && this._manager.setOf(view.model) === set;
-        if (this._drag?.view && shared(this._drag.view))
+        if (this._drag?.view?.linked && this._manager.setOf(this._drag.view.model) === set)
             this._cancelDrag();
-        if (this._badgeMenu && shared(this._badgeMenu.view))
+        if (this._badgeMenu && this._manager.setOf(this._badgeMenu.view.model) === set)
             this._badgeMenu.close();
     }
 

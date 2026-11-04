@@ -45,7 +45,7 @@ test('a file is a set file when it ends in .json and is not a temporary file', (
     assert.equal(idOfName('a1.json'), 'a1');
 });
 
-test('events settle on the hint, or after a quiet time; attribute events are ignored', () => {
+test('events settle on the hint, or after a quiet time; unmount events are ignored', () => {
     assert.equal(SETTLE_MS, 300);
     const table = {
         CHANGES_DONE_HINT: 'now',
@@ -55,7 +55,7 @@ test('events settle on the hint, or after a quiet time; attribute events are ign
         RENAMED: 'later',
         MOVED_IN: 'later',
         MOVED_OUT: 'later',
-        ATTRIBUTE_CHANGED: 'ignore',
+        ATTRIBUTE_CHANGED: 'later',
         PRE_UNMOUNT: 'ignore',
         UNMOUNTED: 'ignore',
     };

@@ -15,12 +15,13 @@ export const isSetFileName = name => name.endsWith('.json') && !name.startsWith(
 
 /**
  * What a folder event asks of the shell, from the name of its `Gio.FileMonitorEvent`: act at
- * once (`CHANGES_DONE_HINT`), act once the name has been quiet for SETTLE_MS, or nothing.
+ * once (`CHANGES_DONE_HINT`), act once the name has been quiet for SETTLE_MS (a change of
+ * permissions can make a file unreadable), or nothing.
  */
 export function eventAction(eventName) {
     if (eventName === 'CHANGES_DONE_HINT')
         return 'now';
-    return ['ATTRIBUTE_CHANGED', 'PRE_UNMOUNT', 'UNMOUNTED'].includes(eventName) ? 'ignore' : 'later';
+    return ['PRE_UNMOUNT', 'UNMOUNTED'].includes(eventName) ? 'ignore' : 'later';
 }
 
 /**

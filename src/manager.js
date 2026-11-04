@@ -431,22 +431,31 @@ export class Manager {
         }
         if (!ok && first) {
             const name = model?.name ?? this.store.get(id)?.name ?? 'A set';
-            notify(`“${name}” could not be saved. The changes stay in memory, and the next change tries again.`);
+            notify(model
+                ? `“${name}” could not be saved. The changes stay in memory, and the next change tries again.`
+                : `“${name}” could not be saved.`);
         }
     }
 
     /**
-     * A set that is not saved leaves the screen: its latest state is written once more, and a
-     * notice says when that fails too.
+     * A set that is not saved, or whose write is still in flight, leaves the screen: its latest
+     * state is written once more when that write failed, and a notice says when this fails too.
      */
     _retryUnsaved(model) {
-        if (model.saved || model.provisional)
+        if (model.provisional)
+            return;
+        const pending = this.store.pending(model.id);
+        if (model.saved && !pending)
             return;
         const {id, name, revision, edited, migrated, content} = model;
         const set = {id, name, revision, edited, migrated, content: JSON.parse(JSON.stringify(content))};
-        this.store.write(set).then(written => {
-            if (!written)
-                notify(`“${name}” could not be saved, and its unsaved changes are lost.`);
+        Promise.resolve(pending).then(() => {
+            if (!this.store.hasFailed(id))
+                return null;
+            return this.store.write(set).then(written => {
+                if (!written)
+                    notify(`“${name}” could not be saved, and its unsaved changes are lost.`);
+            });
         });
     }
 
@@ -457,8 +466,9 @@ export class Manager {
      */
     _onFileReplaced(set, {dropped}) {
         const model = this.modelOf(set.id);
+        // A dialog may be open for a set of the library that is not on screen.
+        this._onSetClosing(set.id);
         if (model) {
-            this._onSetClosing(model.id);
             this.onSetReplaced(model);
             const {content} = set;
             content.helpers = content.helpers.map((helper, i) => ({...helper, id: i + 1}));
@@ -497,13 +507,12 @@ export class Manager {
     _onFileGone(id, reason, {name, dropped}) {
         const model = this.modelOf(id);
         this._failing.delete(id);
+        this._onSetClosing(id);
         if (!model && dropped === 0)
             return;
         const lost = model ? this.localChanges(model) : 0;
-        if (model) {
-            this._onSetClosing(id);
+        if (model)
             this.removeFromScreen(model, {retry: false});
-        }
         notify(noticeFor(reason, {name, dropped, lost}));
     }
 

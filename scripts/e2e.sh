@@ -1434,6 +1434,24 @@ wait_for "!$E2E.file('$EDIT')"
 expect "$MANAGER.store.entries().filter(e => e.name === 'P3 edit').length + ' ' + $MANAGER.store.entries().some(e => e.id === '$EDIT')" \
     '1 false' 'a file that comes back after its removal is imported under a fresh ID'
 
+# A file renamed over a set now holds another set's ID: the set it held leaves the screen, and the
+# file is imported under a fresh ID.
+VICTIM=$(new_set 'P3 victim' LibB 40)
+INTRUDER=$(new_set 'P3 intruder' LibC 40)
+leave "$INTRUDER"
+mv "$SETS/$INTRUDER.json" "$SETS/$VICTIM.json"
+expect "!!$E2E.set('$VICTIM') + ' ' + $MANAGER.store.entries().filter(e => e.name.startsWith('P3 intruder') && e.id !== '$INTRUDER' && e.id !== '$VICTIM').length + ' ' + $(notices 'now holds another set')" \
+    'false 1 1' 'a file renamed over a set removes the set and is imported under a fresh ID'
+check 'and the file is not left under the name of the set it replaced' "[[ ! -e $SETS/$VICTIM.json && ! -e $SETS/$INTRUDER.json ]]"
+
+# A dialog open for a set that is not on screen closes too.
+LIBRARY=$(new_set 'P3 library' LibC 40)
+leave "$LIBRARY"
+shell_eval "void $EXTENSION._rename($MANAGER.store.entries().find(e => e.id === '$LIBRARY'))" >/dev/null
+wait_for "!!$E2E.dialog()"
+edit_file "$SETS/$LIBRARY.json" 'd["helpers"].append({"kind": "vertical", "x": 90})'
+expect "!!$E2E.dialog()" false 'an external edit closes a dialog open for a set that is not on screen'
+
 # A file that disappears and comes back within the settling time is changed, not removed.
 BACK=$(new_set 'P3 back' LibB 40)
 hold_events
@@ -1463,6 +1481,27 @@ sleep 1
 expect "$(notices 'P3 conflict') + ' ' + $E2E.fileHelpers('$CONFLICT')" '1 V 40 | V 77' \
     'the folder event that follows the conflict is ignored'
 leave "$CONFLICT"
+
+# Commits made while the file is read again after a conflict are dropped too, and never overwrite it.
+RACE=$(new_set 'P3 race' LibA 40)
+hold_events
+edit_file "$SETS/$RACE.json" 'd["helpers"].append({"kind": "vertical", "x": 77})'
+shell_eval "const store = $MANAGER.store, read = Object.getPrototypeOf(store)._readDisk;
+    store._readDisk = async function (name) {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1000,
+            () => { resolve(); return false; }));
+        return read.call(this, name);
+    };
+    const model = $E2E.set('$RACE'); model.content.helpers[0].x = 11; $MANAGER.commit(model); 1" >/dev/null
+sleep 0.5
+shell_eval "const model = $E2E.set('$RACE'); model.content.helpers[0].x = 12; $MANAGER.commit(model);
+    delete $MANAGER.store._readDisk; 1" >/dev/null
+expect "$E2E.helpers('LibA') + ' | ' + $E2E.fileHelpers('$RACE')" 'V 40 | V 77 | V 40 | V 77' \
+    'a commit made while the file is read again after a conflict does not overwrite it'
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).filter(n => n.body.includes('P3 race') && n.body.includes('2 changes not saved were dropped')).length" \
+    1 'and is counted in the one notice'
+replay_events
+leave "$RACE"
 
 # A commit whose file no longer exists is dropped and never recreates it: the set is removed.
 GONE=$(new_set 'P3 gone' LibB 40)
@@ -1505,10 +1544,31 @@ FAIL_TOO=$(shell_eval "const model = $MANAGER.createSet($E2E.win('LibB')).model;
 mkdir "$SETS/$FAIL_TOO.json"
 shell_eval "const model = $E2E.set('$FAIL_TOO'); $MANAGER.addHelper(model, {kind: 'vertical', x: 30}); $MANAGER.commit(model); 1" >/dev/null
 expect "$E2E.set('$FAIL_TOO').saved" false 'a new set whose path is blocked is not saved'
-leave "$FAIL_TOO"
+open_menu
+click_actor "$E2E.button($E2E.row('onScreen', 'P3 failing too'), 'Remove from screen')"
+expect "$E2E.labels($EXTENSION._onScreen.section.actor).some(text => text.includes('Its changes are not saved')) + ' ' + !!$E2E.set('$FAIL_TOO')" \
+    'true true' '✕ asks first when the set is not saved'
+click_actor "$E2E.button($EXTENSION._onScreen.section.actor, 'Remove')"
+shell_eval "$EXTENSION._indicator.menu.close()" >/dev/null
 expect "$(notices 'its unsaved changes are lost')" 1 'a set that is not saved is tried once more on leaving the screen'
 rmdir "${SETS:?}/${FAIL_TOO:?}.json"
 replay_events
+
+# A set that leaves the screen while its write is still in flight is written once more when that
+# write fails, and a notice says when this fails too.
+PENDING=$(new_set 'P3 pending' LibB 40)
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
+    global._restoreReplaceP3 = () => { proto._replace = replace; };
+    proto._replace = async function () {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 300,
+            () => { resolve(); return false; }));
+        throw new Error('disk full');
+    };
+    const model = $E2E.set('$PENDING'); model.content.helpers[0].x = 55; $MANAGER.commit(model);
+    $MANAGER.removeFromScreen(model); 1" >/dev/null
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).filter(n => n.body.includes('P3 pending') && n.body.includes('its unsaved changes are lost')).length" \
+    1 'a set that left the screen with a write in flight is written once more when that fails'
+shell_eval "global._restoreReplaceP3()" >/dev/null
 
 # A file turned unavailable while its set is shown removes the set; once valid again, it is a new file.
 UNAVAILABLE=$(new_set 'P3 unavailable' LibB 40)
@@ -1574,6 +1634,28 @@ check 'and its copy is removed again' "[[ \$(ls '$SETS' | wc -l) -eq $((FILES_BE
 shell_eval "global._restoreRemove()" >/dev/null
 rm "${SETS:?}/stubborn.json"
 expect "$MANAGER.store.entries().some(e => e.name === 'P3 stubborn')" false 'it leaves the library when it goes'
+
+# An import still under way when the extension is disabled ends before the next run reads the
+# files: the copy is written, the original is not removed yet, and nothing is imported twice.
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), remove = proto._removeFile;
+    global._restoreRemove = () => { proto._removeFile = remove; };
+    proto._removeFile = async function (file) {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1500,
+            () => { resolve(); return false; }));
+        return remove.call(this, file);
+    }; 1" >/dev/null
+drop_copy "$IMPORT" across.json 'd["id"] = "zz-across"; d["name"] = "P3 across"'
+wait_for "$MANAGER.store.entries().some(e => e.name === 'P3 across')"
+shell_eval "Main.extensionManager.disableExtension('$UUID')" >/dev/null
+wait_for "Main.extensionManager.lookup('$UUID').state !== 1"
+shell_eval "Main.extensionManager.enableExtension('$UUID')" >/dev/null
+wait_for "Main.extensionManager.lookup('$UUID').state === 1"
+wait_for "$MANAGER.store.entries().some(e => e.name === 'P3 across')"
+sleep 2
+expect "$MANAGER.store.entries().filter(e => e.name.startsWith('P3 across')).length" 1 \
+    'an import under way when the extension is disabled is not done twice by the next run'
+check 'and the original is removed' "[[ ! -e $SETS/across.json ]]"
+shell_eval "global._restoreRemove()" >/dev/null
 
 # Files dropped while the extension was off are judged by the startup scan: copies are imported,
 # and among files found with the same name, the one edited earliest keeps it.
