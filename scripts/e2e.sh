@@ -782,9 +782,11 @@ expect "$HOST_COPY.linked + ' ' + $HOST_COPY.local.localChanges + ' ' + $OVERLAY
     'Keep leaves the copy unlinked, with its changes'
 click_actor "$HOST_COPY.badgeActor"
 click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
+shell_eval "$HOST_COPY.selectedId = 1; null;" >/dev/null
 click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Discard')"
 expect "$HOST_COPY.linked + ' ' + $HOST_COPY._helperViews.get(1).shape.x" 'true 60' \
     'Discard drops the changes, and the copy shows the set again'
+expect "$HOST_COPY.selectedId" null 'Discard clears the selection, whose ids belonged to the local copy'
 
 # Undo history belongs to the set for linked views, and to the copy once unlinked.
 pointer_move 200 880
