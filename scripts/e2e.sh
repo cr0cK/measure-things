@@ -1757,6 +1757,23 @@ clear_notices() {
 find_run() {
     echo "$FINDER.run($E2E.view('$1'), '$2')"
 }
+# Starts a run on Found and, once its capture is done and it reads the zone, runs the JavaScript $1;
+# the run's status is then global._outcome.
+run_then() {
+    shell_eval "const {GLib} = imports.gi;
+        global._outcome = (async () => {
+            const run = $(find_run Found medium);
+            while ($OVERLAY._finding > 0) {
+                await new Promise(resolve => GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                    resolve();
+                    return GLib.SOURCE_REMOVE;
+                }));
+            }
+            $1
+            return run;
+        })();
+        1" >/dev/null
+}
 FOUND_VIEW="$E2E.view('Found')"
 shell_eval "$OVERLAY.exitEdit(); 1" >/dev/null
 open_window Found 20 40 1000x700 '#ffffff' '0,0,1000,60,#1f2a44' '0,60,220,640,#e6eaf2' \
@@ -1922,20 +1939,26 @@ clear_notices
 shell_eval "$MANAGER.removeFromScreen($E2E.model('Edge')); $E2E.win('Edge').delete(global.get_current_time())" >/dev/null
 wait_for "!$E2E.win('Edge')"
 
-# ...or the result is stale: the set changed while the run read the zone.
-shell_eval "const model = $E2E.model('Found');
-    global._stale = $FINDER.run($E2E.view('Found'), 'medium');
-    model.content.helpers = []; $MANAGER.commit(model); 1" >/dev/null
-expect "global._stale.then(status => status)" stale 'a set that changed while it ran makes the result stale'
+# ...or the result is stale: the set, the zone, or the window changed while the run read the zone.
+run_then "const model = $E2E.model('Found'); model.content.helpers = []; $MANAGER.commit(model);"
+expect "global._outcome.then(status => status)" stale 'a set that changed while it ran makes the result stale'
 expect "$(notices 'changed while it ran')" 1 'and a notice says so'
 clear_notices
-clear_notices
 expect "$E2E.helpers('Found') + ' ' + $E2E.model('Found').found" ' false' 'and the set keeps the change made meanwhile'
-shell_eval "global._stale = $FINDER.run($E2E.view('Found'), 'medium');
-    $E2E.view('Found').setZone({x: 0, y: 0, width: 500, height: 400}); 1" >/dev/null
-expect "global._stale.then(status => status)" stale 'a zone that changed while it ran makes the result stale'
+run_then "$E2E.view('Found').setZone({x: 0, y: 0, width: 500, height: 400});"
+expect "global._outcome.then(status => status)" stale 'a zone that changed while it ran makes the result stale'
 shell_eval "$E2E.view('Found').setZone(null); 1" >/dev/null
 clear_notices
+run_then "$OVERLAY._drag = {view: $E2E.view('Found')};"
+expect "global._outcome.then(status => status)" stale 'a gesture on the set while it ran makes the result stale'
+shell_eval "$OVERLAY._drag = null; 1" >/dev/null
+clear_notices
+# A window minimized and restored during the run is a change, though it is back when the run ends.
+run_then "$E2E.win('Found').minimize(); $E2E.win('Found').unminimize();"
+expect "global._outcome.then(status => status)" stale 'a window minimized and restored while it ran makes the result stale'
+clear_notices
+wait_for "!$E2E.win('Found').minimized"
+sleep 1
 
 # A new run cancels the one in progress.
 sleep 0.5
@@ -1945,18 +1968,6 @@ expect "global._first.then(status => status)" cancelled 'a new run cancels the o
 expect "global._second.then(status => status)" found 'which finishes'
 expect "$E2E.helpers('Found')" "$FIND_HIGH" 'with its own result'
 expect "$OVERLAY.actor.opacity + ' ' + $E2E.view('Found').layer.visible" '255 true' 'every actor is shown again after the runs'
-
-# A gesture on the set, or a window that leaves the screen, while a run reads makes it stop.
-shell_eval "global._busy = $(find_run Found medium); $OVERLAY._drag = {view: $E2E.view('Found')}; 1" >/dev/null
-expect "global._busy.then(status => status)" stale 'a gesture on the set while it ran makes the result stale'
-shell_eval "$OVERLAY._drag = null; 1" >/dev/null
-clear_notices
-shell_eval "global._gone = $(find_run Found medium); $E2E.win('Found').minimize(); 1" >/dev/null
-expect "global._gone.then(status => status)" capture 'a window minimized while it ran is not captured'
-clear_notices
-shell_eval "$E2E.win('Found').unminimize(); 1" >/dev/null
-wait_for "!$E2E.win('Found').minimized"
-sleep 1
 
 # The picker keeps the views hidden when a Find helpers capture ends during its own.
 shell_eval "$OVERLAY.setHidden(true); $OVERLAY._holdHidden(1); $OVERLAY._holdHidden(-1); 1" >/dev/null

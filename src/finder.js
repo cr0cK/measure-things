@@ -83,11 +83,37 @@ export class Finder {
     }
 
     /**
+     * Watches what a run cannot see by looking at its ends: the window minimized, moved to another
+     * workspace, or closed, and a window raised over the zone, even if each is undone before the
+     * run ends. `state.status` is the first thing that happened, as the status the run ends with.
+     */
+    _watch(window, zone) {
+        const state = {status: null};
+        const note = status => {
+            state.status ??= status;
+        };
+        const watched = [
+            [window, window.connect('notify::minimized', () => note('stale'))],
+            [window, window.connect('workspace-changed', () => note('stale'))],
+            [window, window.connect('unmanaged', () => note('stale'))],
+            [global.workspace_manager, global.workspace_manager.connect('active-workspace-changed',
+                () => note('stale'))],
+            [global.display, global.display.connect('restacked', () => {
+                if (this._covered(window, zone))
+                    note('covered');
+            })],
+        ];
+        return {state, stop: () => watched.forEach(([object, id]) => object.disconnect(id))};
+    }
+
+    /**
      * What stops a run from going on, as a status, or null: the window left the screen, another
      * covers the zone, or a gesture is changing the set. Checked around the capture and before the
      * commit, since windows come and go while a run reads.
      */
-    _blocked(view, zone) {
+    _blocked(view, zone, state) {
+        if (state.status)
+            return state.status;
         if (!this._isShown(view.window))
             return 'capture';
         if (this._covered(view.window, zone))
@@ -112,12 +138,20 @@ export class Finder {
     }
 
     async _run(view, level, token, replace) {
-        const model = view.model;
         const stamp = this._stamp(view);
         const zone = this._zoneOf(view);
         if (!stamp || !zone)
             return 'capture';
-        const blocked = this._blocked(view, zone);
+        const watch = this._watch(view.window, zone);
+        try {
+            return await this._read(view, level, token, replace, {stamp, zone, state: watch.state});
+        } finally {
+            watch.stop();
+        }
+    }
+
+    async _read(view, level, token, replace, {stamp, zone, state}) {
+        const blocked = this._blocked(view, zone, state);
         if (blocked && blocked !== 'stale')
             return blocked;
         if (zone.x < 0 || zone.y < 0 || zone.x + zone.width > global.stage.width ||
@@ -144,7 +178,7 @@ export class Finder {
         const {left, top, width, height} = pixels;
         if (this._stamp(view) !== stamp)
             return 'stale';
-        const afterCapture = this._blocked(view, zone);
+        const afterCapture = this._blocked(view, zone, state);
         if (afterCapture)
             return afterCapture;
 
@@ -169,19 +203,21 @@ export class Finder {
                     return 'cancelled';
                 if (this._stamp(view) !== stamp)
                     return 'stale';
+                if (state.status || this._isBusy(view))
+                    return state.status ?? 'stale';
             }
         }
 
         const found = detector.finish();
         if (this._stamp(view) !== stamp)
             return 'stale';
-        const beforeCommit = this._blocked(view, zone);
+        const beforeCommit = this._blocked(view, zone, state);
         if (beforeCommit)
             return beforeCommit;
         const helpers = this._helpers(view, found, {left, top, scale});
         if (helpers.length === 0)
             return 'none';
-        return this._manager.applyFound(model, helpers, level, {replace}) ? 'found' : 'refused';
+        return this._manager.applyFound(view.model, helpers, level, {replace}) ? 'found' : 'refused';
     }
 
     /**

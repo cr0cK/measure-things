@@ -206,6 +206,15 @@ test('rectangles that take the slots guides leave also take those their own edge
     assert.deepEqual(kept.guides.map(guide => guide.x), elsewhere.map(guide => guide.x));
     assert.ok(kept.rectangles.length + kept.guides.length <= 60);
 
+    // Rectangles past 30 take vacant slots only: with 30 guides, one of them on the 31st
+    // rectangle's edge, 30 and 30 stay, though that guide would be dropped if the 31st were kept.
+    const thirty = Array.from({length: 30}, (_, i) => ({kind: 'vertical', x: 5000 + i * 5, cover: 100 - i}));
+    const edgeGuide = {kind: 'vertical', x: rects[30].x, cover: 500};
+    const crowded = selectHelpers(rects.slice(0, 31), [edgeGuide, ...thirty.slice(0, 29)]);
+    assert.equal(crowded.rectangles.length, 30);
+    assert.equal(crowded.guides.length, 30);
+    assert.equal(crowded.guides[0].x, edgeGuide.x);
+
     // With 30 guides to place, the rectangles stay at 30.
     const many = Array.from({length: 30}, (_, i) => ({kind: 'vertical', x: 5000 + i * 5, cover: 100 - i}));
     const full = selectHelpers(rects, many);

@@ -98,8 +98,7 @@ export class Overlay {
             release: () => this._holdHidden(-1),
             isShown,
             // A gesture on the set has changes in memory that its revision does not show yet.
-            isBusy: view => Boolean(this._drag?.view) &&
-                this._manager.setOf(this._drag.view.model) === view.model,
+            isBusy: view => this._drag?.view?.model === view.model,
         });
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});

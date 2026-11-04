@@ -388,20 +388,19 @@ export function selectHelpers(rectangles, candidates) {
             merged.push(guide);
     }
 
-    // The rectangles are the first `kept`; the guides are those not on their edges. More than 30
-    // rectangles are kept only while the guides left do not need their slots, and since every
-    // rectangle kept can drop guides, the most that fit is searched for, down from all of them.
+    // The rectangles are the first `kept`; the guides are those not on their edges. Rectangles past
+    // the first 30 take only the slots the guides leave vacant, and each one kept drops the guides
+    // on its own edges, which vacates more, so this goes on until no slot is vacant.
     const guidesWithout = count => merged.filter(guide =>
         !rectangles.slice(0, count).some(rect => onEdge(guide, rect)));
     let kept = Math.min(rectangles.length, MAX_PER_KIND);
     let guides = guidesWithout(kept);
-    for (let count = rectangles.length; count > kept; count--) {
-        const candidate = guidesWithout(count);
-        if (count <= total - Math.min(candidate.length, MAX_PER_KIND)) {
-            kept = count;
-            guides = candidate;
+    while (kept < rectangles.length) {
+        const more = Math.min(rectangles.length, kept + Math.max(0, total - kept - guides.length));
+        if (more === kept)
             break;
-        }
+        kept = more;
+        guides = guidesWithout(kept);
     }
     guides = guides.slice(0, total - kept);
     const rects = rectangles.slice(0, kept);
