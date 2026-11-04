@@ -82,7 +82,7 @@ in `Manager`; a view draws a model inside one window.
   `modalDialogGroup`: reactive in edit mode, it would otherwise cover the Set settings dialog.
 - Edit mode takes a modal grab (`Main.pushModal`, `Shell.ActionMode.POPUP`) on the overlay,
   which then handles every pointer and key event itself and targets the topmost window under
-  the pointer. `POPUP` keeps the extension's own shortcuts working during the grab. Always
+  the pointer. `POPUP` keeps the extension's own shortcuts working during the grab.
   A Wayland grab always gets the keyboard, so there is no seat state to check; Mutter 50
   removed `Clutter.Grab.get_seat_state()`.
 - Every change goes through `Manager.commit()`: one undo step and one file write. A set made
