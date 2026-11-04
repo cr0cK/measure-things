@@ -10,6 +10,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {BadgeMenu} from './badge.js';
 import {setCursor} from './cursor.js';
 import {nearestBoundary, regionAround} from './edges.js';
+import {Finder} from './finder.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {cursorFor, dragHelper, monitorAt, rectFromPoints, targetAt, windowRole} from './geometry.js';
 import {notify} from './manager.js';
@@ -65,6 +66,11 @@ export class Overlay {
         this._drag = null;
         this._snapshot = null;
         this._snapshotToken = null;
+        // Whether a capture for edit mode is pending, and how many Find helpers runs are capturing:
+        // the layer and the views stay hidden while any is.
+        this._capturing = false;
+        this._finding = 0;
+        this._destroyed = false;
         this._recaptureId = 0;
         this._watched = null;
         this._watchIds = [];
@@ -86,6 +92,11 @@ export class Overlay {
         };
         manager.onSetReplaced = model => this._onSetReplaced(model);
         manager.onSavedChanged = () => this._badgeMenu?.refreshSaved();
+        this._finder = new Finder(manager, {
+            hold: () => this._holdHidden(1),
+            release: () => this._holdHidden(-1),
+            isShown,
+        });
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});
         this.actor.add_constraint(new Clutter.BindConstraint({
@@ -134,6 +145,8 @@ export class Overlay {
         this._manager.onViewPromoted = () => {};
         this._manager.onSetReplaced = () => {};
         this._manager.onSavedChanged = () => {};
+        this._finder.destroy();
+        this._destroyed = true;
         this.actor.destroy();
     }
 
@@ -232,6 +245,8 @@ export class Overlay {
             onSettings: model => this._onSettings(model),
             onSaveAs: model => this._onSaveAs(model),
             onAddCopy: model => this._pickCopyWindow(model),
+            onFind: target => this._find(target, target.content.tolerance),
+            onTolerance: (target, level) => this._setTolerance(target, level),
             onClosed: () => {
                 this._badgeMenu = null;
             },
@@ -243,6 +258,43 @@ export class Overlay {
         return this._badgeMenu;
     }
 
+    /** Runs Find helpers on a main view, after closing its badge menu. */
+    _find(view, level) {
+        this._badgeMenu?.close();
+        this._finder.run(view, level)
+            .catch(error => console.warn(`Measure Things: Find helpers failed: ${error.message}`));
+    }
+
+    /**
+     * A tolerance chosen in the badge menu: right after a run it runs again at the new level,
+     * replacing that run's undo step; otherwise it is only saved, as one undo step.
+     */
+    _setTolerance(view, level) {
+        const model = view.model;
+        if (level === model.content.tolerance)
+            return;
+        if (model.found) {
+            this._find(view, level);
+            return;
+        }
+        model.content.tolerance = level;
+        this._manager.commit(model);
+    }
+
+    /** Hides or shows the layer and the views for a capture, whichever is capturing. */
+    _syncHidden() {
+        const hidden = this._capturing || this._finding > 0;
+        this.actor.opacity = hidden ? 0 : 255;
+        this._manager.setCaptureHidden(hidden);
+    }
+
+    _holdHidden(change) {
+        if (this._destroyed)
+            return;
+        this._finding += change;
+        this._syncHidden();
+    }
+
     /**
      * Captures the screen without the layer and the views, for edge detection. The capture paints
      * the stage at once, so they are hidden for that paint only.
@@ -251,8 +303,8 @@ export class Overlay {
         const token = {};
         this._snapshotToken = token;
         this._snapshot = null;
-        this.actor.opacity = 0;
-        this._manager.setCaptureHidden(true);
+        this._capturing = true;
+        this._syncHidden();
         Snapshot.capture()
             .then(snapshot => {
                 if (this._snapshotToken !== token)
@@ -268,8 +320,8 @@ export class Overlay {
     }
 
     _showAfterCapture() {
-        this.actor.opacity = 255;
-        this._manager.setCaptureHidden(false);
+        this._capturing = false;
+        this._syncHidden();
     }
 
     _dropSnapshot() {

@@ -6,6 +6,10 @@ import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
+import {TOLERANCES} from './sets.js';
+
+const TOLERANCE_LABELS = {low: 'Low', medium: 'Medium', high: 'High'};
+
 /** `1 local change`, `3 local changes`. */
 function localChanges(count) {
     return `${count} local change${count === 1 ? '' : 's'}`;
@@ -22,7 +26,7 @@ function savedText(model) {
  * Escape, a click outside, or an action.
  */
 export class BadgeMenu {
-    constructor(view, {manager, onSettings, onSaveAs, onAddCopy, onClosed}) {
+    constructor(view, {manager, onSettings, onSaveAs, onAddCopy, onFind, onTolerance, onClosed}) {
         this._view = view;
         this.view = view;
         this._manager = manager;
@@ -32,11 +36,20 @@ export class BadgeMenu {
         this.menu = new PopupMenu.PopupMenu(view.badgeActor, 0.5, St.Side.BOTTOM);
         this.menu.actor.add_style_class_name('measure-things-badge-menu');
         Main.uiGroup.add_child(this.menu.actor);
+        // Escape on a confirmation that asks for it cancels the confirmation, not the menu. The
+        // menu manager closes the menu on Escape from the same signal, so this is connected first.
+        this.menu.actor.connect('captured-event', (_actor, event) => {
+            const escape = event.type() === Clutter.EventType.KEY_PRESS &&
+                event.get_key_symbol() === Clutter.KEY_Escape;
+            if (!escape || !this._confirmRow || !this._escapeCancels)
+                return Clutter.EVENT_PROPAGATE;
+            this._confirmRow.destroy();
+            return Clutter.EVENT_STOP;
+        });
         this._menuManager = new PopupMenu.PopupMenuManager(view.badgeActor);
         this._menuManager.addMenu(this.menu);
-
         if (view.isMain)
-            this._buildMain(view, {onSettings, onSaveAs, onAddCopy});
+            this._buildMain(view, {onSettings, onSaveAs, onAddCopy, onFind, onTolerance});
         else
             this._buildCopy(view, {onSaveAs});
 
@@ -64,7 +77,7 @@ export class BadgeMenu {
         return label;
     }
 
-    _buildMain(view, {onSettings, onSaveAs, onAddCopy}) {
+    _buildMain(view, {onSettings, onSaveAs, onAddCopy, onFind, onTolerance}) {
         const model = view.model;
         const manager = this._manager;
         this._saved = this._header(model.name, savedText(model));
@@ -83,6 +96,7 @@ export class BadgeMenu {
         chips.add_child(box);
         this.menu.addMenuItem(chips);
 
+        this._buildFind(view, {onFind, onTolerance});
         this.menu.addAction('Add a copy…', () => onAddCopy(model));
         this.menu.addAction('Set settings…', () => onSettings(model));
         this.menu.addAction('Save as new set…', () => onSaveAs(view));
@@ -93,6 +107,59 @@ export class BadgeMenu {
             manager.commit(model);
         });
         clear.setSensitive(content.helpers.length > 0);
+    }
+
+    /**
+     * Find helpers and its Tolerance list. Find helpers is not an action item, which would close
+     * the menu: with helpers on the set it asks first, in the menu, and a run closes it.
+     */
+    _buildFind(view, {onFind, onTolerance}) {
+        const model = view.model;
+        this.findItem = new PopupMenu.PopupMenuItem('Find helpers');
+        this.findItem.activate = () => {
+            const count = model.content.helpers.length;
+            if (count === 0) {
+                onFind(view);
+                return;
+            }
+            this._confirm(`Replace the ${count} helper${count === 1 ? '' : 's'} with the ones found?`,
+                [['Cancel', () => {}], ['Replace', () => onFind(view)]], {escapeCancels: true});
+        };
+        this.menu.addMenuItem(this.findItem);
+
+        const row = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        const box = new St.BoxLayout({style_class: 'measure-things-chips', x_expand: true});
+        box.add_child(new St.Label({
+            text: 'Tolerance',
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'measure-things-menu-subtitle',
+        }));
+        this.tolerances = {};
+        for (const level of TOLERANCES) {
+            const button = new St.Button({
+                label: TOLERANCE_LABELS[level],
+                style_class: 'measure-things-chip-button',
+                toggle_mode: true,
+                checked: model.content.tolerance === level,
+                can_focus: true,
+            });
+            button.connect('clicked', () => {
+                onTolerance(view, level);
+                this._syncTolerance();
+            });
+            this.tolerances[level] = button;
+            box.add_child(button);
+        }
+        row.add_child(box);
+        this.menu.addMenuItem(row);
+    }
+
+    /** Checks the tolerance the set has: a click that ran Find helpers may have kept the old one. */
+    _syncTolerance() {
+        if (!this.menu)
+            return;
+        for (const [level, button] of Object.entries(this.tolerances))
+            button.checked = this._view.model.content.tolerance === level;
     }
 
     /** Brings the header up to date after a write ended. */
@@ -175,8 +242,9 @@ export class BadgeMenu {
      * A light confirmation in place, under the header: a question and two buttons, the second
      * being the action. Either one closes the menu; the first leaves everything as it was.
      */
-    _confirm(text, [[cancelLabel, onCancel], [actionLabel, onAction]]) {
+    _confirm(text, [[cancelLabel, onCancel], [actionLabel, onAction]], {escapeCancels = false} = {}) {
         this._confirmRow?.destroy();
+        this._escapeCancels = escapeCancels;
         const row = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         row.add_style_class_name('measure-things-confirm');
         const box = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true});
@@ -200,6 +268,10 @@ export class BadgeMenu {
         box.add_child(buttons);
         row.add_child(box);
         this._confirmRow = row;
+        row.connect('destroy', () => {
+            if (this._confirmRow === row)
+                this._confirmRow = null;
+        });
         this.menu.addMenuItem(row, 2);
     }
 

@@ -1744,6 +1744,207 @@ wait_for "$MANAGER.store.entries().length === global._libraryP3.length"
 shell_eval "for (const title of ['LibA', 'LibB', 'LibC']) $E2E.win(title).delete(global.get_current_time());" >/dev/null
 wait_for "!$E2E.win('LibA') && !$E2E.win('LibB') && !$E2E.win('LibC')"
 
+# Find helpers. Found is a page of known blocks: a dark header, a sidebar, a card with a button and
+# a chip in it. Medium finds the header, the sidebar, the content, and the card; High adds the
+# button and the chip; Low keeps the bands and columns of the layout.
+# A banner over the zone would be part of the capture: dismiss the notices once they are counted.
+clear_notices() {
+    shell_eval "Main.messageTray.getSources().forEach(source => source.destroy()); 1" >/dev/null
+    wait_for "Main.messageTray._notificationState === 0"
+}
+
+# A run on a window's main view, as an expression for its status.
+find_run() {
+    echo "$FINDER.run($E2E.view('$1'), '$2')"
+}
+FOUND_VIEW="$E2E.view('Found')"
+shell_eval "$OVERLAY.exitEdit(); 1" >/dev/null
+open_window Found 20 40 1000x700 '#ffffff' '0,0,1000,60,#1f2a44' '0,60,220,640,#e6eaf2' \
+    '250,100,300,200,#d5dbe8' '270,120,100,32,#4f7cff' '270,170,40,16,#4f7cff'
+FIND_LOW='R 220,60 780x640 | R 0,60 220x640 | R 0,0 1000x60'
+FIND_MEDIUM="$FIND_LOW | R 250,100 300x200 | R 270,120 100x32"
+FIND_HIGH="$FIND_MEDIUM | R 270,170 40x16"
+FOUND=$(new_set 'Find' Found 900)
+clear_notices
+press_keys Super_L Shift_L m
+wait_for "!!$OVERLAY._snapshot"
+pointer_move 700 500
+click_actor "$E2E.view('Found').badgeActor"
+FINDER="$OVERLAY._finder"
+open_found_menu() {
+    clear_notices
+    pointer_move 700 500
+    click_actor "$FOUND_VIEW.badgeActor"
+    wait_for "$OVERLAY.badgeMenu?.menu.isOpen === true"
+}
+expect "$E2E.labels($OVERLAY.badgeMenu.menu.box).slice(2, 4).join() + ' ' + Object.keys($OVERLAY.badgeMenu.tolerances).join() + ' ' + $OVERLAY.badgeMenu.tolerances.medium.checked" \
+    'Find helpers,Tolerance low,medium,high true' 'the main view badge menu has Find helpers and a Tolerance list, set to Medium'
+
+# A set with helpers asks first, in the menu; Escape cancels the confirmation only.
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Find helpers')"
+expect "$E2E.labels($OVERLAY.badgeMenu.menu.box).filter(t => t.startsWith('Replace')).join()" \
+    'Replace the 1 helper with the ones found?' 'Find helpers on a set with helpers asks to replace them'
+press_keys Escape
+expect "$OVERLAY.badgeMenu?.menu.isOpen + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box).some(t => t.startsWith('Replace')) + ' ' + $E2E.helpers('Found')" \
+    'true false V 900' 'Escape cancels the confirmation, not the menu, and changes nothing'
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Find helpers')"
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Replace')"
+wait_for "$E2E.helpers('Found') !== 'V 900'"
+expect "$E2E.helpers('Found') + ' / ' + ($OVERLAY.badgeMenu === null) + ' ' + $E2E.model('Found').found" \
+    "$FIND_MEDIUM / true true" 'Replace runs Find helpers, closes the menu, and marks the set as just found'
+expect "$E2E.fileHelpers('$FOUND')" "$FIND_MEDIUM" 'the found helpers are saved'
+
+# One undo step, and redo.
+press_keys Control_L z
+expect "$E2E.helpers('Found') + ' / ' + $E2E.model('Found').found + ' / ' + $E2E.model('Found').content.tolerance" \
+    'V 900 / false / medium' 'one undo returns to the helpers before the run, and clears the mark'
+press_keys Control_L Shift_L z
+expect "$E2E.helpers('Found')" "$FIND_MEDIUM" 'redo puts the found helpers back'
+
+# Found helpers replace the helpers drawn over the page, the badge, and the menu, none of which is
+# in the capture: a second run finds exactly the same.
+open_found_menu
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Find helpers')"
+expect "$E2E.labels($OVERLAY.badgeMenu.menu.box).find(t => t.startsWith('Replace'))" \
+    'Replace the 5 helpers with the ones found?' 'the confirmation counts every stored helper'
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Replace')"
+wait_for "$E2E.model('Found').found === true"
+expect "$E2E.helpers('Found')" "$FIND_MEDIUM" 'the capture holds no helper, badge, or menu of the extension'
+
+# A tolerance chosen right after a run runs again without asking, and replaces that run's undo step.
+open_found_menu
+click_actor "$OVERLAY.badgeMenu.tolerances.high"
+wait_for "$E2E.model('Found').content.tolerance === 'high'"
+expect "$E2E.helpers('Found') + ' / ' + ($OVERLAY.badgeMenu === null) + ' ' + $E2E.model('Found').found" \
+    "$FIND_HIGH / true true" 'a tolerance chosen after a run runs again at once, and closes the menu'
+expect "$E2E.fileHelpers('$FOUND')" "$FIND_HIGH" 'and saves the new result'
+press_keys Control_L z
+expect "$E2E.helpers('Found')" "$FIND_MEDIUM" 'one undo returns to the state before the run that was replaced'
+press_keys Control_L z
+expect "$E2E.helpers('Found') + ' / ' + $E2E.model('Found').content.tolerance" 'V 900 / medium' \
+    'and another to the state before the first run: the new result replaced that run, not added a step'
+
+# Without a run just before, a tolerance is only saved, as one undo step.
+open_found_menu
+click_actor "$OVERLAY.badgeMenu.tolerances.low"
+expect "$E2E.helpers('Found') + ' / ' + $E2E.model('Found').content.tolerance + ' / ' + $E2E.file('$FOUND').tolerance + ' / ' + $OVERLAY.badgeMenu.tolerances.low.checked + ' ' + $OVERLAY.badgeMenu.tolerances.medium.checked" \
+    'V 900 / low / low / true false' 'a tolerance with no run before it is only saved, and the list shows it'
+press_keys Escape
+press_keys Control_L z
+expect "$E2E.model('Found').content.tolerance" medium 'and is one undo step'
+press_keys Control_L Shift_L z
+
+# One screenshot per level: Low keeps the bands and columns, Medium adds the card and the button,
+# High the chip.
+find_level() {
+    open_found_menu
+    click_actor "$OVERLAY.badgeMenu.tolerances.$1"
+    wait_for "$E2E.model('Found').content.tolerance === '$1' && $E2E.model('Found').found === true"
+}
+open_found_menu
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Find helpers')"
+click_actor "$E2E.button($OVERLAY.badgeMenu.menu.box, 'Replace')"
+wait_for "$E2E.model('Found').found === true"
+expect "$E2E.helpers('Found')" "$FIND_LOW" 'at Low, Find helpers keeps the bands and columns of the layout'
+pointer_move 1300 600
+sleep 0.5
+screenshot "$WORK/find-low.png"
+find_level medium
+expect "$E2E.helpers('Found')" "$FIND_MEDIUM" 'at Medium, it adds the card and the button'
+screenshot "$WORK/find-medium.png"
+find_level high
+expect "$E2E.helpers('Found')" "$FIND_HIGH" 'at High, it adds the chip'
+screenshot "$WORK/find-high.png"
+check 'one screenshot per level' "[[ -s $WORK/find-low.png && -s $WORK/find-medium.png && -s $WORK/find-high.png ]]"
+
+# When it finds nothing, nothing changes and a notice says so: a blank window has nothing to find.
+HIST="$E2E.model('Found').history._index"
+open_window Blank 1050 40 500x400 '#ffffff'
+BLANK=$(new_set 'Blank' Blank 100)
+pointer_move 1300 300
+click_actor "$E2E.view('Blank').badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Clear helpers')"
+expect "$E2E.helpers('Blank') + ' ' + $E2E.model('Blank').history._index" ' 2' 'Clear helpers empties the blank set'
+click_actor "$E2E.view('Blank').badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Find helpers')"
+expect "$(notices 'No helpers found')" 1 'a run that finds nothing says so'
+clear_notices
+expect "$E2E.helpers('Blank') + ' ' + $E2E.model('Blank').history._index + ' ' + $E2E.model('Blank').found" ' 2 false' \
+    'and changes nothing, history included'
+# A guide has no copy of Find helpers: it is a main view feature.
+shell_eval "$MANAGER.addCopy($E2E.model('Found'), $E2E.win('Blank')); 1" >/dev/null
+pointer_move 1300 380
+click_actor "$E2E.views('Blank').at(-1).badgeActor"
+expect "$E2E.labels($OVERLAY.badgeMenu.menu.box).includes('Find helpers') + ' ' + ($OVERLAY.badgeMenu.tolerances === undefined)" 'false true' \
+    'a copy offers no Find helpers or Tolerance'
+press_keys Escape
+shell_eval "$MANAGER.removeCopy($E2E.views('Blank').at(-1)); 1" >/dev/null
+
+# It refuses, with a notice that says why, and changes nothing, when a window covers the zone...
+FOUND_BEFORE=$(shell_eval "$E2E.helpers('Found')")
+open_window Cover 700 300 500x300 '#241f31'
+expect "$(find_run Found medium)" covered 'a window above the zone covers it'
+expect "$(notices 'covers the zone')" 1 'and a notice says why'
+clear_notices
+expect "$E2E.helpers('Found')" "$FOUND_BEFORE" 'and nothing changes'
+shell_eval "$E2E.win('Cover').minimize()" >/dev/null
+wait_for "$E2E.win('Cover').minimized"
+# ...but not a minimized one, nor one beside it.
+expect "$(find_run Found medium)" found 'a minimized window does not cover the zone'
+shell_eval "$E2E.win('Cover').unminimize(); $E2E.win('Cover').move_frame(true, 1050, 500)" >/dev/null
+wait_for "$E2E.win('Cover').get_frame_rect().x === 1050"
+expect "$(find_run Found medium)" found 'nor does one beside it'
+
+# ...the capture fails: the zone is not fully on the stage...
+shell_eval "$E2E.win('Cover').delete(global.get_current_time()); $E2E.win('Blank').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('Cover') && !$E2E.win('Blank')"
+open_window Edge 1100 600 800x300 '#ffffff' '20,20,200,100,#e01b24'
+EDGE=$(new_set 'Edge' Edge 700)
+expect "$(find_run Edge medium)" capture 'a zone that leaves the stage cannot be captured'
+expect "$(notices 'could not be captured')" 1 'and a notice says so'
+clear_notices
+shell_eval "$MANAGER.removeFromScreen($E2E.model('Edge')); $E2E.win('Edge').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('Edge')"
+
+# ...or the result is stale: the set changed while the run read the zone.
+shell_eval "const model = $E2E.model('Found');
+    global._stale = $FINDER.run($E2E.view('Found'), 'medium');
+    model.content.helpers = []; $MANAGER.commit(model); 1" >/dev/null
+expect "global._stale.then(status => status)" stale 'a set that changed while it ran makes the result stale'
+expect "$(notices 'changed while it ran')" 1 'and a notice says so'
+clear_notices
+clear_notices
+expect "$E2E.helpers('Found') + ' ' + $E2E.model('Found').found" ' false' 'and the set keeps the change made meanwhile'
+shell_eval "global._stale = $FINDER.run($E2E.view('Found'), 'medium');
+    $E2E.view('Found').setZone({x: 0, y: 0, width: 500, height: 400}); 1" >/dev/null
+expect "global._stale.then(status => status)" stale 'a zone that changed while it ran makes the result stale'
+shell_eval "$E2E.view('Found').setZone(null); 1" >/dev/null
+clear_notices
+
+# A new run cancels the one in progress.
+sleep 0.5
+shell_eval "global._first = $FINDER.run($E2E.view('Found'), 'low');
+    global._second = $FINDER.run($E2E.view('Found'), 'high'); 1" >/dev/null
+expect "global._first.then(status => status)" cancelled 'a new run cancels the one in progress'
+expect "global._second.then(status => status)" found 'which finishes'
+expect "$E2E.helpers('Found')" "$FIND_HIGH" 'with its own result'
+expect "$OVERLAY.actor.opacity + ' ' + $E2E.view('Found').layer.visible" '255 true' 'every actor is shown again after the runs'
+
+# Tidy: the sets made here leave the screen and the library, and the windows close.
+shell_eval "$OVERLAY.exitEdit();
+    for (const model of [...$MANAGER.models]) {
+        if (['Found', 'Blank', 'Edge'].includes(model.view.window.title))
+            $MANAGER.removeFromScreen(model);
+    }
+    for (const id of $MANAGER.store.entries().map(entry => entry.id)) {
+        if (!global._libraryP3.includes(id))
+            $MANAGER.delete(id);
+    }
+    null;" >/dev/null
+wait_for "$MANAGER.store.entries().length === global._libraryP3.length"
+shell_eval "$E2E.win('Found').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('Found')"
+
 # The preferences list the edit mode keys the overlay handles, `A` and the zone edges among them.
 check 'the preferences list A and the zone edges among the edit mode keys' \
     "grep -q \"title: 'Add a linked copy of the set edited last'.*keys: 'a'\" '$ROOT/src/prefs.js' && grep -q \"title: 'Resize a zone'\" '$ROOT/src/prefs.js'"
@@ -1814,6 +2015,21 @@ wait_for "$SWATCH === '#e01b24'"
 pointer_click 600 440
 wait_for "$EXTENSION._picker === null"
 expect "$CLIPBOARD" '#e01b24' 'at 125%, the picker reads the pixel under the pointer'
+
+# Found guides land where snapping puts them, also at 125%. Bar is a red bar 20 CSS pixels wide: too
+# narrow to be a rectangle, so Find helpers gives guides on its two edges. A guide dragged next to
+# its left edge snaps to it, and Find helpers stores the same position.
+open_window Bar 100 100 800x600 '#3d3846' '302,150,20,400,#e01b24'
+new_set 'Bar' Bar 700 >/dev/null
+press_keys Super_L Shift_L m
+wait_for "!!$OVERLAY._snapshot"
+pointer_drag 800 500 405 500
+expect "$E2E.helpers('Bar')" 'V 302' 'at 125%, a dragged guide snaps to the edge of the bar'
+shell_eval "$OVERLAY._find($E2E.view('Bar'), 'medium'); 1" >/dev/null
+wait_for "$E2E.model('Bar').found === true"
+expect "$E2E.helpers('Bar')" 'V 302 | V 322' 'at 125%, Find helpers puts its guide where snapping put the dragged one'
+press_keys Escape
+shell_eval "$MANAGER.removeFromScreen($E2E.model('Bar')); $E2E.win('Bar').delete(global.get_current_time())" >/dev/null
 
 # The warnings the checks above provoke on purpose: a mockup image that went away, a trash that does
 # not exist, a file path that is a directory, and a file that cannot be removed.

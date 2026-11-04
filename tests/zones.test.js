@@ -3,6 +3,7 @@ import {test} from 'node:test';
 
 import {
     MIN_ZONE,
+    covers,
     dragEdge,
     edgeAt,
     intersect,
@@ -164,4 +165,11 @@ test('a badge that would cross the left edge starts a row above', () => {
 
 test('a badge wider than the frame stays on its row', () => {
     assert.deepEqual(placeBadges([{width: 300, height: 20, right: 100, bottom: 100}]), [{x: -208, y: 72}]);
+});
+
+test('a zone is covered when any rectangle above overlaps it, not when one only touches it', () => {
+    const zone = rect(100, 100, 200, 100);
+    assert.equal(covers([rect(0, 0, 50, 50), rect(250, 150, 100, 100)], zone), true);
+    assert.equal(covers([rect(300, 100, 50, 100), rect(0, 0, 100, 100)], zone), false);
+    assert.equal(covers([], zone), false);
 });

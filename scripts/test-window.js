@@ -2,7 +2,9 @@
 // A plain GTK 4 window for the headless tests: a flat background with colored blocks at known CSS
 // positions, and no visible title bar, so CSS (0, 0) is the frame's top-left corner.
 // Usage: test-window.js TITLE WIDTHxHEIGHT BACKGROUND [X,Y,WIDTH,HEIGHT,COLOR ...]
-// With TEST_WINDOW_MENU=X,Y it also opens a native popup menu there, once the window shows.
+// With TEST_WINDOW_MENU=X,Y it also opens a native popup menu there, once the window shows. With
+// TEST_WINDOW_IMAGE=FILE.rgba and TEST_WINDOW_IMAGE_SIZE=WIDTHxHEIGHT the window shows that raw RGBA
+// image instead of the blocks, full screen.
 import Gdk from 'gi://Gdk?version=4.0';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -38,7 +40,17 @@ app.connect('activate', () => {
         default_height: height,
     });
     window.set_titlebar(new Gtk.Box());
-    window.set_child(fixed);
+    const imagePath = GLib.getenv('TEST_WINDOW_IMAGE');
+    if (imagePath) {
+        const [imageWidth, imageHeight] = GLib.getenv('TEST_WINDOW_IMAGE_SIZE').split('x').map(Number);
+        const [, pixels] = GLib.file_get_contents(imagePath);
+        const texture = Gdk.MemoryTexture.new(imageWidth, imageHeight, Gdk.MemoryFormat.R8G8B8A8,
+            GLib.Bytes.new(pixels), imageWidth * 4);
+        window.set_child(new Gtk.Picture({paintable: texture, content_fit: Gtk.ContentFit.FILL}));
+        window.fullscreen();
+    } else {
+        window.set_child(fixed);
+    }
     window.present();
 
     const menuAt = GLib.getenv('TEST_WINDOW_MENU');

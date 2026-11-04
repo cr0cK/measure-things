@@ -28,6 +28,7 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 - **Measuring rectangles**: drag to draw, then move, resize from any edge or corner, or nudge with the arrow keys. The label shows the size, the position too when the rectangle is selected, and the distance to the nearest helper on each side.
 - **Area measuring**: press <kbd>D</kbd> in edit mode to see the width and height of the area under the pointer, found from the screen pixels, like a button or a padding. <kbd>Enter</kbd> turns it into a rectangle.
 - **Snapping**: dragged guides and rectangle edges snap to the edges of what is on screen. Hold <kbd>Ctrl</kbd> to place them freely.
+- **Find helpers**: **Find helpers** in a set's badge menu reads the pixels of the main view's zone and places guides on its long edges and rectangles around its uniform regions, snapped to the screen pixels like a dragged helper. **Tolerance** sets how much it finds: *Low* the main layout blocks, *Medium* sections and cards too, *High* nearly every element; it is saved with the set. On a set that already has helpers it asks first, then replaces them, in one undo step; linked copies receive them, so comparing them with another version of the page shows its regressions. Right after a run, choosing another tolerance runs it again in place of the first, still one undo step. It keeps at most 30 guides and 30 rectangles, the longest and the largest. It finds the edges of what is on screen, shadows, gradients, text, and images included, so what it finds is a start to correct, not a result. It takes a fresh capture of the zone, without the extension's own helpers, and refuses, with a notice and no change, when another window covers the zone, when the zone is not fully on screen, or when the window or the set changed while it ran. A copy has no Find helpers. A 3840 × 2160 zone takes a fraction of a second; `scripts/find-speed.sh` measures it.
 - **Undo**: <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> in edit mode, per set.
 - **Click-through**: helpers let the pointer through to their window. Only edit mode captures input.
 - **Column grid**: a layout grid (columns, gutter, side margin, optional centered max width) laid over the set's window.
@@ -46,7 +47,11 @@ A GNOME Shell extension with measuring tools for web and UI work. It draws pixel
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd> | Show or hide the column grid of the focused window's set |
 | <kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Pick a color |
 
-The top bar menu has the same actions, the sets on screen, and the library. A set's badge menu, in edit mode, turns its helpers, grid, and mockup on and off, and has **Add a copy…**, **Set settings…**, **Save as new set…**, **Reset zone**, and **Clear helpers**. The badge of a copy has a **Linked** switch, **Reset zone**, **Save as new set…** once unlinked, and **Remove copy**. The shortcuts can be changed in the preferences, which also list the keys of edit mode.
+<p align="center">
+  <img src="docs/screenshots/badge.png" alt="The badge menu of a set in edit mode: its chips, Find helpers asking to replace the set's helpers, the Tolerance list, and the other actions" width="60%">
+</p>
+
+The top bar menu has the same actions, the sets on screen, and the library. A set's badge menu, in edit mode, turns its helpers, grid, and mockup on and off, and has **Find helpers** with its **Tolerance**, **Add a copy…**, **Set settings…**, **Save as new set…**, **Reset zone**, and **Clear helpers**. The badge of a copy has a **Linked** switch, **Reset zone**, **Save as new set…** once unlinked, and **Remove copy**. The shortcuts can be changed in the preferences, which also list the keys of edit mode.
 
 In edit mode, a hint bar lists the keys:
 

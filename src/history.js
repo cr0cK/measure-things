@@ -23,6 +23,11 @@ export class History {
         return true;
     }
 
+    /** Puts `state` in place of the current one, for a step that supersedes the last. */
+    replace(state) {
+        this._states[this._index] = state;
+    }
+
     /** The state undo and redo move from. */
     get current() {
         return this._states[this._index];

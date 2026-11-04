@@ -16,6 +16,11 @@ export function intersect(a, b) {
     return right > x && bottom > y ? {x, y, width: right - x, height: bottom - y} : null;
 }
 
+/** Whether any of the rectangles overlaps the zone's visible part. */
+export function covers(rects, zone) {
+    return rects.some(rect => intersect(rect, zone) !== null);
+}
+
 /**
  * A zone in the frame's coordinates: `rect` is the zone itself, `visible` its part inside the
  * frame, or null when it lies outside. `zone` is the stored fixed zone, in the window actor's
