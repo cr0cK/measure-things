@@ -4,6 +4,7 @@ import GLib from 'gi://GLib';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {isLogicalLayout} from './geometry.js';
 import {History} from './history.js';
+import {noticeFor} from './library.js';
 import {ImageCache} from './mockup.js';
 import {
     MAX_FILE_BYTES,
@@ -26,6 +27,10 @@ export function notify(text) {
 
 const stateOf = model => JSON.stringify({name: model.name, content: model.content});
 
+// Mockup images already reported as unreadable, by set and path: one notice each for the session,
+// kept across a disable and re-enable.
+const mockupNotices = new Set();
+
 /**
  * The sets on screen and their views, over the sets folder. A model is one set in memory:
  * its file fields, its content with runtime helper ids, its undo history, whether it is hidden,
@@ -35,7 +40,7 @@ const stateOf = model => JSON.stringify({name: model.name, content: model.conten
  * of its local changes; `local` is true on it, and `set` is the model it was taken from.
  */
 export class Manager {
-    constructor(settings, {onChanged}) {
+    constructor(settings, {onChanged, onSetClosing = () => {}}) {
         this._settings = settings;
         this._mutterSettings = new Gio.Settings({schema_id: 'org.gnome.mutter'});
         this._onChanged = onChanged;
@@ -47,10 +52,24 @@ export class Manager {
         // Once any set has been edited, loading or creating one does not take its place.
         this.lastEdited = null;
         this._anyEdit = false;
-        // Set by the overlay: a view left the screen, or became a set's main view.
+        // Called with the ID of a set whose dialogs and menus must close without applying.
+        this._onSetClosing = onSetClosing;
+        // The IDs of sets whose last write failed: one notice covers a run of failures.
+        this._failing = new Set();
+        // Set by the overlay: a view left the screen, became a set's main view, a set was
+        // replaced by its file, or a set's saved state changed.
         this.onViewRemoved = () => {};
         this.onViewPromoted = () => {};
-        this.store = new SetStore({onChanged: () => this._changed()});
+        this.onSetReplaced = () => {};
+        this.onSavedChanged = () => {};
+        this.store = new SetStore({
+            onChanged: () => this._changed(),
+            onReplaced: (set, info) => this._onFileReplaced(set, info),
+            onGone: (id, reason, info) => this._onFileGone(id, reason, info),
+            onWriteResult: (id, ok) => this._onWriteResult(id, ok),
+            isClaimed: id => this.models.some(model => model.id === id),
+            takenNames: except => this.takenNames(except),
+        });
         this._mutterSignal = this._mutterSettings.connect('changed::experimental-features',
             () => this._syncViews());
         this.ready = this.store.load()
@@ -59,6 +78,9 @@ export class Manager {
     }
 
     destroy() {
+        // A set that was not saved is tried once more; its writes finish after the disable.
+        for (const model of this.models)
+            this._retryUnsaved(model);
         for (const view of this.views)
             view.destroy();
         this.models = [];
@@ -127,7 +149,9 @@ export class Manager {
         const content = set.content;
         content.helpers = content.helpers.map((helper, i) => ({...helper, id: i + 1}));
         const nextId = content.helpers.length + 1;
-        const model = {...set, content, nextId, hidden: false, view: null, copies: [], provisional};
+        const model = {
+            ...set, content, nextId, hidden: false, view: null, copies: [], provisional, saved: true,
+        };
         model.history = new History(stateOf(model));
         return model;
     }
@@ -140,7 +164,19 @@ export class Manager {
             seq: ++this._seq,
             onClosed: view => this._onWindowClosed(view),
             onBadgeChanged: view => this._layoutBadges(view.window),
+            onMockupError: (view, path) => this._mockupFailed(view, path),
         });
+    }
+
+    /** A mockup image that cannot be read or decoded: one notice per set and path, for the session. */
+    _mockupFailed(view, path) {
+        const set = this.setOf(view.model);
+        const key = `${set.id}\n${path}`;
+        if (mockupNotices.has(key))
+            return;
+        mockupNotices.add(key);
+        notify(`The mockup image of “${set.name}” cannot be read: ${GLib.path_get_basename(path)}. ` +
+            'Its path is kept, and it shows again when the file comes back.');
     }
 
     /** Shows a model on a window as its main view, with an automatic zone. */
@@ -381,6 +417,96 @@ export class Manager {
         return true;
     }
 
+    /** The result of a write the store tried: a set is `not saved` from a failure until a success. */
+    _onWriteResult(id, ok) {
+        const model = this.modelOf(id);
+        const first = !this._failing.has(id);
+        if (ok)
+            this._failing.delete(id);
+        else
+            this._failing.add(id);
+        if (model) {
+            model.saved = ok;
+            this.onSavedChanged(model);
+        }
+        if (!ok && first) {
+            const name = model?.name ?? this.store.get(id)?.name ?? 'A set';
+            notify(`“${name}” could not be saved. The changes stay in memory, and the next change tries again.`);
+        }
+    }
+
+    /**
+     * A set that is not saved leaves the screen: its latest state is written once more, and a
+     * notice says when that fails too.
+     */
+    _retryUnsaved(model) {
+        if (model.saved || model.provisional)
+            return;
+        const {id, name, revision, edited, migrated, content} = model;
+        const set = {id, name, revision, edited, migrated, content: JSON.parse(JSON.stringify(content))};
+        this.store.write(set).then(written => {
+            if (!written)
+                notify(`“${name}” could not be saved, and its unsaved changes are lost.`);
+        });
+    }
+
+    /**
+     * Another program edited a set's file, or a conflict reloaded it: the set in memory and its
+     * linked copies take the file's content, a gesture on it is cancelled, its dialogs and menus
+     * close, and its undo history starts over. Unlinked copies keep their own state.
+     */
+    _onFileReplaced(set, {dropped}) {
+        const model = this.modelOf(set.id);
+        if (model) {
+            this._onSetClosing(model.id);
+            this.onSetReplaced(model);
+            const {content} = set;
+            content.helpers = content.helpers.map((helper, i) => ({...helper, id: i + 1}));
+            Object.assign(model, {
+                name: set.name,
+                revision: set.revision,
+                edited: set.edited,
+                migrated: set.migrated,
+                content,
+                nextId: content.helpers.length + 1,
+            });
+            model.history = new History(stateOf(model));
+            // The memory now holds what the file holds.
+            model.saved = true;
+            this._failing.delete(model.id);
+            this.onSavedChanged(model);
+            for (const view of [model.view, ...model.copies]) {
+                if (!view?.linked)
+                    continue;
+                if (!content.helpers.some(helper => helper.id === view.selectedId))
+                    view.selectedId = null;
+                view.sync();
+                view.restack();
+            }
+            this._changed();
+        }
+        // An edit the shell saw alone is told; a conflict is told once, with its dropped commits.
+        if (model || dropped > 0)
+            notify(noticeFor('edited', {name: set.name, dropped}));
+    }
+
+    /**
+     * A set's file was removed, turned unavailable, or now holds another set: the set leaves the
+     * screen, unlinked copies included, with a notice that counts the local changes lost.
+     */
+    _onFileGone(id, reason, {name, dropped}) {
+        const model = this.modelOf(id);
+        this._failing.delete(id);
+        if (!model && dropped === 0)
+            return;
+        const lost = model ? this.localChanges(model) : 0;
+        if (model) {
+            this._onSetClosing(id);
+            this.removeFromScreen(model, {retry: false});
+        }
+        notify(noticeFor(reason, {name, dropped, lost}));
+    }
+
     /** Lays out again every view that shows a model: the main view and linked copies, or one copy. */
     syncModel(model) {
         if (model.local) {
@@ -462,11 +588,16 @@ export class Manager {
             view.setCaptureHidden(hidden);
     }
 
-    /** Removes a set with its main view and every copy. */
-    removeFromScreen(model) {
+    /**
+     * Removes a set with its main view and every copy. A set that is not saved is written once
+     * more first, unless `retry` is false, as when its file is gone.
+     */
+    removeFromScreen(model, {retry = true} = {}) {
         const index = this.models.indexOf(model);
         if (index < 0)
             return;
+        if (retry)
+            this._retryUnsaved(model);
         this.models.splice(index, 1);
         if (this.lastEdited === model) {
             // `A` does nothing until another set is edited: loading one does not bring it back.
@@ -531,8 +662,11 @@ export class Manager {
             return;
         }
         const model = this.modelOf(id);
-        if (model)
-            this.removeFromScreen(model);
+        if (model) {
+            this._onSetClosing(id);
+            this.removeFromScreen(model, {retry: false});
+        }
+        this._failing.delete(id);
     }
 
     /**
@@ -550,7 +684,10 @@ export class Manager {
             migrated: false,
             content: JSON.parse(JSON.stringify(model.content)),
         };
-        Object.assign(model, {id: set.id, name, revision: 0, edited: set.edited, migrated: false});
+        this._failing.delete(model.id);
+        Object.assign(model, {
+            id: set.id, name, revision: 0, edited: set.edited, migrated: false, saved: true,
+        });
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
         this.store.write(set);
         // A new set, not a change of content: it counts as created.
@@ -579,7 +716,7 @@ export class Manager {
         };
         const model = {
             ...set, content: local.content, nextId: local.nextId, hidden: false, view, copies: [],
-            provisional: false, history: local.history,
+            provisional: false, history: local.history, saved: true,
         };
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
         from.copies.splice(from.copies.indexOf(view), 1);

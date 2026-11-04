@@ -31,19 +31,29 @@ export function closeDialogs() {
         dialog.close();
 }
 
+/** Closes the dialogs open for one set without applying them: its file changed or went. */
+export function closeDialogsFor(id) {
+    for (const dialog of [...openDialogs]) {
+        if (dialog.setId === id)
+            dialog.close();
+    }
+}
+
 const MeasureDialog = GObject.registerClass(
     class MeasureThingsDialog extends ModalDialog.ModalDialog {
-        _init() {
+        _init(setId) {
             super._init({styleClass: 'measure-things-dialog'});
+            // The set the dialog is about, which closes it when that set is replaced or goes.
+            this.setId = setId;
             openDialogs.add(this);
             this.connect('destroy', () => openDialogs.delete(this));
         }
     });
 
 /** Opens a dialog and resolves with what `build(dialog, finish)` finishes it with. */
-function runDialog(build, cancelled) {
+function runDialog(setId, build, cancelled) {
     return new Promise(resolve => {
-        const dialog = new MeasureDialog();
+        const dialog = new MeasureDialog(setId);
         let done = false;
         const finish = value => {
             if (done)
@@ -79,8 +89,8 @@ function addField(parent, title, child) {
  * Asks for a set name; resolves with the trimmed name, `name` itself when it is left empty, or
  * null when cancelled.
  */
-export function askName({title, name, actionLabel}) {
-    return runDialog((dialog, finish) => {
+export function askName({title, name, actionLabel, setId}) {
+    return runDialog(setId, (dialog, finish) => {
         dialog.contentLayout.add_child(new Dialog.MessageDialogContent({title}));
         const entry = addEntry(dialog.contentLayout, name);
         entry.clutter_text.max_length = MAX_NAME_LENGTH;
@@ -96,8 +106,8 @@ export function askName({title, name, actionLabel}) {
 }
 
 /** Asks to confirm an action; resolves with whether it was confirmed. */
-export function askConfirm({title, description, actionLabel}) {
-    return runDialog((dialog, finish) => {
+export function askConfirm({title, description, actionLabel, setId}) {
+    return runDialog(setId, (dialog, finish) => {
         dialog.contentLayout.add_child(new Dialog.MessageDialogContent({title, description}));
         dialog.setButtons([
             {label: 'Cancel', action: () => finish(false), key: Clutter.KEY_Escape},
@@ -116,7 +126,7 @@ export function editSetSettings(model, {onChooserOpen}) {
     const {content} = model;
     const draft = {color: content.color, file: content.mockup.file, density: content.mockup.density};
     const cancellable = new Gio.Cancellable();
-    return runDialog((dialog, finish) => {
+    return runDialog(model.id, (dialog, finish) => {
         dialog.connect('destroy', () => cancellable.cancel());
         const layout = new St.BoxLayout({
             orientation: Clutter.Orientation.VERTICAL,
