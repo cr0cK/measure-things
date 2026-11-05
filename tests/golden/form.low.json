@@ -1,0 +1,26 @@
+{
+ "guides": [],
+ "rectangles": [
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 56,
+   "width": 1280,
+   "height": 664
+  },
+  {
+   "kind": "rectangle",
+   "x": 361,
+   "y": 81,
+   "width": 558,
+   "height": 598
+  },
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 0,
+   "width": 1280,
+   "height": 56
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+{
+ "guides": [
+  {
+   "kind": "horizontal",
+   "y": 24
+  },
+  {
+   "kind": "horizontal",
+   "y": 184
+  }
+ ],
+ "rectangles": [
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 0,
+   "width": 640,
+   "height": 360
+  },
+  {
+   "kind": "rectangle",
+   "x": 640,
+   "y": 0,
+   "width": 640,
+   "height": 360
+  },
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 360,
+   "width": 640,
+   "height": 360
+  },
+  {
+   "kind": "rectangle",
+   "x": 640,
+   "y": 360,
+   "width": 640,
+   "height": 360
+  }
+ ]
+}

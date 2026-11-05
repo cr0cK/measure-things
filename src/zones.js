@@ -17,6 +17,28 @@ export function intersect(a, b) {
 }
 
 /**
+ * The device pixels fully inside a zone given in stage pixels, as `{left, top, width, height}`; null
+ * when they do not all lie in an image of `imageWidth` × `imageHeight`, or are fewer than two across.
+ * At a fractional scale the pixels on the zone's edge are partly outside it. `epsilon` forgives the
+ * rounding of positions that are whole pixels.
+ */
+export function pixelRange(zone, scale, imageWidth, imageHeight, epsilon = 1e-3) {
+    const left = Math.ceil(zone.x * scale - epsilon);
+    const top = Math.ceil(zone.y * scale - epsilon);
+    const right = Math.floor((zone.x + zone.width) * scale + epsilon);
+    const bottom = Math.floor((zone.y + zone.height) * scale + epsilon);
+    const [width, height] = [right - left, bottom - top];
+    if (left < 0 || top < 0 || right > imageWidth || bottom > imageHeight || width < 2 || height < 2)
+        return null;
+    return {left, top, width, height};
+}
+
+/** Whether any of the rectangles overlaps the zone's visible part. */
+export function covers(rects, zone) {
+    return rects.some(rect => intersect(rect, zone) !== null);
+}
+
+/**
  * A zone in the frame's coordinates: `rect` is the zone itself, `visible` its part inside the
  * frame, or null when it lies outside. `zone` is the stored fixed zone, in the window actor's
  * units, or null for the automatic one, the whole frame; `k` is stage pixels per unit.

@@ -30,14 +30,17 @@ new `src/*.js` modules on its own.
 | `src/format.js` | Length and color formatting (pure) |
 | `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |
 | `src/history.js` | Undo and redo history (pure) |
+| `src/detect.js` | Find helpers detection: guides on long edges, rectangles around uniform regions, fed rows of pixels (pure) |
+| `src/finder.js` | Find helpers run: covered check, capture, banded reads, staleness, commit |
 | `src/library.js` | What a change in the sets folder means once it settled: own write or not, add, import, replace, remove, conflict, startup scan, notices (pure) |
 | `src/sets.js` | Set file parsing and writing, names, colors, the v0.2 migration (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.measure-things` |
-| `tests/` | `node --test` suites for the pure modules |
+| `tests/` | `node --test` suites for the pure modules; `tests/fixtures/images.js` draws the synthetic test images and their ground truth, `tests/golden/` holds the detector's output per image and level |
 | `docs/specs/` | Product contracts, one per spec code, and the project settings of the spec delivery process in its README.md |
 | `scripts/headless.sh` | Shared headless GNOME Shell harness: Eval, virtual input, screenshots |
 | `scripts/e2e.sh` | End-to-end test of the packed extension in a headless shell |
 | `scripts/test-window.js` | Plain GTK 4 window with colored blocks at known positions, for the tests |
+| `scripts/find-speed.sh` | Times Find helpers on a 3840 × 2160 zone in a headless shell; reported, not a CI gate |
 | `scripts/screenshots.sh` | Regenerates `docs/screenshots/` |
 | `scripts/sandbox.sh` | Windowed, isolated GNOME Shell running the checkout |
 
@@ -109,6 +112,15 @@ in `Manager`; a view draws a model inside one window.
 - Anything on screen when edit mode or the picker starts is captured. Menu actions run before
   the menu starts closing, so the menu closes itself without animation first, and the picker
   re-enters edit mode before it shows its confirmation.
+- Find helpers (`finder.js`) takes a capture of its own, hidden like edit mode's (`Overlay._syncHidden()`
+  counts both), reads the zone through `Snapshot.area()` in bands of 256 rows, and feeds `detect.js`
+  in chunks of 64 rows with a `PRIORITY_DEFAULT_IDLE` idle between them, so the frame clock and the
+  timers run first. The detector is fast enough at full resolution (a 4K zone in a fraction of a
+  second), so nothing is downsampled. A boundary of the capture becomes a stage position the way
+  `_nearest()` does, `boundary / scale`, then goes through `view.toCss()`: a found guide and a snapped
+  one are the same number. A run commits only if `_stamp()` (set revision, zone geometry, zoom) is
+  what it was at the start. In the headless shell `View.geometry` lags one window move behind, so the
+  e2e test opens sets on windows after they are placed.
 - `_pickColor()` resolves only when the picker closes; do not await it from Eval. disable()
   cancels it, and the Shell can re-enable right away, so the continuation checks that the
   overlay and picker it started with are still the current ones.
@@ -138,6 +150,9 @@ in `Manager`; a view draws a model inside one window.
   `Gio._promisify` on it, as the Shell's own screenshot UI does.
 - A promise's executor runs synchronously but after the line that builds it. Set any state that
   the first async step depends on before starting that step.
+- `PopupMenuManager` closes its menu on Escape from the menu actor's `captured-event`, handlers run in
+  connection order, and the stage never sees the key under a grab: a handler that must see Escape first
+  connects to `menu.actor` before `addMenu()`, as the badge menu's confirmation does.
 - `St.Label` sizes are only right once the label is on the stage; add it before calling
   `get_preferred_width`.
 - St's `box-shadow` fills the whole box, so it cannot outline a transparent widget; nest two

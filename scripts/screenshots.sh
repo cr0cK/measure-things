@@ -78,6 +78,18 @@ sleep 0.5
 screenshot "$OUT/edit.png"
 press_keys Escape
 
+# The badge menu of that set, with the confirmation Find helpers asks before it replaces helpers.
+shell_eval "$OVERLAY.enterEdit()" >/dev/null
+wait_for "!!$OVERLAY._snapshot"
+shell_eval "$OVERLAY.openBadgeMenu($EXTENSION._manager.models[0].view);
+    $OVERLAY.badgeMenu.findItem.activate()" >/dev/null
+sleep 0.8
+screenshot "$WORK/badge.png"
+read -r MENU_X MENU_Y MENU_WIDTH MENU_HEIGHT < <(shell_eval "const menu = $OVERLAY.badgeMenu.menu.actor;
+    [...menu.get_transformed_position(), ...menu.get_transformed_size()].map(Math.round).join(' ')")
+shell_eval "$OVERLAY.badgeMenu.close(); $OVERLAY.exitEdit()" >/dev/null
+magick "$WORK/badge.png" -crop "$((MENU_WIDTH + 40))x$((MENU_HEIGHT + 60))+$((MENU_X - 20))+$((MENU_Y - 30))" \
+    +repage "$OUT/badge.png"
 
 shell_eval "$EXTENSION._indicator.menu.open()" >/dev/null
 sleep 0.8

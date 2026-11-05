@@ -153,6 +153,7 @@ export class Manager {
         const nextId = content.helpers.length + 1;
         const model = {
             ...set, content, nextId, hidden: false, view: null, copies: [], provisional, saved: true,
+            found: false,
         };
         model.history = new History(stateOf(model));
         return model;
@@ -351,9 +352,11 @@ export class Manager {
 
     /**
      * Saves a set's current content as one undo step, and writes its file. A change that would
-     * make the file too large is refused and undone.
+     * make the file too large is refused and undone. A commit clears the set's `found` mark, which
+     * only the Find helpers commit sets; with `replace` and the mark set, it takes the place of the
+     * previous run's step instead of adding one.
      */
-    commit(model) {
+    commit(model, {found = false, replace = false} = {}) {
         const set = this.setOf(model);
         if (!this.models.includes(set))
             return false;
@@ -381,9 +384,30 @@ export class Manager {
             this._apply(model, model.history.current);
             return false;
         }
-        model.history.record(state);
+        if (found && replace && model.found)
+            model.history.replace(state);
+        else
+            model.history.record(state);
+        model.found = found;
         this._edited(set);
         return true;
+    }
+
+    /**
+     * Replaces a set's helpers with the ones Find helpers found, in CSS pixels, and saves the
+     * tolerance they were found at: one undo step, or the previous run's with `replace`. Marks the
+     * set as just found.
+     */
+    applyFound(model, helpers, tolerance, {replace = false} = {}) {
+        if (!this.models.includes(model))
+            return false;
+        model.content.helpers = helpers.map(helper => ({id: model.nextId++, ...helper}));
+        model.content.tolerance = tolerance;
+        for (const view of [model.view, ...model.copies]) {
+            if (view)
+                view.selectedId = null;
+        }
+        return this.commit(model, {found: true, replace});
     }
 
     /** Whether a model's file would pass the size limit; a notice says so when it does not. */
@@ -487,6 +511,7 @@ export class Manager {
                 nextId: content.helpers.length + 1,
             });
             model.history = new History(stateOf(model));
+            model.found = false;
             // The memory now holds what the file holds.
             model.saved = true;
             this._failing.delete(model.id);
@@ -558,6 +583,7 @@ export class Manager {
         if (state === null)
             return;
         this._apply(model, state);
+        model.found = false;
         this._edited(this.setOf(model));
         if (model.local) {
             model.localChanges += change;
@@ -731,7 +757,7 @@ export class Manager {
         };
         const model = {
             ...set, content: local.content, nextId: local.nextId, hidden: false, view, copies: [],
-            provisional: false, history: local.history, saved: true,
+            provisional: false, history: local.history, saved: true, found: false,
         };
         model.history.rewrite(state => JSON.stringify({...JSON.parse(state), name}));
         from.copies.splice(from.copies.indexOf(view), 1);

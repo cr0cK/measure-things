@@ -1,0 +1,110 @@
+{
+ "guides": [],
+ "rectangles": [
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 64,
+   "width": 1280,
+   "height": 340
+  },
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 404,
+   "width": 1280,
+   "height": 276
+  },
+  {
+   "kind": "rectangle",
+   "x": 760,
+   "y": 120,
+   "width": 380,
+   "height": 220
+  },
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 0,
+   "width": 1280,
+   "height": 63
+  },
+  {
+   "kind": "rectangle",
+   "x": 0,
+   "y": 680,
+   "width": 1280,
+   "height": 40
+  },
+  {
+   "kind": "rectangle",
+   "x": 80,
+   "y": 436,
+   "width": 340,
+   "height": 104
+  },
+  {
+   "kind": "rectangle",
+   "x": 460,
+   "y": 436,
+   "width": 340,
+   "height": 104
+  },
+  {
+   "kind": "rectangle",
+   "x": 840,
+   "y": 436,
+   "width": 340,
+   "height": 104
+  },
+  {
+   "kind": "rectangle",
+   "x": 80,
+   "y": 556,
+   "width": 340,
+   "height": 104
+  },
+  {
+   "kind": "rectangle",
+   "x": 460,
+   "y": 556,
+   "width": 340,
+   "height": 104
+  },
+  {
+   "kind": "rectangle",
+   "x": 840,
+   "y": 556,
+   "width": 340,
+   "height": 104
+  },
+  {
+   "kind": "rectangle",
+   "x": 120,
+   "y": 320,
+   "width": 180,
+   "height": 48
+  },
+  {
+   "kind": "rectangle",
+   "x": 330,
+   "y": 320,
+   "width": 140,
+   "height": 48
+  },
+  {
+   "kind": "rectangle",
+   "x": 40,
+   "y": 16,
+   "width": 120,
+   "height": 32
+  },
+  {
+   "kind": "rectangle",
+   "x": 1120,
+   "y": 16,
+   "width": 120,
+   "height": 32
+  }
+ ]
+}

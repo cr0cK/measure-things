@@ -46,3 +46,12 @@ test('rewrites every state without moving through them', () => {
     assert.equal(history.current, 'a2');
     assert.equal(history.redo(), 'b2');
 });
+
+test('replaces the current state in place', () => {
+    const history = new History('a');
+    history.record('b');
+    history.replace('c');
+    assert.equal(history.current, 'c');
+    assert.equal(history.undo(), 'a');
+    assert.equal(history.redo(), 'c');
+});
