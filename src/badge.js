@@ -11,6 +11,11 @@ function localChanges(count) {
     return `${count} local change${count === 1 ? '' : 's'}`;
 }
 
+/** The state under a main view's name: its last write worked or failed. */
+function savedText(model) {
+    return `Main view · ${model.saved ? 'saved' : 'not saved'}`;
+}
+
 /**
  * The menu of a view's badge, anchored to the badge: the set's chips and actions on the main
  * view, linking and removal on a copy. It takes its own grab above edit mode's, and closes with
@@ -62,7 +67,7 @@ export class BadgeMenu {
     _buildMain(view, {onSettings, onSaveAs, onAddCopy}) {
         const model = view.model;
         const manager = this._manager;
-        this._header(model.name, 'Main view · saved');
+        this._saved = this._header(model.name, savedText(model));
 
         const chips = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         const box = new St.BoxLayout({style_class: 'measure-things-chips'});
@@ -88,6 +93,12 @@ export class BadgeMenu {
             manager.commit(model);
         });
         clear.setSensitive(content.helpers.length > 0);
+    }
+
+    /** Brings the header up to date after a write ended. */
+    refreshSaved() {
+        if (this._saved && this.menu)
+            this._saved.text = savedText(this._view.model);
     }
 
     _resetItem(view) {

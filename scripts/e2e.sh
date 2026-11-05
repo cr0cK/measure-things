@@ -187,7 +187,8 @@ expect "$MANAGER.store.entries().filter(e => e.id !== '$MIGRATED').map(e => $MAN
 expect "Main.messageTray.getSources().flatMap(source => source.notifications).some(n => n.body.includes('3 v0.2 helpers'))" \
     true 'the migration says how many helpers it left out'
 EXTRA=$(shell_eval "$MANAGER.store.entries().find(e => e.id !== '$MIGRATED').id")
-shell_eval "$MANAGER.delete('$EXTRA'); $MANAGER.store._read('$MIGRATED.json'); $EXTENSION._settings.reset('helpers');" >/dev/null
+shell_eval "$MANAGER.delete('$EXTRA')" >/dev/null
+shell_eval "$MANAGER.store._settle('$MIGRATED.json'); $EXTENSION._settings.reset('helpers');" >/dev/null
 expect "$MANAGER.store.entries().map(e => e.name).join()" 'Untitled 1' 'the library is back to the migrated set'
 
 # A page: a dark backdrop with a red block at CSS (300, 200), 240 × 160. Its frame is at (200, 150),
@@ -1230,10 +1231,10 @@ press_keys Escape
 # the next run holds the committed revision, not the one before it.
 shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
     global._restoreReplace = () => { proto._replace = replace; };
-    proto._replace = async function (name, bytes) {
+    proto._replace = async function (...args) {
         await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1000,
             () => { resolve(); return false; }));
-        return replace.call(this, name, bytes);
+        return replace.apply(this, args);
     };
     const model = $E2E.model('Other');
     model.content.grid.visible = !model.content.grid.visible;
@@ -1267,16 +1268,481 @@ wait_for "!$E2E.win('Page')"
 expect "$MANAGER.models.length + ' ' + $E2E.fileHelpers('$V2')" '0 R 120,110 201x170 | V 510' \
     'closing a window removes its view and keeps its set'
 
-# A missing sets folder is created again by the next write, and loading a set is a write.
+# A missing sets folder is created again by the next write, which also watches it again. The sets
+# that were in it leave the library and the screen with it.
 SETS=$XDG_DATA_HOME/measure-things/sets
 mv "$SETS" "$SETS.off"
-shell_eval "void $MANAGER.load('$PAGE', $E2E.win('Other'))" >/dev/null
-wait_for "$MANAGER.models.length === 1"
-sleep 0.5
-check 'a missing sets folder is created again on write' "[[ -f $SETS/$PAGE.json ]]"
+wait_for "$MANAGER.store.entries().length === 0"
+shell_eval "const model = $MANAGER.createSet($E2E.win('Other')).model;
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 40});
+    $MANAGER.commit(model);
+    global._folderSet = model.id; 1" >/dev/null
+FOLDER_SET=$(shell_eval "global._folderSet")
+wait_for "$MANAGER.store.entries().length === 1"
+check 'a missing sets folder is created again on write' "[[ -f $SETS/$FOLDER_SET.json ]]"
 rm -r "$SETS"
 mv "$SETS.off" "$SETS"
-shell_eval "$MANAGER.removeFromScreen($MANAGER.modelOf('$PAGE'))" >/dev/null
+shell_eval "$MANAGER.removeFromScreen($MANAGER.modelOf('$FOLDER_SET'))" >/dev/null
+
+# Files that change outside the shell. Races are made deterministic by holding the folder monitor's
+# events, changing the files, and replaying the events. Sets are made in the shell; what the checks
+# are about is what happens to them next.
+open_window LibA 100 780 300x200 '#241f31'
+open_window LibB 440 780 300x200 '#241f31'
+open_window LibC 780 780 300x200 '#241f31'
+shell_eval "global._libraryP3 = $MANAGER.store.entries().map(entry => entry.id)" >/dev/null
+
+# Takes sets off the screen: leave ID...
+leave() {
+    local ids
+    ids=$(printf "'%s'," "$@")
+    shell_eval "for (const id of [$ids]) {
+            const model = $MANAGER.modelOf(id);
+            if (model)
+                $MANAGER.removeFromScreen(model);
+        }
+        1" >/dev/null
+}
+# The number of notices on screen that mention $1, as a JavaScript expression.
+notices() {
+    echo "Main.messageTray.getSources().flatMap(source => source.notifications).filter(n => n.body.includes('$1')).length"
+}
+hold_events() {
+    shell_eval "global._held = []; $MANAGER.store._onEvent = (...args) => global._held.push(args); 1" >/dev/null
+}
+replay_events() {
+    shell_eval "delete $MANAGER.store._onEvent;
+        const held = global._held; global._held = [];
+        held.forEach(args => $MANAGER.store._onEvent(...args)); 1" >/dev/null
+}
+# Edits a set file like another program would, in place: edit_file PATH 'python code on d'.
+edit_file() {
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+path, code = sys.argv[1:3]
+d = json.load(open(path))
+exec(code)
+json.dump(d, open(path, 'w'), indent=2)
+PY
+}
+# Drops a modified copy of a set file in the folder at once: drop_copy ID FILE 'python code on d'.
+drop_copy() {
+    cp "$SETS/$1.json" "$WORK/stage.json"
+    edit_file "$WORK/stage.json" "$3"
+    mv "$WORK/stage.json" "$SETS/$2"
+}
+# A saved set with one guide on a window: new_set NAME WINDOW X prints its ID.
+new_set() {
+    local id
+    id=$(shell_eval "const model = $MANAGER.createSet($E2E.win('$2')).model;
+        model.name = '$1';
+        $MANAGER.addHelper(model, {kind: 'vertical', x: $3});
+        $MANAGER.commit(model);
+        model.id")
+    wait_for "!!$E2E.file('$id')"
+    sleep 0.2
+    echo "$id"
+}
+
+# The shell's own writes are not external edits, however many are queued and whatever their events.
+OWN=$(new_set 'P3 own' LibA 40)
+shell_eval "const model = $E2E.set('$OWN');
+    for (const x of [50, 60, 70]) { model.content.helpers[0].x = x; $MANAGER.commit(model); }
+    1" >/dev/null
+wait_for "$E2E.fileHelpers('$OWN') === 'V 70'"
+sleep 1
+expect "$(notices 'changed outside') + ' ' + $E2E.set('$OWN').history._index + ' ' + $E2E.helpers('LibA')" \
+    '0 4 V 70' "the shell's own writes are not external edits, and keep the undo history"
+leave "$OWN"
+
+# An external edit replaces the set in memory and its linked copies, resets its history, and tells
+# the user. An unlinked copy keeps its own state.
+EDIT=$(new_set 'P3 edit' LibA 40)
+shell_eval "$MANAGER.addCopy($E2E.set('$EDIT'), $E2E.win('LibB'));
+    const copy = $MANAGER.addCopy($E2E.set('$EDIT'), $E2E.win('LibC'));
+    $MANAGER.unlink(copy);
+    $MANAGER.addHelper(copy.local, {kind: 'horizontal', y: 10});
+    $MANAGER.commit(copy.local); 1" >/dev/null
+cp "$SETS/$EDIT.json" "$WORK/edit.backup.json"
+edit_file "$SETS/$EDIT.json" 'd["name"] = "P3 edited"; d["helpers"].append({"kind": "vertical", "x": 90})'
+expect "$E2E.set('$EDIT').name + ' | ' + $E2E.helpers('LibA') + ' | ' + $E2E.set('$EDIT').history._index" \
+    'P3 edited | V 40 | V 90 | 0' 'an external edit replaces the set in memory and starts its history over'
+expect "$E2E.labels($E2E.views('LibB')[0].layer).includes('x 90')" true 'a linked copy shows the edited file'
+expect "$E2E.views('LibC')[0].local.localChanges + ' ' + $E2E.views('LibC')[0].local.content.helpers.length" \
+    '1 2' 'an unlinked copy is not affected by the edit'
+expect "$(notices 'P3 edited')" 1 'an external edit shows one notice'
+
+# A dialog or a menu open for the set closes without applying.
+shell_eval "void $EXTENSION._editSettings($E2E.set('$EDIT'))" >/dev/null
+wait_for "!!$E2E.dialog()"
+shell_eval "$E2E.entries($E2E.dialog())[0].text = 'Draft'" >/dev/null
+edit_file "$SETS/$EDIT.json" 'd["helpers"].append({"kind": "vertical", "x": 100})'
+expect "!!$E2E.dialog() + ' ' + $E2E.set('$EDIT').name" 'false P3 edited' \
+    'an external edit closes the open Set settings dialog without applying it'
+shell_eval "void $EXTENSION._rename($MANAGER.store.entries().find(e => e.id === '$EDIT'))" >/dev/null
+wait_for "!!$E2E.dialog()"
+edit_file "$SETS/$EDIT.json" 'd["helpers"].append({"kind": "vertical", "x": 110})'
+expect "!!$E2E.dialog() + ' ' + $E2E.set('$EDIT').name" 'false P3 edited' 'and the rename dialog'
+shell_eval "void $EXTENSION._delete($MANAGER.store.entries().find(e => e.id === '$EDIT'))" >/dev/null
+wait_for "!!$E2E.dialog()"
+edit_file "$SETS/$EDIT.json" 'd["helpers"].append({"kind": "vertical", "x": 120})'
+expect "!!$E2E.dialog() + ' ' + !!$E2E.set('$EDIT') + ' ' + !!$E2E.file('$EDIT')" 'false true true' \
+    'and the delete confirmation, which deletes nothing'
+shell_eval "void $EXTENSION._saveAs($E2E.view('LibA'))" >/dev/null
+wait_for "!!$E2E.dialog()"
+edit_file "$SETS/$EDIT.json" 'd["helpers"].append({"kind": "vertical", "x": 130})'
+expect "!!$E2E.dialog() + ' ' + $MANAGER.models.filter(m => m.view.window.title === 'LibA').length" 'false 1' \
+    'and the Save as new set name dialog'
+shell_eval "$OVERLAY.enterEdit(); $OVERLAY.openBadgeMenu($E2E.view('LibA')); 1" >/dev/null
+expect "!!$OVERLAY.badgeMenu" true 'the badge menu opens'
+edit_file "$SETS/$EDIT.json" 'd["helpers"].append({"kind": "vertical", "x": 140})'
+expect "$OVERLAY.badgeMenu" null 'an external edit closes the badge menu of the set'
+
+# A gesture in progress on the set is cancelled.
+pointer_move 150 830
+pointer_button PRESSED
+pointer_move 200 880
+pointer_move 250 900
+expect "$OVERLAY.dragging" true 'a rectangle is being drawn'
+edit_file "$SETS/$EDIT.json" 'd["helpers"].append({"kind": "vertical", "x": 150})'
+expect "$OVERLAY.dragging + ' ' + $E2E.helpers('LibA')" \
+    'false V 40 | V 90 | V 100 | V 110 | V 120 | V 130 | V 140 | V 150' 'an external edit cancels a gesture on the set'
+pointer_button RELEASED
+expect "$E2E.fileHelpers('$EDIT') === $E2E.helpers('LibA')" true 'and nothing was committed'
+
+# A file removed while its set is shown removes the set, during a gesture too: its views leave,
+# unlinked copies included, and the notice counts the local changes lost.
+pointer_move 150 830
+pointer_button PRESSED
+pointer_move 200 880
+pointer_move 250 900
+expect "$OVERLAY.dragging" true 'another rectangle is being drawn'
+rm "${SETS:?}/${EDIT:?}.json"
+expect "$OVERLAY.dragging + ' ' + !!$E2E.set('$EDIT') + ' ' + $MANAGER.views.filter(v => ['LibA', 'LibB', 'LibC'].includes(v.window.title)).length" \
+    'false false 0' 'a file removed during a gesture cancels it and removes the set and every view'
+expect "$(notices 'was removed from the sets folder')" 1 'and shows one notice'
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).some(n => n.body.includes('P3 edited') && n.body.includes('1 local change in its unlinked copies was lost'))" \
+    true 'that counts the local changes lost'
+pointer_button RELEASED
+shell_eval "$OVERLAY.exitEdit()" >/dev/null
+expect "$MANAGER.store.entries().some(e => e.id === '$EDIT')" false 'the library no longer lists it'
+
+# Delete then create: the file that comes back after the removal settled is an import.
+cp "$WORK/edit.backup.json" "$WORK/stage.json"
+mv "$WORK/stage.json" "$SETS/$EDIT.json"
+wait_for "!$E2E.file('$EDIT')"
+expect "$MANAGER.store.entries().filter(e => e.name === 'P3 edit').length + ' ' + $MANAGER.store.entries().some(e => e.id === '$EDIT')" \
+    '1 false' 'a file that comes back after its removal is imported under a fresh ID'
+
+# A file renamed over a set now holds another set's ID: the set it held leaves the screen, and the
+# file is imported under a fresh ID.
+VICTIM=$(new_set 'P3 victim' LibB 40)
+INTRUDER=$(new_set 'P3 intruder' LibC 40)
+leave "$INTRUDER"
+mv "$SETS/$INTRUDER.json" "$SETS/$VICTIM.json"
+expect "!!$E2E.set('$VICTIM') + ' ' + $MANAGER.store.entries().filter(e => e.name.startsWith('P3 intruder') && e.id !== '$INTRUDER' && e.id !== '$VICTIM').length + ' ' + $(notices 'now holds another set')" \
+    'false 1 1' 'a file renamed over a set removes the set and is imported under a fresh ID'
+check 'and the file is not left under the name of the set it replaced' "[[ ! -e $SETS/$VICTIM.json && ! -e $SETS/$INTRUDER.json ]]"
+
+# A dialog open for a set that is not on screen closes too.
+LIBRARY=$(new_set 'P3 library' LibC 40)
+leave "$LIBRARY"
+shell_eval "void $EXTENSION._rename($MANAGER.store.entries().find(e => e.id === '$LIBRARY'))" >/dev/null
+wait_for "!!$E2E.dialog()"
+edit_file "$SETS/$LIBRARY.json" 'd["helpers"].append({"kind": "vertical", "x": 90})'
+expect "!!$E2E.dialog()" false 'an external edit closes a dialog open for a set that is not on screen'
+
+# A file that disappears and comes back within the settling time is changed, not removed.
+BACK=$(new_set 'P3 back' LibB 40)
+hold_events
+mv "$SETS/$BACK.json" "$WORK/back.json"
+edit_file "$WORK/back.json" 'd["helpers"].append({"kind": "vertical", "x": 90})'
+mv "$WORK/back.json" "$SETS/$BACK.json"
+replay_events
+expect "!!$E2E.set('$BACK') + ' ' + $E2E.helpers('LibB')" 'true V 40 | V 90' \
+    'a file that disappears and comes back is changed, not removed'
+expect "$(notices 'P3 back')" 1 'and is told as an edit'
+leave "$BACK"
+
+# A write whose etag no longer matches is dropped: the file on disk wins, the history starts over,
+# and one notice counts the commits dropped. The folder event that follows is ignored.
+CONFLICT=$(new_set 'P3 conflict' LibA 40)
+hold_events
+edit_file "$SETS/$CONFLICT.json" 'd["helpers"].append({"kind": "vertical", "x": 77})'
+shell_eval "const model = $E2E.set('$CONFLICT');
+    $MANAGER.addHelper(model, {kind: 'vertical', x: 11}); $MANAGER.commit(model);
+    model.content.helpers[0].x = 12; $MANAGER.commit(model); 1" >/dev/null
+expect "$E2E.helpers('LibA') + ' | ' + $E2E.set('$CONFLICT').history._index" 'V 40 | V 77 | 0' \
+    'a write that conflicts with the file reloads it'
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).filter(n => n.body.includes('P3 conflict') && n.body.includes('2 changes not saved were dropped')).length" \
+    1 'and shows one notice for the commits it dropped'
+replay_events
+sleep 1
+expect "$(notices 'P3 conflict') + ' ' + $E2E.fileHelpers('$CONFLICT')" '1 V 40 | V 77' \
+    'the folder event that follows the conflict is ignored'
+leave "$CONFLICT"
+
+# A name that collides is suffixed even when it is found during the reload after a conflict, and
+# the suffix is written to the file.
+COLLIDE_A=$(new_set 'P3 collide a' LibA 40)
+COLLIDE_B=$(new_set 'P3 collide' LibB 40)
+hold_events
+edit_file "$SETS/$COLLIDE_A.json" 'd["name"] = "P3 collide"'
+shell_eval "const model = $E2E.set('$COLLIDE_A'); model.content.helpers[0].x = 11; $MANAGER.commit(model); 1" >/dev/null
+expect "$E2E.set('$COLLIDE_A').name + ' | ' + $E2E.file('$COLLIDE_A').name" 'P3 collide 2 | P3 collide 2' \
+    'a name found during the reload after a conflict is suffixed, and the suffix is written to the file'
+replay_events
+leave "$COLLIDE_A" "$COLLIDE_B"
+
+# Commits made while the file is read again after a conflict are dropped too, and never overwrite it.
+RACE=$(new_set 'P3 race' LibA 40)
+hold_events
+edit_file "$SETS/$RACE.json" 'd["helpers"].append({"kind": "vertical", "x": 77})'
+shell_eval "const store = $MANAGER.store, read = Object.getPrototypeOf(store)._readDisk;
+    store._readDisk = async function (name) {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1000,
+            () => { resolve(); return false; }));
+        return read.call(this, name);
+    };
+    const model = $E2E.set('$RACE'); model.content.helpers[0].x = 11; $MANAGER.commit(model); 1" >/dev/null
+sleep 0.5
+shell_eval "const model = $E2E.set('$RACE'); model.content.helpers[0].x = 12; $MANAGER.commit(model);
+    delete $MANAGER.store._readDisk; 1" >/dev/null
+expect "$E2E.helpers('LibA') + ' | ' + $E2E.fileHelpers('$RACE')" 'V 40 | V 77 | V 40 | V 77' \
+    'a commit made while the file is read again after a conflict does not overwrite it'
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).filter(n => n.body.includes('P3 race') && n.body.includes('2 changes not saved were dropped')).length" \
+    1 'and is counted in the one notice'
+replay_events
+leave "$RACE"
+
+# A commit whose file no longer exists is dropped and never recreates it: the set is removed.
+GONE=$(new_set 'P3 gone' LibB 40)
+hold_events
+rm "${SETS:?}/${GONE:?}.json"
+shell_eval "const model = $E2E.set('$GONE'); model.content.helpers[0].x = 55; $MANAGER.commit(model); 1" >/dev/null
+expect "$MANAGER.modelOf('$GONE')" null 'a commit whose file was removed removes the set'
+sleep 1
+check 'and a write to a file removed after its last read does not recreate it' "[[ ! -e $SETS/$GONE.json ]]"
+replay_events
+sleep 1
+check 'the events that follow do not bring it back' "[[ ! -e $SETS/$GONE.json ]]"
+expect "$MANAGER.store.entries().some(e => e.id === '$GONE') + ' ' + $(notices 'P3 gone')" 'false 1' \
+    'the set left the library with one notice'
+
+# A write that fails leaves the set in memory, not saved, and the next commit tries again. The
+# target path is a directory, which fails even as root.
+FAIL=$(shell_eval "const model = $MANAGER.createSet($E2E.win('LibB')).model; model.name = 'P3 failing'; model.id")
+hold_events
+mkdir "$SETS/$FAIL.json"
+shell_eval "const model = $E2E.set('$FAIL'); $MANAGER.addHelper(model, {kind: 'vertical', x: 30}); $MANAGER.commit(model);
+    $OVERLAY.enterEdit(); $OVERLAY.openBadgeMenu($E2E.view('LibB')); 1" >/dev/null
+expect "$E2E.set('$FAIL').saved + ' ' + $OVERLAY.badgeMenu._saved.text" 'false Main view · not saved' \
+    'a write that fails leaves the set not saved, and the badge says so'
+shell_eval "const model = $E2E.set('$FAIL'); $MANAGER.addHelper(model, {kind: 'vertical', x: 31}); $MANAGER.commit(model); 1" >/dev/null
+expect "$(notices 'P3 failing') + ' ' + $MANAGER.store.entries().some(e => e.id === '$FAIL')" '1 false' \
+    'one notice covers a run of failures, and the set is not in the library'
+rmdir "${SETS:?}/${FAIL:?}.json"
+replay_events
+shell_eval "const model = $E2E.set('$FAIL'); $MANAGER.addHelper(model, {kind: 'vertical', x: 32}); $MANAGER.commit(model); 1" >/dev/null
+expect "$E2E.set('$FAIL').saved + ' ' + $OVERLAY.badgeMenu._saved.text + ' ' + $E2E.fileHelpers('$FAIL')" \
+    'true Main view · saved V 30 | V 31 | V 32' 'the next commit tries again, and the state clears'
+expect "$MANAGER.store.entries().some(e => e.id === '$FAIL')" true 'a set joins the library once a write succeeded'
+shell_eval "$OVERLAY.exitEdit()" >/dev/null
+# A set that is not saved is tried once more when it leaves the screen, and a notice says when
+# that fails too.
+hold_events
+leave "$FAIL"
+FAIL_TOO=$(shell_eval "const model = $MANAGER.createSet($E2E.win('LibB')).model; model.name = 'P3 failing too'; model.id")
+mkdir "$SETS/$FAIL_TOO.json"
+shell_eval "const model = $E2E.set('$FAIL_TOO'); $MANAGER.addHelper(model, {kind: 'vertical', x: 30}); $MANAGER.commit(model); 1" >/dev/null
+expect "$E2E.set('$FAIL_TOO').saved" false 'a new set whose path is blocked is not saved'
+open_menu
+click_actor "$E2E.button($E2E.row('onScreen', 'P3 failing too'), 'Remove from screen')"
+expect "$E2E.labels($EXTENSION._onScreen.section.actor).some(text => text.includes('Its changes are not saved')) + ' ' + !!$E2E.set('$FAIL_TOO')" \
+    'true true' '✕ asks first when the set is not saved'
+click_actor "$E2E.button($EXTENSION._onScreen.section.actor, 'Remove')"
+shell_eval "$EXTENSION._indicator.menu.close()" >/dev/null
+expect "$(notices 'its unsaved changes are lost')" 1 'a set that is not saved is tried once more on leaving the screen'
+rmdir "${SETS:?}/${FAIL_TOO:?}.json"
+replay_events
+
+# A set that leaves the screen while its write is still in flight is written once more when that
+# write fails, and a notice says when this fails too.
+PENDING=$(new_set 'P3 pending' LibB 40)
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
+    global._restoreReplaceP3 = () => { proto._replace = replace; };
+    global._attemptsP3 = 0;
+    proto._replace = async function () {
+        global._attemptsP3++;
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 300,
+            () => { resolve(); return false; }));
+        throw new Error('disk full');
+    };
+    const model = $E2E.set('$PENDING'); model.content.helpers[0].x = 55; $MANAGER.commit(model);
+    $MANAGER.removeFromScreen(model); 1" >/dev/null
+expect "Main.messageTray.getSources().flatMap(source => source.notifications).filter(n => n.body.includes('P3 pending') && n.body.includes('its unsaved changes are lost')).length" \
+    1 'a set that left the screen with a write in flight is written once more when that fails'
+expect "global._attemptsP3" 2 'the write is tried again once, not more'
+shell_eval "global._restoreReplaceP3()" >/dev/null
+
+# A file turned unavailable while its set is shown removes the set; once valid again, it is a new file.
+UNAVAILABLE=$(new_set 'P3 unavailable' LibB 40)
+cp "$SETS/$UNAVAILABLE.json" "$WORK/unavailable.backup.json"
+edit_file "$SETS/$UNAVAILABLE.json" 'd["zoom"] = 9999'
+expect "!!$E2E.set('$UNAVAILABLE') + ' ' + $MANAGER.store.entries().some(e => e.unavailable && e.name === 'P3 unavailable') + ' ' + $(notices 'P3 unavailable')" \
+    'false true 1' 'a file turned invalid removes its set and shows as unavailable'
+expect "$MANAGER.store.write({id: '$UNAVAILABLE', name: 'x', revision: 0, edited: 0, migrated: false, content: {}})" \
+    false 'an unavailable file is never written to'
+cp "$WORK/unavailable.backup.json" "$WORK/stage.json"
+mv "$WORK/stage.json" "$SETS/$UNAVAILABLE.json"
+expect "$MANAGER.store.entries().filter(e => e.id === '$UNAVAILABLE' && !e.unavailable).length" 1 \
+    'a file that turns valid again is read as a new file'
+
+# Files dropped in the folder at runtime.
+IMPORT=$(new_set 'P3 import' LibB 40)
+cp "$SETS/$IMPORT.json" "$WORK/stage.json"
+mv "$WORK/stage.json" "$SETS/a-copy.json"
+wait_for "$MANAGER.store.entries().filter(e => e.name.startsWith('P3 import')).length === 2"
+expect "$MANAGER.store.entries().filter(e => e.name.startsWith('P3 import')).map(e => e.name).sort().join() + ' ' + !!$E2E.set('$IMPORT')" \
+    'P3 import,P3 import 2 true' 'a file copied in is imported with a suffix, and the original stays'
+check 'the copy was removed once imported, and the original is untouched' \
+    "[[ ! -e $SETS/a-copy.json && -f $SETS/$IMPORT.json ]]"
+leave "$IMPORT"
+drop_copy "$IMPORT" other-name.json 'd["id"] = "zz-elsewhere"; d["name"] = "P3 elsewhere"'
+wait_for "$MANAGER.store.entries().some(e => e.name === 'P3 elsewhere')"
+expect "$MANAGER.store.entries().filter(e => e.name === 'P3 elsewhere').map(e => e.id !== 'zz-elsewhere').join()" \
+    true 'a file named differently is imported under a fresh ID'
+check 'and removed' "[[ ! -e $SETS/other-name.json ]]"
+drop_copy "$IMPORT" fresh-dropped.json 'd["id"] = "fresh-dropped"; d["name"] = "P3 dropped"'
+wait_for "$MANAGER.store.entries().some(e => e.id === 'fresh-dropped')"
+expect "$MANAGER.store.entries().find(e => e.id === 'fresh-dropped').name" 'P3 dropped' \
+    'a new file named after its ID joins the library as it is'
+drop_copy "$IMPORT" dup-name.json 'd["id"] = "dup-name"; d["name"] = "P3 dropped"'
+wait_for "$MANAGER.store.entries().some(e => e.id === 'dup-name')"
+expect "$MANAGER.store.entries().find(e => e.id === 'dup-name').name" 'P3 dropped 2' \
+    'a file found with a name that is taken gets a suffix'
+expect "$E2E.file('dup-name')?.name" 'P3 dropped 2' 'which is written to the file once'
+
+# A set restored from the Trash is an import.
+RESTORED=$(new_set 'P3 restored' LibB 40)
+shell_eval "$MANAGER.delete('$RESTORED')" >/dev/null
+wait_for "!$MANAGER.modelOf('$RESTORED') && !$MANAGER.store.entries().some(e => e.id === '$RESTORED')"
+cp "$XDG_DATA_HOME/Trash/files/$RESTORED.json" "$WORK/stage.json"
+mv "$WORK/stage.json" "$SETS/$RESTORED.json"
+wait_for "$MANAGER.store.entries().some(e => e.name === 'P3 restored')"
+expect "$MANAGER.store.entries().filter(e => e.name === 'P3 restored').map(e => e.id !== '$RESTORED').join() + ' ' + $MANAGER.store.entries().some(e => e.id === '$RESTORED')" \
+    'true false' 'a set restored from the Trash is imported under a fresh ID'
+check 'and the restored file is removed' "[[ ! -e $SETS/$RESTORED.json ]]"
+
+# A file that cannot be removed once imported: its copy goes again, and the original shows as
+# unavailable, so a later scan never imports it twice.
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), remove = proto._removeFile;
+    global._restoreRemove = () => { proto._removeFile = remove; };
+    proto._removeFile = function (file) {
+        return file.get_basename() === 'stubborn.json' ? Promise.reject(new Error('read-only')) : remove.call(this, file);
+    }; 1" >/dev/null
+FILES_BEFORE=$(ls "$SETS" | wc -l)
+drop_copy "$IMPORT" stubborn.json 'd["id"] = "zz-stubborn"; d["name"] = "P3 stubborn"'
+expect "$MANAGER.store.entries().filter(e => e.unavailable && e.name === 'P3 stubborn').length" 1 \
+    'a file that cannot be removed shows as unavailable'
+check 'and its copy is removed again' "[[ \$(ls '$SETS' | wc -l) -eq $((FILES_BEFORE + 1)) ]]"
+shell_eval "global._restoreRemove()" >/dev/null
+rm "${SETS:?}/stubborn.json"
+expect "$MANAGER.store.entries().some(e => e.name === 'P3 stubborn')" false 'it leaves the library when it goes'
+
+# The name an import is about to take is taken: a set created meanwhile does not choose it. The
+# import is held back for three seconds, and the set is created once, right after the drop.
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), replace = proto._replace;
+    global._restoreReplaceP3 = () => { proto._replace = replace; };
+    proto._replace = async function (...args) {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 3000,
+            () => { resolve(); return false; }));
+        return replace.apply(this, args);
+    }; 1" >/dev/null
+drop_copy "$IMPORT" untitled-nine.json 'd["id"] = "zz-nine"; d["name"] = "Untitled 9"'
+sleep 1
+CHOSEN=$(shell_eval "(() => {
+    const held = $MANAGER.store.reservedNames().includes('Untitled 9');
+    const view = $MANAGER.createSet($E2E.win('LibA'));
+    const name = view.model.name;
+    $MANAGER.removeFromScreen(view.model);
+    return held + ' ' + name;
+})()")
+check 'a set created while an import is about to take a name does not choose it' "[[ '$CHOSEN' == 'true Untitled 10' ]]"
+wait_for "$MANAGER.store.entries().some(e => e.name === 'Untitled 9')" 30
+shell_eval "global._restoreReplaceP3()" >/dev/null
+
+# An import still under way when the extension is disabled ends before the next run reads the
+# files: the copy is written, the original is not removed yet, and nothing is imported twice.
+shell_eval "const proto = Object.getPrototypeOf($MANAGER.store), remove = proto._removeFile;
+    global._restoreRemove = () => { proto._removeFile = remove; };
+    proto._removeFile = async function (file) {
+        await new Promise(resolve => imports.gi.GLib.timeout_add(imports.gi.GLib.PRIORITY_DEFAULT, 1500,
+            () => { resolve(); return false; }));
+        return remove.call(this, file);
+    }; 1" >/dev/null
+drop_copy "$IMPORT" across.json 'd["id"] = "zz-across"; d["name"] = "P3 across"'
+wait_for "$MANAGER.store.entries().some(e => e.name === 'P3 across')"
+shell_eval "Main.extensionManager.disableExtension('$UUID')" >/dev/null
+wait_for "Main.extensionManager.lookup('$UUID').state !== 1"
+shell_eval "Main.extensionManager.enableExtension('$UUID')" >/dev/null
+wait_for "Main.extensionManager.lookup('$UUID').state === 1"
+wait_for "$MANAGER.store.entries().some(e => e.name === 'P3 across')"
+sleep 2
+expect "$MANAGER.store.entries().filter(e => e.name.startsWith('P3 across')).length" 1 \
+    'an import under way when the extension is disabled is not done twice by the next run'
+check 'and the original is removed' "[[ ! -e $SETS/across.json ]]"
+shell_eval "global._restoreRemove()" >/dev/null
+
+# Files dropped while the extension was off are judged by the startup scan: copies are imported,
+# and among files found with the same name, the one edited earliest keeps it.
+STARTUP=$(new_set 'P3 startup' LibB 40)
+shell_eval "Main.extensionManager.disableExtension('$UUID')" >/dev/null
+wait_for "Main.extensionManager.lookup('$UUID').state !== 1"
+drop_copy "$STARTUP" startup-copy.json 'pass'
+drop_copy "$STARTUP" same-late.json 'd["id"] = "same-late"; d["name"] = "P3 same"; d["edited"] = "2020-01-02T00:00:00.000Z"'
+drop_copy "$STARTUP" same-early.json 'd["id"] = "same-early"; d["name"] = "P3 same"; d["edited"] = "2020-01-01T00:00:00.000Z"'
+drop_copy "$STARTUP" elsewhere.json 'd["id"] = "zz-startup"; d["name"] = "P3 moved"'
+shell_eval "Main.extensionManager.enableExtension('$UUID')" >/dev/null
+wait_for "Main.extensionManager.lookup('$UUID').state === 1"
+wait_for "$MANAGER.store.entries().some(e => e.name === 'P3 moved')"
+sleep 1
+expect "$MANAGER.store.entries().filter(e => e.name.startsWith('P3 startup')).map(e => e.name).sort().join()" \
+    'P3 startup,P3 startup 2' 'at startup, a copy of a set is imported with a suffix'
+expect "$MANAGER.store.entries().filter(e => e.name.startsWith('P3 same')).map(e => e.id + ' ' + e.name).sort().join()" \
+    'same-early P3 same,same-late P3 same 2' 'at startup, the file edited earliest keeps a name found twice'
+expect "$E2E.file('same-late')?.name + ' ' + $MANAGER.store.entries().filter(e => e.name === 'P3 moved').map(e => e.id !== 'zz-startup').join()" \
+    'P3 same 2 true' 'at startup, the suffix is written to the file and a file named differently is imported'
+check 'at startup, imported files are removed' \
+    "[[ ! -e $SETS/startup-copy.json && ! -e $SETS/elsewhere.json ]]"
+expect "$(notices 'P3 startup')" 0 'the events of the previous run are not external edits'
+
+# A mockup image that cannot be read shows one notice per set and path; the path stays.
+MOCKUP=$(new_set 'P3 mockup' LibA 40)
+shell_eval "const model = $E2E.set('$MOCKUP');
+    model.content.mockup.file = '/nonexistent/p3-missing.png'; model.content.mockup.visible = true;
+    $MANAGER.commit(model); 1" >/dev/null
+expect "$(notices 'p3-missing.png')" 1 'a mockup image that cannot be read shows a notice'
+shell_eval "const model = $E2E.set('$MOCKUP');
+    model.content.mockup.visible = false; $MANAGER.commit(model);
+    model.content.mockup.visible = true; $MANAGER.commit(model); 1" >/dev/null
+sleep 0.5
+expect "$(notices 'p3-missing.png') + ' ' + $E2E.file('$MOCKUP').mockup.file + ' ' + $E2E.file('$MOCKUP').mockup.visible" \
+    '1 /nonexistent/p3-missing.png true' 'once per set and path, and nothing is committed: the path and the chip stay'
+
+# Tidy: every set made here leaves the screen and the library, and its windows close.
+shell_eval "for (const model of [...$MANAGER.models]) {
+        if (['LibA', 'LibB', 'LibC'].includes(model.view.window.title))
+            $MANAGER.removeFromScreen(model);
+    }
+    for (const id of $MANAGER.store.entries().map(entry => entry.id)) {
+        if (!global._libraryP3.includes(id))
+            $MANAGER.delete(id);
+    }
+    null;" >/dev/null
+wait_for "$MANAGER.store.entries().length === global._libraryP3.length"
+shell_eval "for (const title of ['LibA', 'LibB', 'LibC']) $E2E.win(title).delete(global.get_current_time());" >/dev/null
+wait_for "!$E2E.win('LibA') && !$E2E.win('LibB') && !$E2E.win('LibC')"
 
 # The preferences list the edit mode keys the overlay handles, `A` and the zone edges among them.
 check 'the preferences list A and the zone edges among the edit mode keys' \
@@ -1349,9 +1815,9 @@ pointer_click 600 440
 wait_for "$EXTENSION._picker === null"
 expect "$CLIPBOARD" '#e01b24' 'at 125%, the picker reads the pixel under the pointer'
 
-# The warnings the checks above provoke on purpose: a mockup image that went away, and a trash that
-# does not exist.
-if grep -vE 'Measure Things: could not (load the mockup|move .* to the trash)' "$WORK/shell.log" |
+# The warnings the checks above provoke on purpose: a mockup image that went away, a trash that does
+# not exist, a file path that is a directory, and a file that cannot be removed.
+if grep -vE 'Measure Things: could not (load the mockup|move .* to the trash|save|remove)' "$WORK/shell.log" |
     grep -E -A4 'JS (ERROR|WARNING)|Exception in callback|Measure Things:'; then
     echo 'FAIL the shell logged JavaScript errors'
     FAILURES=$((FAILURES + 1))

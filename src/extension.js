@@ -10,7 +10,7 @@ import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
-import {askConfirm, askName, closeDialogs, dialogsOpen, editSetSettings} from './dialogs.js';
+import {askConfirm, askName, closeDialogs, closeDialogsFor, dialogsOpen, editSetSettings} from './dialogs.js';
 import {formatAccelerator, formatEdited} from './format.js';
 import {Manager} from './manager.js';
 import {copyToClipboard, isShown, Overlay, roleOf} from './overlay.js';
@@ -46,7 +46,10 @@ export default class MeasureThingsExtension extends Extension {
         this._indicator.add_child(icon);
         Main.panel.addToStatusArea(this.uuid, this._indicator);
 
-        this._manager = new Manager(this._settings, {onChanged: () => this._syncMenu()});
+        this._manager = new Manager(this._settings, {
+            onChanged: () => this._syncMenu(),
+            onSetClosing: id => closeDialogsFor(id),
+        });
         this._overlay = new Overlay(this._settings, this._manager, {
             onStateChanged: () => this._syncMenu(),
             onSettings: model => this._editSettings(model),
@@ -228,9 +231,12 @@ export default class MeasureThingsExtension extends Extension {
         }
     }
 
-    /** ✕: removes a set from the screen, asking first when unlinked copies would lose changes. */
+    /**
+     * ✕: removes a set from the screen, asking first when unlinked copies would lose changes or
+     * the set is not saved.
+     */
     _removeFromScreen(model) {
-        if (this._manager.localChanges(model) === 0) {
+        if (this._manager.localChanges(model) === 0 && model.saved) {
             this._manager.removeFromScreen(model);
             return;
         }
@@ -244,9 +250,13 @@ export default class MeasureThingsExtension extends Extension {
         const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false,
             style_class: 'measure-things-confirm'});
         const box = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, x_expand: true});
+        const losses = [];
+        if (!model.saved)
+            losses.push('Its changes are not saved: they are written once more, and lost if that fails.');
+        if (count > 0)
+            losses.push(`${count} local change${count === 1 ? '' : 's'} in its unlinked copies will be lost.`);
         const label = new St.Label({
-            text: `Remove “${model.name}” from the screen? ${count} local change${count === 1 ? '' : 's'} ` +
-                'in its unlinked copies will be lost.',
+            text: `Remove “${model.name}” from the screen? ${losses.join(' ')}`,
             style_class: 'measure-things-confirm-text',
         });
         label.clutter_text.line_wrap = true;
@@ -383,7 +393,7 @@ export default class MeasureThingsExtension extends Extension {
 
     async _rename(entry) {
         this._closeMenu();
-        const name = await askName({title: 'Rename set', name: entry.name, actionLabel: 'Rename'});
+        const name = await askName({title: 'Rename set', name: entry.name, actionLabel: 'Rename', setId: entry.id});
         if (name && this._manager)
             this._manager.rename(entry.id, name);
     }
@@ -399,6 +409,7 @@ export default class MeasureThingsExtension extends Extension {
                 ? `${views} will leave the screen. The file moves to the trash.`
                 : 'The file moves to the trash.',
             actionLabel: 'Delete',
+            setId: entry.id,
         });
         if (confirmed && this._manager)
             await this._manager.delete(entry.id);
@@ -427,6 +438,7 @@ export default class MeasureThingsExtension extends Extension {
             title: 'Save as new set',
             name: uniqueName(set.name, this._manager.takenNames()),
             actionLabel: 'Save',
+            setId: set.id,
         });
         if (!name || !this._manager?.views.includes(view) || view.set !== set)
             return;

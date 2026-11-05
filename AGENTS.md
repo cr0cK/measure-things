@@ -16,7 +16,7 @@ new `src/*.js` modules on its own.
 | `src/manager.js` | The sets on screen: models, their views, commits, undo, load, rename, delete, migration from v0.2 |
 | `src/view.js` | A set drawn inside a window actor: helpers, labels, gaps, grid, mockup, badge; the window's geometry |
 | `src/overlay.js` | The stage-wide input layer: edit mode, targeting the window under the pointer, area measuring, snapping, loading a set onto a window |
-| `src/store.js` | The sets folder: one JSON file per set, read at start, watched, written atomically |
+| `src/store.js` | The sets folder: one JSON file per set, read at start, watched, written atomically through a queue per file; applies what `library.js` decides |
 | `src/badge.js` | A view's badge menu |
 | `src/dialogs.js` | Shell modal dialogs: names, confirmations, Set settings |
 | `src/portal.js` | The file chooser portal, for mockup images |
@@ -30,6 +30,7 @@ new `src/*.js` modules on its own.
 | `src/format.js` | Length and color formatting (pure) |
 | `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |
 | `src/history.js` | Undo and redo history (pure) |
+| `src/library.js` | What a change in the sets folder means once it settled: own write or not, add, import, replace, remove, conflict, startup scan, notices (pure) |
 | `src/sets.js` | Set file parsing and writing, names, colors, the v0.2 migration (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.measure-things` |
 | `tests/` | `node --test` suites for the pure modules |
@@ -111,6 +112,22 @@ in `Manager`; a view draws a model inside one window.
 - `_pickColor()` resolves only when the picker closes; do not await it from Eval. disable()
   cancels it, and the Shell can re-enable right away, so the continuation checks that the
   overlay and picker it started with are still the current ones.
+
+## The sets folder
+
+- `library.js` decides, `store.js` reads, writes, and waits. A name is judged only once its events
+  settle (`CHANGES_DONE_HINT`, or 300 ms of quiet) and its write queue is idle, against the file
+  as it is then: the etag or the text of the last successful read or write means the shell's own
+  write. A read that overlapped a write is dropped and done again.
+- GIO's replace recreates a missing file even with an etag, so every write to a file already read
+  or written first checks that it exists. A conflict (`WRONG_ETAG`) drops every queued commit and
+  reloads the file; the file on disk wins.
+- A local file's etag is its modification time, which the kernel rounds to a few milliseconds:
+  the e2e test waits between a write of the shell and an external edit of the same file.
+- The e2e test makes races deterministic by replacing `store._onEvent` with a function that
+  collects the folder monitor's events, changing the files, and replaying the events. It forces a
+  write to fail by making the target path a directory, and an import to fail by replacing
+  `store._removeFile`.
 
 ## GJS, St, and Clutter pitfalls already hit here
 

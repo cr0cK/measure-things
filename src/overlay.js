@@ -84,6 +84,8 @@ export class Overlay {
             if (this._badgeMenu?.view === view)
                 this._badgeMenu.close();
         };
+        manager.onSetReplaced = model => this._onSetReplaced(model);
+        manager.onSavedChanged = () => this._badgeMenu?.refreshSaved();
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});
         this.actor.add_constraint(new Clutter.BindConstraint({
@@ -130,6 +132,8 @@ export class Overlay {
         this._recaptureId = 0;
         this._manager.onViewRemoved = () => {};
         this._manager.onViewPromoted = () => {};
+        this._manager.onSetReplaced = () => {};
+        this._manager.onSavedChanged = () => {};
         this.actor.destroy();
     }
 
@@ -353,6 +357,17 @@ export class Overlay {
             this._unwatch();
         }
         if (this._badgeMenu?.view === view)
+            this._badgeMenu.close();
+    }
+
+    /**
+     * Another program edited the file of a set: a gesture on the set is cancelled, and the badge
+     * menu of any of its views closes. An unlinked copy keeps its own gesture and state.
+     */
+    _onSetReplaced(set) {
+        if (this._drag?.view?.linked && this._manager.setOf(this._drag.view.model) === set)
+            this._cancelDrag();
+        if (this._badgeMenu && this._manager.setOf(this._badgeMenu.view.model) === set)
             this._badgeMenu.close();
     }
 

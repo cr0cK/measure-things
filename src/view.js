@@ -107,7 +107,7 @@ function frameGeometry(window, logical) {
  * stored in CSS pixels at the set's zoom, and drawn in the window actor's units.
  */
 export class View {
-    constructor(set, window, {settings, images, isLogical, onClosed, onBadgeChanged, seq}) {
+    constructor(set, window, {settings, images, isLogical, onClosed, onBadgeChanged, onMockupError, seq}) {
         this.set = set;
         this.local = null;
         this.zone = null;
@@ -120,6 +120,7 @@ export class View {
         this.badgeRect = null;
         this.badgeSize = {width: 0, height: 0};
         this._onBadgeChanged = onBadgeChanged;
+        this._onMockupError = onMockupError;
         this._settings = settings;
         this._images = images;
         this._isLogical = isLogical;
@@ -680,8 +681,10 @@ export class View {
                 this._mockup.set_content(image.content);
                 this._syncMockup();
             }).catch(error => {
-                if (this._mockupLoad === load)
-                    console.warn(`Measure Things: could not load the mockup ${path}: ${error.message}`);
+                if (this._mockupLoad !== load)
+                    return;
+                console.warn(`Measure Things: could not load the mockup ${path}: ${error.message}`);
+                this._onMockupError(this, path);
             });
             return;
         }
