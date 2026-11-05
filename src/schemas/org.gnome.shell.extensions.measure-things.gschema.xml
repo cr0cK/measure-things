@@ -1,20 +1,30 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="org.gnome.shell.extensions.measure-things" path="/org/gnome/shell/extensions/measure-things/">
+    <key name="show-badges" type="b">
+      <default>true</default>
+      <summary>Show corner badges outside edit mode</summary>
+      <description>Whether each view's corner badge stays visible outside edit mode.</description>
+    </key>
+    <key name="migrated" type="b">
+      <default>false</default>
+      <summary>Migrated from v0.2</summary>
+      <description>Set once the v0.2 helpers, grid, and mockup have become a set.</description>
+    </key>
     <key name="helpers" type="s">
       <default>'[]'</default>
-      <summary>Helpers</summary>
-      <description>JSON list of guides and rectangles, in stage pixels.</description>
+      <summary>Helpers (v0.2)</summary>
+      <description>Deprecated: read once by the migration to sets. JSON list of guides and rectangles, in stage pixels.</description>
     </key>
     <key name="show-helpers" type="b">
       <default>true</default>
       <summary>Show helpers</summary>
-      <description>Whether guides and rectangles stay visible outside edit mode.</description>
+      <description>Deprecated: read once by the migration to sets. Whether guides and rectangles stay visible outside edit mode.</description>
     </key>
     <key name="color" type="s">
       <default>'#ff2d95'</default>
       <summary>Helper color</summary>
-      <description>Color of guides, rectangles, labels, and the column grid, as #rrggbb.</description>
+      <description>Deprecated: read once by the migration to sets. Color of guides, rectangles, labels, and the column grid, as #rrggbb.</description>
     </key>
     <key name="unit" type="s">
       <choices>
@@ -29,7 +39,7 @@
       <default>100</default>
       <range min="25" max="500"/>
       <summary>Browser zoom</summary>
-      <description>Browser zoom level, in percent, that CSS pixel values and the column grid assume.</description>
+      <description>Deprecated: read once by the migration to sets. Browser zoom level, in percent, that CSS pixel values and the column grid assume.</description>
     </key>
     <key name="color-format" type="s">
       <choices>
@@ -44,53 +54,53 @@
     <key name="mockup-file" type="s">
       <default>''</default>
       <summary>Mockup image</summary>
-      <description>Path of the image laid over the screen; empty for none.</description>
+      <description>Deprecated: read once by the migration to sets. Path of the image laid over the screen; empty for none.</description>
     </key>
     <key name="mockup-visible" type="b">
       <default>false</default>
       <summary>Show the mockup</summary>
-      <description>Whether the mockup image is shown.</description>
+      <description>Deprecated: read once by the migration to sets. Whether the mockup image is shown.</description>
     </key>
     <key name="mockup-opacity" type="i">
       <default>50</default>
       <range min="5" max="100"/>
       <summary>Mockup opacity</summary>
-      <description>Opacity of the mockup image, in percent.</description>
+      <description>Deprecated: read once by the migration to sets. Opacity of the mockup image, in percent.</description>
     </key>
     <key name="mockup-density" type="i">
       <default>1</default>
       <range min="1" max="4"/>
       <summary>Mockup pixel density</summary>
-      <description>Image pixels per CSS pixel: 2 for an image exported at 2x.</description>
+      <description>Deprecated: read once by the migration to sets. Image pixels per CSS pixel: 2 for an image exported at 2x.</description>
     </key>
     <key name="mockup-position" type="(ii)">
       <default>(0, 0)</default>
       <summary>Mockup position</summary>
-      <description>Top-left corner of the mockup image, in stage pixels.</description>
+      <description>Deprecated: read once by the migration to sets. Top-left corner of the mockup image, in stage pixels.</description>
     </key>
     <key name="grid-columns" type="i">
       <default>12</default>
       <range min="1" max="24"/>
       <summary>Grid columns</summary>
-      <description>Number of columns in the column grid.</description>
+      <description>Deprecated: read once by the migration to sets. Number of columns in the column grid.</description>
     </key>
     <key name="grid-gutter" type="i">
       <default>24</default>
       <range min="0" max="400"/>
       <summary>Grid gutter</summary>
-      <description>Space between columns, in CSS pixels.</description>
+      <description>Deprecated: read once by the migration to sets. Space between columns, in CSS pixels.</description>
     </key>
     <key name="grid-margin" type="i">
       <default>24</default>
       <range min="0" max="800"/>
       <summary>Grid margin</summary>
-      <description>Padding on both sides of the grid container, in CSS pixels.</description>
+      <description>Deprecated: read once by the migration to sets. Padding on both sides of the grid container, in CSS pixels.</description>
     </key>
     <key name="grid-max-width" type="i">
       <default>0</default>
       <range min="0" max="10000"/>
       <summary>Grid maximum width</summary>
-      <description>Width of the centered grid container, in CSS pixels; 0 uses the full width.</description>
+      <description>Deprecated: read once by the migration to sets. Width of the centered grid container, in CSS pixels; 0 uses the full width.</description>
     </key>
     <key name="edit-shortcut" type="as">
       <default><![CDATA[['<Super><Shift>m']]]></default>

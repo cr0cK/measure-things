@@ -1,4 +1,4 @@
-// Undo and redo over snapshots of the helpers. Imports nothing from gi://.
+// Undo and redo over snapshots of a set. Imports nothing from gi://.
 
 /**
  * A linear history of states, compared as strings. Recording after an undo drops the states
@@ -21,6 +21,16 @@ export class History {
             this._states.shift();
         this._index = this._states.length - 1;
         return true;
+    }
+
+    /** The state undo and redo move from. */
+    get current() {
+        return this._states[this._index];
+    }
+
+    /** Replaces every state with `change(state)`, for edits that are not undoable themselves. */
+    rewrite(change) {
+        this._states = this._states.map(change);
     }
 
     /** The previous state, or null at the start. */
