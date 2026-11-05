@@ -1,6 +1,6 @@
 ---
 code: SET
-status: active
+status: done
 version: v0.3
 builds-on: PIX
 tracking: "#8"
@@ -10,8 +10,8 @@ tracking: "#8"
 
 Window-scoped helpers in saved sets, with a main view and session copies per set. It replaces
 these sections of PIX: Layer, Helpers, Units, Edit mode, Column grid, Mockup, and Preferences, and
-the color picker's rule on hiding the layer. PIX keeps them until SET is implemented; a spec PR
-then removes them and sets PIX's `replaced-by`.
+the color picker's rule on hiding the layer, which were removed from PIX once SET was
+implemented.
 
 ## Goal
 
