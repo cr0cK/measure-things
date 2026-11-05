@@ -235,3 +235,34 @@
 .measure-things-destructive {
   color: #ff7b63;
 }
+
+.measure-things-danger {
+  color: #ff7b63;
+}
+
+.measure-things-confirm {
+  background-color: rgba(192, 28, 40, 0.25);
+  border-radius: 8px;
+  margin: 2px 8px;
+}
+
+.measure-things-confirm-text {
+  max-width: 22em;
+}
+
+.measure-things-confirm-buttons {
+  spacing: 6px;
+  padding-top: 6px;
+}
+
+.measure-things-confirm-button {
+  color: white;
+  background-color: rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-weight: bold;
+}
+
+.measure-things-confirm-action {
+  background-color: #c01c28;
+}

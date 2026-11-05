@@ -11,10 +11,12 @@ import {BadgeMenu} from './badge.js';
 import {setCursor} from './cursor.js';
 import {nearestBoundary, regionAround} from './edges.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
-import {cursorFor, dragHelper, hitTest, monitorAt, rectFromPoints, targetAt, windowRole} from './geometry.js';
+import {cursorFor, dragHelper, monitorAt, rectFromPoints, targetAt, windowRole} from './geometry.js';
+import {notify} from './manager.js';
 import {roundCss} from './sets.js';
 import {Snapshot} from './snapshot.js';
 import {windowGeometry} from './view.js';
+import {dragEdge, pickHit, targetZone, zoneEntry} from './zones.js';
 
 // A press must travel this far, in stage pixels, before it draws a rectangle.
 const DRAG_THRESHOLD = 3;
@@ -26,7 +28,7 @@ const HINT_TEXT = [
     'Drag  rectangle   ·   H / V  guide   ·   D  measure area   ·   Arrows  nudge (Shift ×10, Alt resize)   ·   ' +
         'Tab  select   ·   Del  remove',
     'Ctrl+Z  undo   ·   Ctrl+C  copy   ·   Ctrl+drag  no snapping   ·   Right-drag  move mockup   ·   ' +
-        'G  grid   ·   Esc  done',
+        'G  grid   ·   A  add a copy   ·   Drag a dashed edge  frame a zone   ·   Esc  done',
 ].join('\n');
 const TYPE_NAMES = new Map(Object.entries(Meta.WindowType).map(([name, type]) => [type, name]));
 // What a target window does that edit mode must react to.
@@ -71,9 +73,17 @@ export class Overlay {
         this._region = null;
         this._badgeMenu = null;
         this._loadDone = null;
+        // The view a press on a helper, a badge, or a zone edge keeps as the target, and a pending
+        // Add a copy… pick.
+        this._latched = null;
+        this._copyPick = null;
         // Shared by every line request, so a pending line calls it back once.
         this._onLineRead = () => this._refreshPointer();
         manager.onViewRemoved = view => this._onViewRemoved(view);
+        manager.onViewPromoted = view => {
+            if (this._badgeMenu?.view === view)
+                this._badgeMenu.close();
+        };
 
         this.actor = new St.Widget({name: 'measure-things-overlay', reactive: false});
         this.actor.add_constraint(new Clutter.BindConstraint({
@@ -119,6 +129,7 @@ export class Overlay {
             GLib.source_remove(this._recaptureId);
         this._recaptureId = 0;
         this._manager.onViewRemoved = () => {};
+        this._manager.onViewPromoted = () => {};
         this.actor.destroy();
     }
 
@@ -173,6 +184,7 @@ export class Overlay {
             return;
 
         this._badgeMenu?.close();
+        this._endCopyPick(null);
         // A drag released while its snapping lines were read is done; any other is cancelled.
         if (this._drag?.released)
             this._finishDrag(this._drag);
@@ -186,6 +198,7 @@ export class Overlay {
         this._dropSnapshot();
         this._measuring = false;
         this._region = null;
+        this._latched = null;
         this._setTarget(null);
         this._cursorGroup.hide();
         this._manager.setEditing(false);
@@ -214,6 +227,7 @@ export class Overlay {
             manager: this._manager,
             onSettings: model => this._onSettings(model),
             onSaveAs: model => this._onSaveAs(model),
+            onAddCopy: model => this._pickCopyWindow(model),
             onClosed: () => {
                 this._badgeMenu = null;
             },
@@ -326,8 +340,14 @@ export class Overlay {
     }
 
     _onViewRemoved(view) {
-        if (this._drag?.view === view)
+        const drag = this._drag;
+        if (drag?.view === view) {
+            // What the gesture changed in a set that stays is put back.
             this._drag = null;
+            this._revert(drag);
+        }
+        if (this._latched === view)
+            this._latched = null;
         if (this._target?.view === view) {
             this._target = null;
             this._unwatch();
@@ -336,8 +356,8 @@ export class Overlay {
             this._badgeMenu.close();
     }
 
-    /** The topmost visible window under a stage point, with its view; null over no window. */
-    _targetAt(x, y) {
+    /** The topmost visible window under a stage point; null over no window. */
+    _windowAt(x, y) {
         if (Main.overview.visible)
             return null;
         const panel = Main.layoutManager.panelBox;
@@ -354,10 +374,55 @@ export class Overlay {
             windows.push({window, rect: window.get_frame_rect(), role: roleOf(window)});
         }
         const index = targetAt(windows, x, y);
-        if (index < 0)
+        return index < 0 ? null : windows[index].window;
+    }
+
+    /** The view whose zone targeting picks at a point of a window: the smallest, the newest. */
+    _zoneViewAt(window, x, y) {
+        const views = this._manager.viewsOn(window).filter(view => view.geometry);
+        if (views.length === 0)
             return null;
-        const {window} = windows[index];
-        return {window, view: this._manager.viewOn(window)};
+        const {originX, originY} = views[0].geometry.frame;
+        return targetZone(views.map(view => zoneEntry(view, view.geometry.visibleInFrame, view.seq)),
+            x - originX, y - originY);
+    }
+
+    /**
+     * The window under a point and its view: the latched view while the pointer stays in the
+     * window, else the view whose zone is smallest there; the view is null where no zone covers.
+     */
+    _targetAt(x, y) {
+        const window = this._windowAt(x, y);
+        if (!window)
+            return null;
+        const latched = this._latched;
+        const view = latched?.window === window ? latched : this._zoneViewAt(window, x, y);
+        return {window, view};
+    }
+
+    /**
+     * What a press at a point of a window acts on, over every view of it: `{view, kind, hit}`, with
+     * `kind` the badge, the zone edge, the helper, or the zone, in that order; null where no view
+     * has anything. Among equal hits the view targeted last wins, then the one stacked higher.
+     * `edges` false looks past zone edges.
+     */
+    _pickAt(window, x, y, edges = true) {
+        const zoneView = this._zoneViewAt(window, x, y);
+        const entries = this._manager.viewsOn(window).filter(view => view.geometry).map(view => {
+            const hit = view.hitAt(x, y);
+            return {
+                id: view,
+                hit,
+                area: view.zoneArea,
+                seq: view.seq,
+                badge: hit.badge,
+                edge: edges && hit.edge !== null,
+                helper: hit.helper !== null,
+                zone: view === zoneView,
+            };
+        });
+        const pick = pickHit(entries, this._latched ?? this._target?.view ?? null);
+        return pick && {view: pick.id, kind: pick.kind, hit: entries.find(entry => entry.id === pick.id).hit};
     }
 
     _setTarget(target) {
@@ -391,8 +456,12 @@ export class Overlay {
     }
 
     _updateCursor(x, y) {
-        if (!this._drag)
+        if (!this._drag) {
+            // A latched view stays the target until the pointer leaves its window.
+            if (this._latched && this._latched.window !== this._windowAt(x, y))
+                this._latched = null;
             this._setTarget(this._targetAt(x, y));
+        }
         const target = this._drag?.target ?? this._target;
         const color = target?.view?.content.color ?? NEUTRAL_COLOR;
         this._crosshairX.style = `background-color: ${withAlpha(color, 0.45)};`;
@@ -406,8 +475,10 @@ export class Overlay {
         this._crosshairY.set_size(1, monitor.height);
         this._updateArea(x, y, target, color);
 
-        this._readout.visible = Boolean(target);
-        if (target) {
+        // Outside the latched view's zone, the readout shows nothing.
+        const inZone = this._inZone(target, x, y);
+        this._readout.visible = Boolean(target) && inZone;
+        if (target && inZone) {
             const zone = this._zoneOf(target);
             const ratio = this._ratioOf(target);
             this._readout.text = this._region
@@ -418,18 +489,23 @@ export class Overlay {
 
         if (this._drag)
             return;
-        const view = target?.view;
         let cursor = 'CROSSHAIR';
-        if (view) {
-            const [zoneX, zoneY] = view.toZone(x, y);
-            const hit = view.contains(zoneX, zoneY) && hitTest(view.zoneHelpers(), zoneX, zoneY);
-            const helper = hit && view.content.helpers.find(h => h.id === hit.id);
-            if (view.badgeContains(zoneX, zoneY))
-                cursor = 'POINTER';
-            else if (helper && (hit.part !== 'inside' || hit.id === view.selectedId))
-                cursor = cursorFor(helper.kind, hit.part);
+        const pick = target && this._pickAt(target.window, x, y);
+        if (pick?.kind === 'badge') {
+            cursor = 'POINTER';
+        } else if (pick?.kind === 'edge') {
+            cursor = pick.hit.edge === 'left' || pick.hit.edge === 'right' ? 'EW_RESIZE' : 'NS_RESIZE';
+        } else if (pick?.kind === 'helper') {
+            const helper = pick.view.content.helpers.find(h => h.id === pick.hit.helper.id);
+            cursor = cursorFor(helper.kind, pick.hit.helper.part);
         }
         setCursor(this.actor, cursor);
+    }
+
+    /** Whether a stage point is in the target's visible zone; a window without a view is all zone. */
+    _inZone(target, x, y) {
+        const view = target?.view;
+        return !view || view.contains(...view.toZone(x, y));
     }
 
     /**
@@ -439,8 +515,9 @@ export class Overlay {
     _updateArea(x, y, target, color) {
         this._region = null;
         const snapshot = this._snapshot;
-        const row = this._measuring && target && snapshot?.line('row', y, this._onLineRead);
-        const column = this._measuring && target && snapshot?.line('column', x, this._onLineRead);
+        const measuring = this._measuring && target && this._inZone(target, x, y);
+        const row = measuring && snapshot?.line('row', y, this._onLineRead);
+        const column = measuring && snapshot?.line('column', x, this._onLineRead);
         const shown = Boolean(row && column);
         this._areaGroup.visible = shown;
         this._crosshairX.visible = !shown;
@@ -454,8 +531,9 @@ export class Overlay {
             start: Math.max(start, Math.round(origin * scale)),
             end: Math.min(end, Math.round((origin + length) * scale)),
         });
-        const across = clamp(regionAround(row, snapshot.pixel(x)), zone.originX, zone.width);
-        const down = clamp(regionAround(column, snapshot.pixel(y)), zone.originY, zone.height);
+        const {visible} = zone;
+        const across = clamp(regionAround(row, snapshot.pixel(x)), zone.originX + visible.x, visible.width);
+        const down = clamp(regionAround(column, snapshot.pixel(y)), zone.originY + visible.y, visible.height);
         const region = {
             x: across.start / scale,
             y: down.start / scale,
@@ -496,10 +574,12 @@ export class Overlay {
     }
 
     /**
-     * The nearest screen edge to a vertical edge at zone `x`, on the row through zone `y`,
-     * within the zone. Marks the drag as waiting while that row is being read.
+     * The nearest screen edge to a vertical edge at `x`, on the row through `y`, both in pixels
+     * from the corner of `zone`, within `bounds` in the same pixels: the zone's visible part for
+     * helpers, the window frame for a zone edge. Marks the drag as waiting while that row is
+     * being read.
      */
-    _snapX(zone, x, y) {
+    _snapX(zone, x, y, bounds = zone.visible) {
         const snapshot = this._snapshot;
         const stageY = zone.originY + y;
         const row = snapshot?.line('row', stageY, this._onLineRead);
@@ -507,12 +587,13 @@ export class Overlay {
             this._drag.waiting ||= Boolean(snapshot?.reading('row', stageY));
             return x;
         }
-        const snapped = this._nearest(row, snapshot.scale, zone.originX + x, zone.originX, zone.width);
+        const snapped = this._nearest(row, snapshot.scale, zone.originX + x, zone.originX + bounds.x,
+            bounds.width);
         return snapped - zone.originX;
     }
 
-    /** Like _snapX(), for a horizontal edge at zone `y` on the column through zone `x`. */
-    _snapY(zone, x, y) {
+    /** Like _snapX(), for a horizontal edge at `y` on the column through `x`. */
+    _snapY(zone, x, y, bounds = zone.visible) {
         const snapshot = this._snapshot;
         const stageX = zone.originX + x;
         const column = snapshot?.line('column', stageX, this._onLineRead);
@@ -520,7 +601,8 @@ export class Overlay {
             this._drag.waiting ||= Boolean(snapshot?.reading('column', stageX));
             return y;
         }
-        const snapped = this._nearest(column, snapshot.scale, zone.originY + y, zone.originY, zone.height);
+        const snapped = this._nearest(column, snapshot.scale, zone.originY + y, zone.originY + bounds.y,
+            bounds.height);
         return snapped - zone.originY;
     }
 
@@ -536,47 +618,63 @@ export class Overlay {
 
     _onPress(event) {
         const [x, y] = event.get_coords();
-        if (this._mode === 'load') {
+        if (this._picking()) {
             if (event.get_button() !== Clutter.BUTTON_PRIMARY)
-                this._endLoad(null);
+                this._endPick(null);
             return Clutter.EVENT_STOP;
         }
         if (this._drag)
             return Clutter.EVENT_STOP;
-        const target = this._targetAt(x, y);
-        this._setTarget(target);
-        const view = target?.view;
-        const [zoneX, zoneY] = view ? view.toZone(x, y) : [0, 0];
-        if (event.get_button() === Clutter.BUTTON_SECONDARY && view?.content.mockup.visible) {
-            const {mockup} = view.content;
-            this._drag = {kind: 'mockup', target, view, window: target.window, x, y, origin: [mockup.x, mockup.y]};
+        const window = this._windowAt(x, y);
+        if (event.get_button() === Clutter.BUTTON_SECONDARY) {
+            const target = this._targetAt(x, y);
+            this._setTarget(target);
+            const view = target?.view;
+            if (view?.content.mockup.visible) {
+                const {mockup} = view.content;
+                this._drag = {kind: 'mockup', target, view, window: target.window, x, y, origin: [mockup.x, mockup.y]};
+            }
             return Clutter.EVENT_STOP;
         }
-        if (event.get_button() !== Clutter.BUTTON_PRIMARY || !target)
+        if (event.get_button() !== Clutter.BUTTON_PRIMARY || !window)
             return Clutter.EVENT_STOP;
-        if (view?.badgeContains(zoneX, zoneY)) {
-            this.openBadgeMenu(view);
-            return Clutter.EVENT_STOP;
-        }
 
-        const hit = view?.contains(zoneX, zoneY) ? hitTest(view.zoneHelpers(), zoneX, zoneY) : null;
-        if (hit && (hit.part !== 'inside' || hit.id === view.selectedId)) {
-            const helper = view.content.helpers.find(h => h.id === hit.id);
+        const pick = this._pickAt(window, x, y);
+        // A badge, a helper, or a zone edge keeps its view as the target; any other press lets
+        // the zone under the pointer pick it.
+        const latching = pick && pick.kind !== 'zone';
+        this._latched = latching ? pick.view : null;
+        const view = pick ? pick.view : null;
+        const target = {window, view};
+        this._setTarget(target);
+        if (pick?.kind === 'badge') {
+            this.openBadgeMenu(view);
+        } else if (pick?.kind === 'edge') {
             this._drag = {
-                kind: 'move', target, view, window: target.window, id: hit.id, part: hit.part, x, y,
+                kind: 'zone', target, view, window, edge: pick.hit.edge, x, y, active: false,
+                origin: {...view.geometry.visibleInFrame}, originZone: view.zone,
+            };
+        } else if (pick?.kind === 'helper') {
+            const {helper: hit} = pick.hit;
+            const stored = view.content.helpers.find(h => h.id === hit.id);
+            this._drag = {
+                kind: 'move', target, view, window, id: hit.id, part: hit.part, x, y,
                 origin: view.zoneHelpers().find(h => h.id === hit.id),
-                originCss: {...helper},
+                originCss: {...stored},
             };
             view.select(hit.id);
         } else {
-            this._drag = {kind: 'create', target, view, window: target.window, id: null, x, y, insideId: hit?.id ?? null};
+            this._drag = {
+                kind: 'create', target, view, window, id: null, x, y,
+                insideId: pick?.hit.under?.id ?? null,
+            };
         }
         return Clutter.EVENT_STOP;
     }
 
     _onMotion(event) {
         const [x, y] = event.get_coords();
-        if (this._mode === 'load') {
+        if (this._picking()) {
             this._highlightAt(x, y);
             return Clutter.EVENT_STOP;
         }
@@ -602,11 +700,15 @@ export class Overlay {
             const {mockup} = drag.view.content;
             mockup.x = roundCss(drag.origin[0] + (x - drag.x) / drag.view.zonePerCss);
             mockup.y = roundCss(drag.origin[1] + (y - drag.y) / drag.view.zonePerCss);
-            drag.view.sync();
+            this._manager.syncModel(drag.view.model);
             return;
         }
 
         drag.waiting = false;
+        if (drag.kind === 'zone') {
+            this._dragZoneEdge(drag, x, y, snap);
+            return;
+        }
         if (drag.kind === 'create' && drag.id === null) {
             if (Math.max(Math.abs(x - drag.x), Math.abs(y - drag.y)) < DRAG_THRESHOLD || drag.refused)
                 return;
@@ -627,7 +729,7 @@ export class Overlay {
             drag.id = this._manager.addHelper(drag.view.model, {kind: 'rectangle', x: 0, y: 0, width: 1, height: 1}).id;
             drag.view.selectedId = drag.id;
             // A view with nothing to show is not attached to its window yet.
-            drag.view.sync();
+            this._manager.syncModel(drag.view.model);
         }
 
         const view = drag.view;
@@ -645,14 +747,40 @@ export class Overlay {
             helper = {id: drag.id, kind: 'rectangle', ...rect, width: Math.max(1, rect.width), height: Math.max(1, rect.height)};
         }
         this._replaceHelper(view.model, view.toCss(helper));
-        view.syncHelpers();
+        this._manager.syncHelpers(view.model);
+    }
+
+    /**
+     * Moves a zone's edge with the pointer once it has traveled 3 pixels, snapped to screen edges
+     * anywhere in the window frame, within the frame and the 40 pixel minimum. The zone becomes
+     * fixed.
+     */
+    _dragZoneEdge(drag, x, y, snap) {
+        if (!drag.active) {
+            if (Math.max(Math.abs(x - drag.x), Math.abs(y - drag.y)) < DRAG_THRESHOLD)
+                return;
+            drag.active = true;
+        }
+        const {frame} = drag.view.geometry;
+        const bounds = {x: 0, y: 0, width: frame.width, height: frame.height};
+        const {edge, origin} = drag;
+        const horizontal = edge === 'left' || edge === 'right';
+        const [frameX, frameY] = [x - frame.originX, y - frame.originY];
+        const start = {left: origin.x, right: origin.x + origin.width, top: origin.y,
+            bottom: origin.y + origin.height}[edge];
+        let position = start + (horizontal ? x - drag.x : y - drag.y);
+        if (snap && horizontal)
+            position = this._snapX(frame, position, frameY, bounds);
+        else if (snap)
+            position = this._snapY(frame, frameX, position, bounds);
+        drag.view.setZone(dragEdge(origin, edge, position, frame));
     }
 
     _onRelease(event) {
-        if (this._mode === 'load') {
+        if (this._picking()) {
             if (event.get_button() === Clutter.BUTTON_PRIMARY) {
                 const [x, y] = event.get_coords();
-                this._endLoad(this._targetAt(x, y)?.window ?? null);
+                this._endPick(this._windowAt(x, y));
             }
             return Clutter.EVENT_STOP;
         }
@@ -671,6 +799,13 @@ export class Overlay {
 
     _finishDrag(drag) {
         this._drag = null;
+        if (drag.kind === 'zone') {
+            // A press on an edge released before it traveled acts as a press under the edge.
+            if (!drag.active)
+                this._pressBelowEdge(drag);
+            this._onStateChanged();
+            return;
+        }
         if (drag.kind === 'create' && drag.id === null) {
             drag.view?.select(drag.insideId);
             return;
@@ -679,15 +814,45 @@ export class Overlay {
         this._onStateChanged();
     }
 
+    /**
+     * A short press on a zone edge: it selects the helper under it, and latches that view, or
+     * else clears the selection of the view that zone targeting picks, and latches it.
+     */
+    _pressBelowEdge(drag) {
+        const {window, x, y} = drag;
+        const pick = this._pickAt(window, x, y, false);
+        this._latched = pick?.view ?? null;
+        this._setTarget({window, view: pick?.view ?? null});
+        if (pick?.kind === 'helper')
+            pick.view.select(pick.hit.helper.id);
+        else
+            pick?.view.select(pick.hit.under?.id ?? null);
+    }
+
     _cancelDrag() {
         const drag = this._drag;
         if (!drag)
             return;
         this._drag = null;
+        this._revert(drag);
+    }
+
+    /** Puts back what a gesture changed, in a view and set that are still on screen. */
+    _revert(drag) {
         const view = drag.view;
-        if (!view || !this._manager.views.includes(view))
+        if (!view)
             return;
+        if (drag.kind === 'zone') {
+            if (this._manager.views.includes(view)) {
+                view.zone = drag.originZone;
+                view.sync();
+            }
+            return;
+        }
         const model = view.model;
+        const set = this._manager.setOf(model);
+        if (!this._manager.models.includes(set))
+            return;
         if (drag.kind === 'mockup') {
             [model.content.mockup.x, model.content.mockup.y] = drag.origin;
         } else if (drag.kind === 'move') {
@@ -697,10 +862,10 @@ export class Overlay {
             if (view.selectedId === drag.id)
                 view.selectedId = null;
         }
-        if (model.provisional)
-            this._manager.discard(model);
+        if (set.provisional)
+            this._manager.discard(set);
         else
-            view.sync();
+            this._manager.syncModel(model);
     }
 
     /** The model of the target, creating a set on a window without a view. */
@@ -733,9 +898,9 @@ export class Overlay {
 
     _onKeyPress(event) {
         const symbol = event.get_key_symbol();
-        if (this._mode === 'load') {
+        if (this._picking()) {
             if (symbol === Clutter.KEY_Escape)
-                this._endLoad(null);
+                this._endPick(null);
             return Clutter.EVENT_STOP;
         }
         const state = event.get_state();
@@ -748,6 +913,8 @@ export class Overlay {
         const selected = view && view.zoneHelpers().find(helper => helper.id === view.selectedId);
         const [zoneX, zoneY] = this._target ? [pointerX - this._zoneOf(this._target).originX,
             pointerY - this._zoneOf(this._target).originY] : [0, 0];
+        // H, V, D, and Enter do nothing while the pointer is outside the latched view's zone.
+        const inZone = this._inZone(this._target, pointerX, pointerY);
 
         if (symbol === Clutter.KEY_Escape) {
             // A released drag waiting for a read is done, and exitEdit() finishes it.
@@ -805,11 +972,18 @@ export class Overlay {
         }
         case Clutter.KEY_h:
         case Clutter.KEY_H:
-            this._addHelper({kind: 'horizontal', y: zoneY});
+            if (inZone)
+                this._addHelper({kind: 'horizontal', y: zoneY});
             break;
         case Clutter.KEY_v:
         case Clutter.KEY_V:
-            this._addHelper({kind: 'vertical', x: zoneX});
+            if (inZone)
+                this._addHelper({kind: 'vertical', x: zoneX});
+            break;
+        case Clutter.KEY_a:
+        case Clutter.KEY_A:
+            if (!control)
+                this._addCopyHere();
             break;
         case Clutter.KEY_g:
         case Clutter.KEY_G: {
@@ -827,12 +1001,14 @@ export class Overlay {
             break;
         case Clutter.KEY_d:
         case Clutter.KEY_D:
-            this._measuring = !this._measuring;
-            this._updateCursor(pointerX, pointerY);
+            if (inZone) {
+                this._measuring = !this._measuring;
+                this._updateCursor(pointerX, pointerY);
+            }
             break;
         case Clutter.KEY_Return:
         case Clutter.KEY_KP_Enter:
-            if (this._region && this._target) {
+            if (inZone && this._region && this._target) {
                 const zone = this._zoneOf(this._target);
                 const region = this._region;
                 this._addHelper({
@@ -872,6 +1048,70 @@ export class Overlay {
         this._onStateChanged();
     }
 
+    /** `A`: a linked copy of the set edited last, on the window under the pointer. */
+    _addCopyHere() {
+        const window = this._target?.window;
+        if (!window || !isManaged(window))
+            return;
+        const model = this._manager.lastEdited;
+        if (!model || !this._manager.models.includes(model)) {
+            notify('No set to copy. Edit or load a set first.');
+            return;
+        }
+        this._manager.addCopy(model, window);
+        // The window has a view now: what the pointer targets changes without it moving.
+        this._refreshPointer();
+        this._onStateChanged();
+    }
+
+    _picking() {
+        return this._mode === 'load' || this._copyPick !== null;
+    }
+
+    _endPick(window) {
+        if (this._copyPick)
+            this._endCopyPick(window);
+        else
+            this._endLoad(window);
+    }
+
+    /**
+     * Add a copy…: a crosshair and a hint until a window is clicked, without leaving edit mode;
+     * resolves with that window, or null on Escape or a click outside any window.
+     */
+    _pickCopyWindow(model) {
+        if (!this.editing || this._copyPick || this._drag)
+            return Promise.resolve(null);
+        this._copyPick = {done: null};
+        this._cursorGroup.hide();
+        this._loadHint.text = `Click a window to add a copy of “${model.name}” · Esc cancels`;
+        this._loadGroup.show();
+        this._placeHint(this._loadHint);
+        this._highlightAt(...global.get_pointer());
+        return new Promise(resolve => {
+            this._copyPick.done = resolve;
+        }).then(window => {
+            if (window && this.editing && this._manager.models.includes(model)) {
+                this._manager.addCopy(model, window);
+                this._refreshPointer();
+            }
+            this._onStateChanged();
+        });
+    }
+
+    _endCopyPick(window) {
+        const pick = this._copyPick;
+        if (!pick)
+            return;
+        this._copyPick = null;
+        this._loadGroup.hide();
+        if (this.editing) {
+            this._cursorGroup.show();
+            this._refreshPointer();
+        }
+        pick.done(window);
+    }
+
     /**
      * Shows a crosshair and a hint until a window is clicked; resolves with that window, or null
      * on Escape or a click outside any window.
@@ -892,11 +1132,11 @@ export class Overlay {
     }
 
     _highlightAt(x, y) {
-        const target = this._targetAt(x, y);
-        this._highlight.visible = Boolean(target);
-        if (!target)
+        const window = this._windowAt(x, y);
+        this._highlight.visible = Boolean(window);
+        if (!window)
             return;
-        const rect = target.window.get_frame_rect();
+        const rect = window.get_frame_rect();
         this._highlight.set_position(rect.x, rect.y);
         this._highlight.set_size(rect.width, rect.height);
     }
