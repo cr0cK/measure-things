@@ -75,10 +75,15 @@ The images are mockups. Where an image and the text disagree, the text wins.
   that disappears and comes back within that time is changed, not removed.
   - A new file whose name matches the ID it holds, and whose ID is free, appears in the library.
   - Any other new file is an import: a copy of an existing set, a file named differently, and a
-    file holding an ID deleted during this session, such as a set restored from the Trash. It gets
-    a fresh ID and `edited` set to the import time. `<new id>.json` is written first, then the
-    original is removed. When removing it fails, `<new id>.json` is removed again, so a later scan
-    never imports it twice, and the original shows as unavailable.
+    file holding an ID removed during this session, by the shell or by another program, such as a
+    set restored from the Trash. The copy is a new file: a fresh ID, revision 0, `edited` set to
+    the import time, and no migration marker. `<new id>.json` is written first, then the original
+    is removed. When removing it fails, `<new id>.json` is removed again, so a later scan never
+    imports it twice, and the original shows as unavailable.
+  - Before the original is removed, it is read again, and a disable does not cancel that read.
+    When another program changed it since it was copied, it is kept, and its own events import it
+    in turn; the copy of the older content stays as a set. The instant between that read and the
+    removal is a residual race, accepted.
   - A change to an existing file that makes its ID differ from its name removes the set it held,
     whose views leave the screen, and imports the file.
   - The startup scan applies the same rules, so files dropped while the shell or the extension was
@@ -88,8 +93,11 @@ The images are mockups. Where an image and the text disagree, the text wins.
     copies. A gesture in progress on that set is cancelled, every dialog and menu open for it
     closes without applying (see below), and the set's undo history starts over. A notice says
     so. An unlinked copy is not affected: its gesture, local changes, and history stay.
-  - A commit whose etag no longer matches the file is dropped. The failed write itself reloads
-    the file from disk, starts the undo history over, and shows one notice for the commits it
+  - A commit whose etag no longer matches the file is dropped, with every commit made from the
+    state the file has left: those merged into the same write, those queued after it, those made
+    while the file is read again, and those held by a deletion in progress. The failed write itself
+    reloads the file from disk, replaces the set in memory with it, so nothing stale is written with
+    the new etag, starts the undo history over, and shows one notice that counts every commit it
     dropped; the folder event that follows is ignored. A conflict is not a failed write, and does
     not set `not saved`.
   - A file removed there removes its set: its views leave the screen, unlinked copies included,
@@ -100,8 +108,14 @@ The images are mockups. Where an image and the text disagree, the text wins.
     exists. A first write creates the file, and the sets folder when it is missing. A file
     removed in the instant between that check and the write is recreated by the write; that
     residual race is accepted. Once a removal has settled, a file that comes back is judged as
-    an import, never as the shell's own write, whatever its text; an ID the shell deleted stays
-    covered by its tombstone.
+    an import, never as the shell's own write, whatever its text. The ID of every set in the
+    library whose file's removal settled, whether the shell or another program removed it, stays
+    covered by a tombstone for the rest of the shell's session, across a disable and re-enable: a
+    file that comes back with it is imported under a fresh ID, and the removed set's views stay
+    gone. A file that was unavailable when it was removed holds no set, and leaves no tombstone.
+  - When the sets folder itself is removed or moved away while the shell runs, every file it held
+    is judged removed, under the rule above. The next write creates the folder again and watches
+    it again.
 - When a set is replaced, removed, or made unavailable, every dialog and menu open for it closes
   without applying: **Set settings**, rename, the delete confirmation, the **Save as new set…**
   name dialog, and its badge menu. A file chooser answer that arrives later is ignored. Rename and
@@ -122,9 +136,12 @@ The images are mockups. Where an image and the text disagree, the text wins.
   past 200 characters, or empty once trimmed, the file is invalid. A numeric suffix shortens the
   name before it, so the whole stays within 200 characters.
 - Two sets never share a name. A name that is already taken gets a numeric suffix, `Project A 2`,
-  when a set is created, renamed, or found in the folder. Among files found with the same name,
-  the one edited earliest keeps it, then the lower ID. A suffix given to a file found in the
-  folder is written to that file once.
+  when a set is created, renamed, or found in the folder. Among files found together with the
+  same name, by the startup scan, the one edited earliest keeps it, then the lower ID. A file
+  found while the shell runs, new or edited by another program, never takes a name from a set
+  already in the library or on screen: the file gets the suffix. A suffix given to a file found
+  in the folder is written to that file once, the reload after a conflict included. That write
+  increments the revision by one and keeps `edited`: a suffix is not an edit.
 - Nothing reattaches after a restart: windows have no stable identity. The user loads a set onto
   a window from the menu.
 
@@ -237,7 +254,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
   (`Ctrl` turns it off), and makes the zone **fixed**. Nothing is detected automatically: the edge
   stays where it is released.
 - While an edge is dragged, the zone stays within the window frame and at least 40 × 40 stage
-  pixels, or the whole frame when the window is smaller.
+  pixels, or the whole frame when the window is smaller. A fixed zone that lies partly outside
+  the frame first becomes its intersection with the frame, grown back to 40 × 40 when smaller,
+  when one of its edges starts being dragged; then the edge moves. When its corner was outside the
+  frame, the corner moves, and the helpers with it.
 - A fixed zone is stored in the window actor's units, stage pixels divided by k, the scale of the
   actor's children: 1 in logical layout mode, the window's geometry scale in physical layout mode.
   It is rounded to whole stage pixels when the drag ends, so it stays on the content when the window
@@ -284,8 +304,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
   it (see [Rendering](#rendering)).
 - **Priority** under the pointer, over every view of the target window: a badge first, then a
   zone edge, within 4 pixels along its whole length, then helpers, then the zone that targeting
-  picks. Among equal hits, the view targeted last wins, then the view stacked higher: the smaller
-  zone, then the newer. So the edge of a larger zone can be dragged from inside a smaller one,
+  picks. Equal hits are hits of the same class, two badges, two edges, or two helpers; the zone
+  class holds one view, the one targeting picks, so a larger zone never wins over a smaller one
+  inside it. Among equal hits, the view targeted last, the latched view or else the current target,
+  wins, then the view stacked higher: the smaller zone, then the newer. So the edge of a larger zone can be dragged from inside a smaller one,
   and coinciding edges belong to the view being worked on.
 - A zone edge is grabbed only once the pointer has moved 3 pixels from the press. A press on an
   edge released before that acts as a press on what lies under the edge: a helper, or the zone.
@@ -517,13 +539,27 @@ The panel menu manages the sets: which ones are on screen, and the library.
 - What it finds, with each level's numbers fixed by tuning:
   - a **guide** is an axis-aligned line whose edge coverage, the length of screen edge along it,
     is over a fraction of the zone's size;
+  - two guides within 1 pixel of each other are one, the two boundaries of a 1-pixel line: the
+    one with the longer edge coverage is kept. A 2-pixel line keeps its two edges;
   - a **rectangle** is the bounding box of a connected region of one color, within a color
-    tolerance, that fills at least a given share of its box. A region the size of the zone, the
-    background, is skipped. Regions nested in another are kept;
-  - a guide within 1 pixel of a rectangle's edge is dropped.
+    tolerance, that fills at least 85% of its box, at every level. The share is counted row by
+    row: on each row of the box, the region counts from its first pixel to its last, so what lies
+    inside it, such as a card's text, counts as filled, and an outline around other content is a
+    rectangle. A region the size of the zone, the background, is skipped. Regions nested in another
+    are kept, except a rectangle whose every edge is within 1 pixel of a larger one's, such as a
+    card's 1-pixel border and its interior: the larger is kept;
+  - at Low, a rectangle also spans at least 80% of the zone's width or height, or covers at least
+    10% of its area: the bands, columns, and quarters of the layout, not the cards in them. A
+    full-width band at least Low's smallest rectangle high passes, form fields included; that
+    trade-off of fixed thresholds is accepted. Medium and High have no such rule;
+  - a guide within 1 pixel of a kept rectangle's edge is dropped, whatever its extent, since a
+    guide spans the zone.
 - Found helpers sit on pixel boundaries, rounded to stage pixels exactly as snapping rounds, so a
   found guide lands where snapping would put it. They are stored in CSS pixels relative to the
   zone's corner like any helper.
+- Only the device pixels fully inside the zone are read. At a fractional scale, a pixel the zone
+  only partly covers is left out, so the window's own edge is never found as a guide. A capture
+  that does not hold every one of those pixels is a capture failure, never cropped.
 - When the set already has helpers, a light confirmation comes first, in the badge menu:
   `Replace the <n> helpers with the ones found?`, with *Cancel* and *Replace*. `<n>` counts every
   stored helper, hidden ones included. `Esc` cancels the confirmation only. The found helpers
@@ -532,8 +568,10 @@ The panel menu manages the sets: which ones are on screen, and the library.
 - A run closes the badge menu, then takes a fresh capture of the zone, with every actor of the
   extension hidden for that paint (see [Edit mode](#edit-mode)), then shows them again.
 - It keeps at most 30 guides, the longest edge coverage first, and 30 rectangles, the largest area
-  first. Slots one kind leaves unused go to the other. Ties are broken by position, top to bottom
-  then left to right.
+  first, 60 helpers in all. The first 30 rectangles are taken, and the guides on their edges
+  dropped. Slots one kind leaves unused go to the other: rectangles past the first 30 take the
+  slots the remaining guides leave vacant, each one dropping the guides on its own edges, and this
+  repeats until no slot is vacant. Ties are broken by position, top to bottom then left to right.
 - A successful run marks the set as just found. Any other commit, undo, or redo clears the mark;
   closing the menu, leaving edit mode, or changing the selection does not.
   - Changing the tolerance while the mark is set runs it again, without asking, and the new result
@@ -543,11 +581,15 @@ The panel menu manages the sets: which ones are on screen, and the library.
 - `Ctrl+Z` undoes it in one step.
 - It refuses, and nothing changes, with a notice that says why, when:
   - the zone is **covered**: a mapped, not minimized window above the target window in the stack,
-    on the same workspace, overlaps the zone's visible part. The Shell's own UI does not count;
+    on the same workspace, overlaps the zone's visible part. The Shell's own UI does not count. It
+    is checked when the run starts and before it commits, and on every restack while it runs: a
+    restack that covers the zone at any moment refuses the run, even when undone before its end;
   - the **capture fails**: the zone is not fully on the stage, or the capture returns fewer pixels
     than the zone;
   - the result is **stale**: the set's revision, the zone's geometry, or the window changed while
-    it ran.
+    it ran. A gesture on the set, or on a linked copy, makes it stale; one on an unlinked copy does
+    not. So does the window being minimized, moved to another workspace, or closed, or the active
+    workspace changing, at any moment of the run, even when undone before its end.
 
   The helpers and the history stay as they were. A new run cancels one in progress.
 - **Speed**: a run, from the capture to the commit, on a 3840 × 2160 zone at scale 1, completes in 3
