@@ -2,6 +2,7 @@
 code: SET
 status: done
 version: v0.3
+amended: [v0.4]
 created: 2026-11-01
 builds-on: PIX
 tracking: "#8"
@@ -78,7 +79,7 @@ The images are mockups. Where an image and the text disagree, the text wins.
   - Any other new file is an import: a copy of an existing set, a file named differently, and a
     file holding an ID removed during this session, by the shell or by another program, such as a
     set restored from the Trash. The copy is a new file: a fresh ID, revision 0, `edited` set to
-    the import time, and no migration marker. `<new id>.json` is written first, then the original
+    the import time, and no `migrated` field. `<new id>.json` is written first, then the original
     is removed. When removing it fails, `<new id>.json` is removed again, so a later scan never
     imports it twice, and the original shows as unavailable.
   - Before the original is removed, it is read again, and a disable does not cancel that read.
@@ -652,23 +653,12 @@ The preferences only customize the extension. They hold no set content.
 
 ## Migration from v0.2
 
-- On the first start of v0.3, when the v0.2 settings hold helpers, a mockup image, or non-default
-  grid settings, they become one new set, named `Untitled 1` with the usual suffix rule:
-  - every position is taken relative to the primary monitor's top-left corner, guides,
-    rectangles, and the mockup alike, so the layout keeps its shape. Values are converted from
-    stage pixels to CSS pixels with the v0.2 browser zoom and, in physical layout mode, the
-    primary monitor's scale. Negative positions are kept and stored, but lie outside every zone,
-    so those helpers stay hidden; **Clear helpers** removes them;
-  - the helper color and browser zoom become the set's;
-  - the grid settings and the mockup image, opacity, density, and visibility come along. The
-    helpers' visibility comes from **Show helpers**.
-- Past 1,000 helpers, the migration keeps the first 1,000 and a notice says how many were left
-  out.
-- The set is not shown: the user loads it.
-- The set file records that it comes from the migration. The migration marker is written only
-  after that file is saved. On start, a missing marker with such a file already present writes
-  the marker and creates nothing, so an interrupted migration never makes two sets.
-- The old keys stay untouched for one release, then go: v0.4 removes them (#14).
+- v0.3 turned the v0.2 settings into one set, `Untitled 1`, on its first start. Since v0.4 nothing
+  migrates: the schema no longer has the v0.2 keys (helpers, **Show helpers**, helper color,
+  browser zoom, grid, and mockup) or the `migrated` marker, and an upgrade straight from v0.2
+  starts with an empty library. The README says to upgrade through v0.3 to keep v0.2 helpers.
+- A set file from that migration keeps its `"migrated": true`, read and written as it is; nothing
+  sets it on any other file.
 
 ## Removed from v0.2
 
