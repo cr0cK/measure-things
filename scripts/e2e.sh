@@ -182,7 +182,7 @@ expect "!!Main.panel.statusArea['$UUID']" true 'adds its indicator to the top ba
 
 # Since v0.4 nothing migrates: the v0.2 keys are not in the schema, and the library holds only the
 # seeded file, which loads as it is and stays off screen.
-expect "['helpers', 'zoom', 'migrated', 'grid-columns', 'mockup-file'].some(key => $EXTENSION._settings.settings_schema.has_key(key))" \
+expect "['helpers', 'show-helpers', 'color', 'zoom', 'grid-columns', 'grid-gutter', 'grid-margin', 'grid-max-width', 'mockup-file', 'mockup-visible', 'mockup-opacity', 'mockup-density', 'mockup-position', 'migrated'].some(key => $EXTENSION._settings.settings_schema.has_key(key))" \
     false 'the schema has none of the v0.2 keys'
 expect "$MANAGER.store.entries().map(e => e.name).join()" 'Untitled 1' 'no set is made from settings'
 MIGRATED=$(shell_eval "$E2E.entry('Untitled 1').id")
@@ -195,6 +195,13 @@ expect "$MANAGER.models.length" 0 'and is not shown'
 # so the block covers stage pixels 500 to 740 across and 350 to 510 down.
 open_window Page 200 150 800x600 '#3d3846' '300,200,240,160,#e01b24'
 open_window Other 1100 150 400x300 '#241f31'
+
+# A migrated set keeps its mark through a commit.
+shell_eval "$MANAGER.load('$MIGRATED', $E2E.win('Other')); $MANAGER.toggleGrid($MANAGER.modelOf('$MIGRATED'));" >/dev/null
+expect "$E2E.file('$MIGRATED').migrated + ' ' + $E2E.file('$MIGRATED').grid.visible" 'true true' \
+    'a commit keeps the migrated mark of a set file'
+shell_eval "const model = $MANAGER.modelOf('$MIGRATED'); $MANAGER.toggleGrid(model); $MANAGER.removeFromScreen(model);" >/dev/null
+expect "$E2E.file('$MIGRATED').grid.visible + ' ' + $MANAGER.models.length" 'false 0' 'the set goes back as it was'
 
 press_keys Super_L Shift_L m
 expect "$OVERLAY.editing && Main.modalCount" 1 'the edit shortcut enters edit mode'
