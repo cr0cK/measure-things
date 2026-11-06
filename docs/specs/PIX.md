@@ -2,6 +2,7 @@
 code: PIX
 status: shipped
 version: v0.2
+created: 2026-10-31
 builds-on: OVL
 replaced-by: SET
 ---
@@ -9,9 +10,10 @@ replaced-by: SET
 # Measure Things — PIX specification
 
 Reading the screen's pixels: area measuring, snapping, the picker's loupe, and the mockup. It
-predates the spec delivery process, so it has no plans. SET replaced its sections on the layer,
-helpers, units, edit mode, the column grid, the mockup, and the preferences, and the color picker's
-rule on hiding the layer.
+predates the spec delivery process, so it has no plans. It replaced the sections of OVL on the
+layer, helpers, units, edit mode, the column grid, the color picker, and the preferences. SET
+replaced its sections on the layer, helpers, units, edit mode, the column grid, the mockup, and the
+preferences, and the color picker's rule on hiding the layer.
 
 ## Goal
 
