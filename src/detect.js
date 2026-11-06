@@ -71,15 +71,20 @@ const size = ({fraction, floor}, length) => Math.max(floor, Math.round(fraction 
 
 /** A growable set of regions, found while the rows go by. */
 class Regions {
-    constructor() {
+    constructor(width) {
+        this._Extent = width <= 0x10000 ? Uint16Array : Uint32Array;
         this._capacity = 256;
         this.parent = new Int32Array(this._capacity);
         this.minX = new Int32Array(this._capacity);
         this.maxX = new Int32Array(this._capacity);
         this.minY = new Int32Array(this._capacity);
         this.maxY = new Int32Array(this._capacity);
-        // The sum over the rows of the distance from the region's first pixel to its last.
-        this.span = new Int32Array(this._capacity);
+        // Per region, the first and last pixel on each of its rows so far, flat: min, max, min, max...
+        // from row `minY`, `used` of them, in 16 bits unless the zone is wider than that. A region
+        // alive is on every row since it began, so the list has no gap; a merge takes the hull of
+        // both lists row by row, into the list of the region that began first.
+        this.extent = [];
+        this.used = new Int32Array(this._capacity);
         this.rowMin = new Int32Array(this._capacity);
         this.rowMax = new Int32Array(this._capacity);
         this.seen = new Int32Array(this._capacity);
@@ -89,7 +94,7 @@ class Regions {
 
     _grow() {
         this._capacity *= 2;
-        for (const name of ['parent', 'minX', 'maxX', 'minY', 'maxY', 'span', 'rowMin', 'rowMax', 'seen']) {
+        for (const name of ['parent', 'minX', 'maxX', 'minY', 'maxY', 'used', 'rowMin', 'rowMax', 'seen']) {
             const bigger = new Int32Array(this._capacity);
             bigger.set(this[name]);
             this[name] = bigger;
@@ -111,9 +116,26 @@ class Regions {
         this.maxX[id] = -1;
         this.minY[id] = y;
         this.maxY[id] = y;
-        this.span[id] = 0;
+        // A freed id keeps its list, and the next region of that id reuses it.
+        this.used[id] = 0;
         this.seen[id] = 0;
         return id;
+    }
+
+    /** Adds the first and last pixel of the region's next row. */
+    push(id, first, last) {
+        let list = this.extent[id];
+        const used = this.used[id];
+        if (!list) {
+            list = this.extent[id] = new this._Extent(8);
+        } else if (used === list.length) {
+            const bigger = new this._Extent(used * 2);
+            bigger.set(list);
+            list = this.extent[id] = bigger;
+        }
+        list[used] = first;
+        list[used + 1] = last;
+        this.used[id] = used + 2;
     }
 
     find(id) {
@@ -129,18 +151,30 @@ class Regions {
         return root;
     }
 
-    /** Merges two roots into the lower id, which is returned. */
+    /** Merges two roots into the one that began first, which is returned. */
     union(a, b) {
         if (a === b)
             return a;
-        if (b < a)
+        if (this.minY[b] < this.minY[a] || (this.minY[b] === this.minY[a] && b < a))
             [a, b] = [b, a];
+        const from = this.extent[b];
+        const length = this.used[b];
+        if (length > 0) {
+            // `a` began first, so its list covers every row of `b`'s.
+            const into = this.extent[a];
+            const offset = (this.minY[b] - this.minY[a]) * 2;
+            for (let k = 0; k < length; k += 2) {
+                if (from[k] < into[offset + k])
+                    into[offset + k] = from[k];
+                if (from[k + 1] > into[offset + k + 1])
+                    into[offset + k + 1] = from[k + 1];
+            }
+        }
         this.parent[b] = a;
         this.minX[a] = Math.min(this.minX[a], this.minX[b]);
         this.maxX[a] = Math.max(this.maxX[a], this.maxX[b]);
         this.minY[a] = Math.min(this.minY[a], this.minY[b]);
         this.maxY[a] = Math.max(this.maxY[a], this.maxY[b]);
-        this.span[a] += this.span[b];
         return a;
     }
 }
@@ -173,7 +207,7 @@ export class Detector {
         this._rowCover = new Int32Array(height);
         this._labels = new Int32Array(width);
         this._above = new Int32Array(width);
-        this._regions = new Regions();
+        this._regions = new Regions(width);
         this._alive = [];
         this._found = [];
     }
@@ -255,7 +289,7 @@ export class Detector {
     /** Settles the labels of row `y` on their roots, counts its pixels, and frees what ended. */
     _account(y) {
         const {width, _labels: labels, _regions: regions, _alive: alive} = this;
-        const {minX, maxX, maxY, rowMin, rowMax, span, seen} = regions;
+        const {minX, maxX, maxY, rowMin, rowMax, seen} = regions;
         let x = 0;
         while (x < width) {
             const root = regions.find(labels[x]);
@@ -287,7 +321,7 @@ export class Detector {
                 this._finish(id);
                 regions.free.push(id);
             } else {
-                span[id] += rowMax[id] - rowMin[id] + 1;
+                regions.push(id, rowMin[id], rowMax[id]);
                 alive[kept++] = id;
             }
         }
@@ -296,7 +330,7 @@ export class Detector {
 
     /** A region that cannot grow any more: kept when it is big and full enough. */
     _finish(id) {
-        const {minX, maxX, minY, maxY, span} = this._regions;
+        const {minX, maxX, minY, maxY, extent, used} = this._regions;
         const width = maxX[id] + 1 - minX[id];
         const height = maxY[id] + 1 - minY[id];
         if (width < this._minWidth || height < this._minHeight)
@@ -304,7 +338,12 @@ export class Detector {
         if (width < this._spans * this.width && height < this._spans * this.height &&
             width * height < this._area * this.width * this.height)
             return;
-        if (span[id] < this._fill * width * height)
+        // The share of its box that the region spans, row by row.
+        let span = 0;
+        const rows = extent[id];
+        for (let k = 0; k < used[id]; k += 2)
+            span += rows[k + 1] - rows[k] + 1;
+        if (span < this._fill * width * height)
             return;
         if (width >= BACKGROUND * this.width && height >= BACKGROUND * this.height)
             return;

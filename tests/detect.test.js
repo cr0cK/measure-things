@@ -268,3 +268,66 @@ test('the pixels of a zone are those fully inside it, and none outside the captu
     assert.equal(pixelRange({x: -5, y: 0, width: 100, height: 100}, 1, 1600, 1000), null);
     assert.equal(pixelRange({x: 10, y: 10, width: 1, height: 100}, 1, 1600, 1000), null);
 });
+
+/** A black shape on white: `inside(x, y)` for x and y in the 100 × 100 box at (100, 100). */
+function shape(inside) {
+    const width = 400;
+    const height = 300;
+    const image = boxes(width, height, [255, 255, 255]);
+    for (let y = 100; y < 200; y++) {
+        for (let x = 100; x < 200; x++) {
+            if (inside(x - 100, y - 100))
+                image.data.set([0, 0, 0, 255], (y * width + x) * 4);
+        }
+    }
+    return image;
+}
+
+const RECTANGLE = [{kind: 'rectangle', x: 100, y: 100, width: 100, height: 100}];
+
+// Each shape and the rectangles it must give at High. Arms 20 wide and bars 20 high: opening up and
+// down, the rows of the box are all spanned from side to side (100%). Opening left or right, the
+// 60 middle rows span only the spine, 20 of 100 pixels (52% in all), so a thin one is no
+// rectangle; a spine 80 wide fills 88%.
+const SHAPES = {
+    'U': [(x, y) => x < 20 || x >= 80 || y >= 80, RECTANGLE],
+    'inverted U': [(x, y) => x < 20 || x >= 80 || y < 20, RECTANGLE],
+    'thin C': [(x, y) => y < 20 || y >= 80 || x < 20, []],
+    'thin reversed C': [(x, y) => y < 20 || y >= 80 || x >= 80, []],
+    'thick C': [(x, y) => y < 20 || y >= 80 || x < 80, RECTANGLE],
+    'thick reversed C': [(x, y) => y < 20 || y >= 80 || x >= 20, RECTANGLE],
+    // Spine 75 wide: 60 rows of 75 and 40 of 100 fill exactly 85%; 74 wide just misses it.
+    'C at 85%': [(x, y) => y < 20 || y >= 80 || x < 75, RECTANGLE],
+    'C at 84.4%': [(x, y) => y < 20 || y >= 80 || x < 74, []],
+    // The right arm begins 40 rows below the left branch, so the two lists start on different rows;
+    // the box is 90% spanned, and 68% if the lists were merged from the same row.
+    'staggered branches': [(x, y) => (y < 40 ? x < 75 : x < 20 || x >= 80) || y >= 80, RECTANGLE],
+    'L': [(x, y) => x < 20 || y >= 80, []],
+};
+
+test('a region fills its box by its row extents whichever way its branches join', () => {
+    for (const [name, [inside, expected]] of Object.entries(SHAPES)) {
+        const image = shape(inside);
+        for (const bandRows of [300, 1, 7, 64])
+            assert.deepEqual(detect(image, 'high', {bandRows}).rectangles, expected, `${name} ${bandRows}`);
+    }
+});
+
+test('a zone wider than 16 bits keeps its row extents', () => {
+    const width = 65560;
+    const image = boxes(width, 40, [255, 255, 255], [[width - 40, 10, 30, 20, [0, 0, 0]]]);
+    assert.deepEqual(detect(image, 'high').rectangles, [{kind: 'rectangle', x: width - 40, y: 10, width: 30, height: 20}]);
+});
+
+test('a region does not inherit the rows of a region that ended before it', () => {
+    // A 100 × 40 rectangle ends above a thin C, whose labels reuse its freed ones.
+    const image = shape((x, y) => y < 20 || y >= 80 || x < 20);
+    for (let y = 10; y < 50; y++) {
+        for (let x = 100; x < 200; x++)
+            image.data.set([0, 0, 0, 255], (y * 400 + x) * 4);
+    }
+    for (let y = 100; y < 200; y++)
+        image.data.set([255, 255, 255, 255], (y * 400 + 99) * 4);
+    assert.deepEqual(detect(image, 'high').rectangles,
+        [{kind: 'rectangle', x: 100, y: 10, width: 100, height: 40}]);
+});
