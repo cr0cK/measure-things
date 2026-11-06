@@ -1,4 +1,4 @@
-// Set files: parsing, validation, serialization, naming, and the v0.2 migration. Imports nothing
+// Set files: parsing, validation, serialization, naming. Imports nothing
 // from gi://, so node --test covers it. Helper geometry is CSS pixels relative to the zone's
 // top-left corner, at the set's browser zoom.
 
@@ -188,68 +188,4 @@ export function uniqueName(name, takenNames) {
 export function nextColor(usedColors) {
     const used = new Set(usedColors.map(color => color.toLowerCase()));
     return PALETTE.find(color => !used.has(color)) ?? PALETTE[0];
-}
-
-/**
- * The set that v0.2 settings become, as `{content, leftOut}`, or null when they hold nothing worth
- * keeping: no helpers, no mockup image, and the default grid. `leftOut` counts the helpers past
- * the limit. `toCss` converts a stage-pixel length to CSS pixels, and `origin` is the primary
- * monitor's top-left corner in stage pixels.
- */
-export function migrateSettings(old, {origin: [originX, originY], toCss}) {
-    const defaults = defaultContent();
-    const grid = {
-        columns: old.gridColumns,
-        gutter: old.gridGutter,
-        margin: old.gridMargin,
-        maxWidth: old.gridMaxWidth,
-    };
-    const gridChanged = Object.entries(grid).some(([key, value]) => value !== defaults.grid[key]);
-    let helpers = [];
-    try {
-        const raw = JSON.parse(old.helpers);
-        helpers = Array.isArray(raw) ? raw.map(parseHelper).filter(Boolean) : [];
-    } catch {
-        // Unreadable helpers migrate as none.
-    }
-    if (helpers.length === 0 && !old.mockupFile && !gridChanged)
-        return null;
-
-    const position = (value, axisOrigin) => roundCss(toCss(value - axisOrigin));
-    const leftOut = Math.max(0, helpers.length - MAX_HELPERS);
-    helpers = helpers.slice(0, MAX_HELPERS).map(helper => {
-        const moved = {kind: helper.kind};
-        if ('x' in helper)
-            moved.x = position(helper.x, originX);
-        if ('y' in helper)
-            moved.y = position(helper.y, originY);
-        if (helper.kind === 'rectangle') {
-            moved.width = roundCss(toCss(helper.width));
-            moved.height = roundCss(toCss(helper.height));
-        }
-        return moved;
-    });
-    const clamp = (value, [min, max], fallback) =>
-        (Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback);
-    const content = {
-        ...defaults,
-        color: COLOR_PATTERN.test(old.color) ? old.color.toLowerCase() : defaults.color,
-        zoom: clamp(old.zoom, ZOOM_RANGE, defaults.zoom),
-        helpersVisible: old.showHelpers,
-        grid: {
-            visible: false,
-            ...Object.fromEntries(Object.entries(grid).map(([key, value]) =>
-                [key, clamp(value, GRID_RANGES[key], defaults.grid[key])])),
-        },
-        mockup: {
-            file: old.mockupFile,
-            visible: Boolean(old.mockupFile) && old.mockupVisible,
-            x: position(old.mockupPosition[0], originX),
-            y: position(old.mockupPosition[1], originY),
-            opacity: clamp(old.mockupOpacity, OPACITY_RANGE, defaults.mockup.opacity),
-            density: clamp(old.mockupDensity, DENSITY_RANGE, defaults.mockup.density),
-        },
-        helpers,
-    };
-    return {content, leftOut};
 }

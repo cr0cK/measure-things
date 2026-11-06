@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end test: runs the checkout in a headless GNOME Shell with plain GTK test windows, drives
-# it with a virtual pointer and keyboard, and checks the migration from v0.2, sets and their views
+# it with a virtual pointer and keyboard, and checks sets and their views
 # on windows, editing, snapping, copies and zones, the badge menu, Set settings, the panel menu,
 # the color picker, the mockup, the click-through views, fractional scaling, and a clean disable.
 # Exits non-zero on any failed check or shell JS error.
@@ -8,14 +8,29 @@ set -euo pipefail
 
 # shellcheck source=scripts/headless.sh
 source "$(dirname "$0")/headless.sh"
-# Logical layout mode, which fractional scaling needs; at scale 1 it changes nothing. The v0.2
-# settings hold helpers and a grid, which the migration turns into a set.
+# Logical layout mode, which fractional scaling needs; at scale 1 it changes nothing. The sets
+# folder starts with one set file, named Untitled 1 and marked migrated as v0.3 wrote it, which
+# later checks count on.
 headless_seed() {
     gsettings set org.gnome.mutter experimental-features "['scale-monitor-framebuffer']"
-    local schema=org.gnome.shell.extensions.measure-things
-    gsettings set $schema helpers '[{"kind":"vertical","x":250},{"kind":"rectangle","x":100,"y":50,"width":250,"height":125}]'
-    gsettings set $schema zoom 125
-    gsettings set $schema grid-columns 4
+    mkdir -p "$XDG_DATA_HOME/measure-things/sets"
+    cat > "$XDG_DATA_HOME/measure-things/sets/0b5e7b3e-5c1d-4e0e-9a55-3f1f5a0c2d11.json" <<'JSON'
+{
+  "schema": 1,
+  "id": "0b5e7b3e-5c1d-4e0e-9a55-3f1f5a0c2d11",
+  "name": "Untitled 1",
+  "revision": 0,
+  "edited": "2026-01-01T00:00:00.000Z",
+  "migrated": true,
+  "color": "#ff2d95",
+  "zoom": 125,
+  "helpersVisible": true,
+  "tolerance": "medium",
+  "grid": {"visible": false, "columns": 4, "gutter": 24, "margin": 24, "maxWidth": 0},
+  "mockup": {"file": "", "visible": false, "x": 0, "y": 0, "opacity": 50, "density": 1},
+  "helpers": [{"kind": "vertical", "x": 200}, {"kind": "rectangle", "x": 80, "y": 40, "width": 200, "height": 100}]
+}
+JSON
 }
 headless_start "$0" "$@"
 
@@ -165,31 +180,16 @@ reactive_at() {
 
 expect "!!Main.panel.statusArea['$UUID']" true 'adds its indicator to the top bar'
 
-# Migration: the v0.2 helpers become a set in CSS pixels at the v0.2 zoom, not shown.
-wait_for "$EXTENSION._settings.get_boolean('migrated')"
+# Since v0.4 nothing migrates: the v0.2 keys are not in the schema, and the library holds only the
+# seeded file, which loads as it is and stays off screen.
+expect "['helpers', 'zoom', 'migrated', 'grid-columns', 'mockup-file'].some(key => $EXTENSION._settings.settings_schema.has_key(key))" \
+    false 'the schema has none of the v0.2 keys'
+expect "$MANAGER.store.entries().map(e => e.name).join()" 'Untitled 1' 'no set is made from settings'
 MIGRATED=$(shell_eval "$E2E.entry('Untitled 1').id")
-expect "$E2E.fileHelpers('$MIGRATED')" 'V 200 | R 80,40 200x100' \
-    'the migration turns the v0.2 helpers into a set, in CSS pixels'
+expect "$E2E.fileHelpers('$MIGRATED')" 'V 200 | R 80,40 200x100' 'a set file from the v0.2 migration loads as it is'
 expect "(f => [f.migrated, f.zoom, f.grid.columns, f.grid.visible].join())($E2E.file('$MIGRATED'))" \
-    'true,125,4,false' 'the migrated set keeps the zoom and the grid settings, and says where it comes from'
-expect "$MANAGER.models.length" 0 'the migrated set is not shown'
-
-# Past 1,000 helpers, the migration keeps the first 1,000 and says how many it left out. The check
-# migrates again from 1,003 helpers, then puts the library back as it was.
-shell_eval "const settings = $EXTENSION._settings;
-    settings.set_string('helpers', JSON.stringify(Array.from({length: 1003}, (_, i) => ({kind: 'vertical', x: i}))));
-    settings.set_boolean('migrated', false);
-    $MANAGER.store._entries.delete('$MIGRATED.json');
-    $MANAGER._migrate();" >/dev/null
-wait_for "$EXTENSION._settings.get_boolean('migrated')"
-expect "$MANAGER.store.entries().filter(e => e.id !== '$MIGRATED').map(e => $MANAGER.store.get(e.id).content.helpers.length).join()" \
-    1000 'the migration keeps at most 1,000 helpers'
-expect "Main.messageTray.getSources().flatMap(source => source.notifications).some(n => n.body.includes('3 v0.2 helpers'))" \
-    true 'the migration says how many helpers it left out'
-EXTRA=$(shell_eval "$MANAGER.store.entries().find(e => e.id !== '$MIGRATED').id")
-shell_eval "$MANAGER.delete('$EXTRA')" >/dev/null
-shell_eval "$MANAGER.store._settle('$MIGRATED.json'); $EXTENSION._settings.reset('helpers');" >/dev/null
-expect "$MANAGER.store.entries().map(e => e.name).join()" 'Untitled 1' 'the library is back to the migrated set'
+    'true,125,4,false' 'and keeps its migrated mark'
+expect "$MANAGER.models.length" 0 'and is not shown'
 
 # A page: a dark backdrop with a red block at CSS (300, 200), 240 × 160. Its frame is at (200, 150),
 # so the block covers stage pixels 500 to 740 across and 350 to 510 down.

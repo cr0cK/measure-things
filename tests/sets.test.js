@@ -8,7 +8,6 @@ import {
     SCHEMA_VERSION,
     badgeName,
     defaultContent,
-    migrateSettings,
     nextColor,
     nextUntitledName,
     parseSet,
@@ -109,72 +108,11 @@ test('gives a new set the first palette color nobody on screen uses', () => {
     assert.equal(nextColor(PALETTE), PALETTE[0]);
 });
 
-const V02 = {
-    helpers: '[]',
-    showHelpers: true,
-    color: '#ff2d95',
-    zoom: 100,
-    gridColumns: 12,
-    gridGutter: 24,
-    gridMargin: 24,
-    gridMaxWidth: 0,
-    mockupFile: '',
-    mockupVisible: false,
-    mockupOpacity: 50,
-    mockupDensity: 1,
-    mockupPosition: [0, 0],
-};
-
-test('migrates nothing from default v0.2 settings', () => {
-    assert.equal(migrateSettings(V02, {origin: [0, 0], toCss: v => v}), null);
-});
-
-test('migrates v0.2 helpers relative to the primary monitor, in CSS pixels', () => {
-    const {content, leftOut} = migrateSettings({
-        ...V02,
-        helpers: JSON.stringify([
-            {kind: 'vertical', x: 1700},
-            {kind: 'horizontal', y: 50},
-            {kind: 'rectangle', x: 1610, y: 110, width: 125, height: 50},
-        ]),
-        showHelpers: false,
-        color: '#33D17A',
-        zoom: 125,
-        mockupPosition: [1500, 0],
-    }, {origin: [1600, 100], toCss: value => value / 1.25});
-    assert.equal(leftOut, 0);
-    assert.deepEqual(content.helpers, [
-        {kind: 'vertical', x: 80},
-        {kind: 'horizontal', y: -40},
-        {kind: 'rectangle', x: 8, y: 8, width: 100, height: 40},
-    ]);
-    assert.equal(content.color, '#33d17a');
-    assert.equal(content.zoom, 125);
-    assert.equal(content.helpersVisible, false);
-    assert.deepEqual([content.mockup.x, content.mockup.y], [-80, -80]);
-});
-
-test('migrates a v0.2 mockup and non-default grid', () => {
-    const {content} = migrateSettings({
-        ...V02,
-        gridColumns: 6,
-        mockupFile: '/home/me/design.png',
-        mockupVisible: true,
-        mockupOpacity: 70,
-        mockupDensity: 2,
-    }, {origin: [0, 0], toCss: v => v});
-    assert.deepEqual(content.grid, {visible: false, columns: 6, gutter: 24, margin: 24, maxWidth: 0});
-    assert.deepEqual(content.mockup, {file: '/home/me/design.png', visible: true, x: 0, y: 0, opacity: 70, density: 2});
-    assert.deepEqual(content.helpers, []);
-});
-
-test('keeps the first 1,000 v0.2 helpers and counts the others', () => {
-    const helpers = Array.from({length: MAX_HELPERS + 24}, (_, i) => ({kind: 'vertical', x: i}));
-    const {content, leftOut} = migrateSettings({...V02, helpers: JSON.stringify(helpers)},
-        {origin: [0, 0], toCss: v => v});
-    assert.equal(content.helpers.length, MAX_HELPERS);
-    assert.equal(content.helpers.at(-1).x, MAX_HELPERS - 1);
-    assert.equal(leftOut, 24);
+test('reads and writes a migrated set file as it is', () => {
+    const text = serializeSet({...sample(), migrated: true});
+    const {set} = parseSet(text);
+    assert.equal(set.migrated, true);
+    assert.equal(serializeSet(set), text);
 });
 
 test('counts names in Unicode characters and does not normalize a name read from a file', () => {
