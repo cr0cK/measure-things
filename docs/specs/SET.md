@@ -653,10 +653,14 @@ The preferences only customize the extension. They hold no set content.
 
 ## Migration from v0.2
 
-- v0.3 turned the v0.2 settings into one set, `Untitled 1`, on its first start. Since v0.4 nothing
-  migrates: the schema no longer has the v0.2 keys (helpers, **Show helpers**, helper color,
-  browser zoom, grid, and mockup) or the `migrated` marker, and an upgrade straight from v0.2
-  starts with an empty library. The README says to upgrade through v0.3 to keep v0.2 helpers.
+- v0.3 turned the v0.2 helpers, grid, and mockup into a set on its first start. Since v0.4 nothing
+  migrates, and the extension no longer reads the v0.2 settings. The schema drops their keys,
+  `helpers`, `show-helpers`, `color`, `zoom`, `grid-columns`, `grid-gutter`, `grid-margin`,
+  `grid-max-width`, `mockup-file`, `mockup-visible`, `mockup-opacity`, `mockup-density`, and
+  `mockup-position`, and the `migrated` marker. `unit`, `color-format`, `show-badges`, and the
+  shortcuts stay.
+- An upgrade straight from v0.2 creates no set from the v0.2 settings; the files already in the
+  sets folder load as usual. The README says to upgrade through v0.3 to keep v0.2 helpers.
 - A set file from that migration keeps its `"migrated": true`, read and written as it is; nothing
   sets it on any other file.
 
