@@ -23,8 +23,9 @@ delivery is recorded as stamps in its tracking issue.
 
 ## Specs
 
-- `OVL`: the screen-wide overlay, guides, rectangles, column grid, and color picker of v0.1.
-- `PIX`: reading the screen's pixels: area measuring, snapping, the picker's loupe, and the
-  mockup, in v0.2.
-- `SET`: window-scoped helpers in saved sets, with main views and copies, in v0.3. Tracking
-  issue #8.
+- `OVL` (2026-10-31): the screen-wide overlay, guides, rectangles, column grid, and color picker
+  of v0.1, replaced by PIX.
+- `PIX` (2026-10-31): reading the screen's pixels: area measuring, snapping, the picker's loupe,
+  and the mockup, in v0.2, partly replaced by SET.
+- `SET` (2026-11-01): window-scoped helpers in saved sets, with main views and copies, in v0.3.
+  Tracking issue #8.
