@@ -120,6 +120,39 @@ press_keys d
 press_keys Escape
 magick "$WORK/measure.png" -crop 760x300+260+120 +repage "$OUT/measure.png"
 
+# Two versions of a page in a split view, as test-window.js blocks: Find helpers on the left one,
+# and a linked copy on the right one, where the wider button and the lower card stand out.
+shell_eval "$PREFS.delete(global.get_current_time())" >/dev/null
+wait_for "!$PREFS"
+SPLIT="global.display.list_all_windows().find(w => w.title === 'Split')"
+# A page at X with a button of width $2 and a middle card at height $3.
+page() {
+    echo "$1,0,500,48,#1f2a44" "$(($1 + 20)),68,460,140,#e8edf7" "$(($1 + 40)),152,$2,36,#4f7cff" \
+        "$(($1 + 20)),228,140,180,#e8edf7" "$(($1 + 180)),$3,140,180,#e8edf7" \
+        "$(($1 + 340)),228,140,180,#e8edf7" "$1,552,500,48,#1f2a44"
+}
+# Under 80% of the monitor in each direction, so Mutter does not maximize it.
+# shellcheck disable=SC2046
+gjs -m "$ROOT/scripts/test-window.js" Split 1016x600 '#ffffff' $(page 0 120 228) \
+    '500,0,16,600,#c4c9d4' $(page 516 144 240) >"$WORK/client.log" 2>&1 &
+wait_for "!!$SPLIT?.get_compositor_private()?.visible" 30
+shell_eval "$SPLIT.move_frame(true, 132, 60)" >/dev/null
+wait_for "(r => r.x === 132 && r.y === 60)($SPLIT.get_frame_rect())"
+sleep 1
+shell_eval "$OVERLAY.enterEdit()" >/dev/null
+wait_for "!!$OVERLAY._snapshot"
+shell_eval "const view = $EXTENSION._manager.createSet($SPLIT);
+    view.model.name = 'Landing page';
+    view.setZone({x: 0, y: 0, width: 500, height: 600});
+    $OVERLAY._finder.run(view, 'medium')" >/dev/null
+shell_eval "const manager = $EXTENSION._manager;
+    manager.addCopy(manager.modelForWindow($SPLIT), $SPLIT).setZone({x: 516, y: 0, width: 500, height: 600})" >/dev/null
+shell_eval "$OVERLAY.exitEdit()" >/dev/null
+pointer_move 1270 790
+sleep 1
+screenshot "$WORK/compare.png"
+magick "$WORK/compare.png" -crop 1056x640+112+40 +repage "$OUT/compare.png"
+
 if grep -E 'JS (ERROR|WARNING)|Measure Things:' "$WORK/shell.log"; then
     echo "The shell logged JavaScript errors; check the screenshots." >&2
 fi

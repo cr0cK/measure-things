@@ -1,7 +1,7 @@
 {
   "uuid": "measure-things@cr0ck.github.io",
   "name": "Measure Things",
-  "description": "Measuring tools for web and UI work, drawn above every window: pixel guides with live gaps, measuring rectangles, a column grid over the focused window, and a color picker. Helpers let clicks through to the page until you edit them.",
+  "description": "Measuring tools for web and UI work, drawn on any window and kept in saved sets: pixel guides with live gaps, measuring rectangles, area measuring with snapping, helpers found from the screen, a column grid, a mockup image, and a color picker. Helpers let clicks through to the page until you edit them.",
   "shell-version": [
     "49",
     "50"
