@@ -299,6 +299,9 @@ const SHAPES = {
     // Spine 75 wide: 60 rows of 75 and 40 of 100 fill exactly 85%; 74 wide just misses it.
     'C at 85%': [(x, y) => y < 20 || y >= 80 || x < 75, RECTANGLE],
     'C at 84.4%': [(x, y) => y < 20 || y >= 80 || x < 74, []],
+    // The right arm begins 40 rows below the left branch, so the two lists start on different rows;
+    // the box is 90% spanned, and 68% if the lists were merged from the same row.
+    'staggered branches': [(x, y) => (y < 40 ? x < 75 : x < 20 || x >= 80) || y >= 80, RECTANGLE],
     'L': [(x, y) => x < 20 || y >= 80, []],
 };
 
@@ -314,4 +317,17 @@ test('a zone wider than 16 bits keeps its row extents', () => {
     const width = 65560;
     const image = boxes(width, 40, [255, 255, 255], [[width - 40, 10, 30, 20, [0, 0, 0]]]);
     assert.deepEqual(detect(image, 'high').rectangles, [{kind: 'rectangle', x: width - 40, y: 10, width: 30, height: 20}]);
+});
+
+test('a region does not inherit the rows of a region that ended before it', () => {
+    // A 100 × 40 rectangle ends above a thin C, whose labels reuse its freed ones.
+    const image = shape((x, y) => y < 20 || y >= 80 || x < 20);
+    for (let y = 10; y < 50; y++) {
+        for (let x = 100; x < 200; x++)
+            image.data.set([0, 0, 0, 255], (y * 400 + x) * 4);
+    }
+    for (let y = 100; y < 200; y++)
+        image.data.set([255, 255, 255, 255], (y * 400 + 99) * 4);
+    assert.deepEqual(detect(image, 'high').rectangles,
+        [{kind: 'rectangle', x: 100, y: 10, width: 100, height: 40}]);
 });
