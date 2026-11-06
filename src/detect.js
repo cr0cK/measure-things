@@ -71,7 +71,8 @@ const size = ({fraction, floor}, length) => Math.max(floor, Math.round(fraction 
 
 /** A growable set of regions, found while the rows go by. */
 class Regions {
-    constructor() {
+    constructor(width) {
+        this._Extent = width <= 0x10000 ? Uint16Array : Uint32Array;
         this._capacity = 256;
         this.parent = new Int32Array(this._capacity);
         this.minX = new Int32Array(this._capacity);
@@ -79,7 +80,7 @@ class Regions {
         this.minY = new Int32Array(this._capacity);
         this.maxY = new Int32Array(this._capacity);
         // Per region, the first and last pixel on each of its rows so far, flat: min, max, min, max...
-        // from row `minY`, in 16 bits (a zone is under 65536 pixels wide), `used` of them. A region
+        // from row `minY`, `used` of them, in 16 bits unless the zone is wider than that. A region
         // alive is on every row since it began, so the list has no gap; a merge takes the hull of
         // both lists row by row, into the list of the region that began first.
         this.extent = [];
@@ -126,9 +127,9 @@ class Regions {
         let list = this.extent[id];
         const used = this.used[id];
         if (!list) {
-            list = this.extent[id] = new Uint16Array(8);
+            list = this.extent[id] = new this._Extent(8);
         } else if (used === list.length) {
-            const bigger = new Uint16Array(used * 2);
+            const bigger = new this._Extent(used * 2);
             bigger.set(list);
             list = this.extent[id] = bigger;
         }
@@ -206,7 +207,7 @@ export class Detector {
         this._rowCover = new Int32Array(height);
         this._labels = new Int32Array(width);
         this._above = new Int32Array(width);
-        this._regions = new Regions();
+        this._regions = new Regions(width);
         this._alive = [];
         this._found = [];
     }

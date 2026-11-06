@@ -296,6 +296,9 @@ const SHAPES = {
     'thin reversed C': [(x, y) => y < 20 || y >= 80 || x >= 80, []],
     'thick C': [(x, y) => y < 20 || y >= 80 || x < 80, RECTANGLE],
     'thick reversed C': [(x, y) => y < 20 || y >= 80 || x >= 20, RECTANGLE],
+    // Spine 75 wide: 60 rows of 75 and 40 of 100 fill exactly 85%; 74 wide just misses it.
+    'C at 85%': [(x, y) => y < 20 || y >= 80 || x < 75, RECTANGLE],
+    'C at 84.4%': [(x, y) => y < 20 || y >= 80 || x < 74, []],
     'L': [(x, y) => x < 20 || y >= 80, []],
 };
 
@@ -305,4 +308,10 @@ test('a region fills its box by its row extents whichever way its branches join'
         for (const bandRows of [300, 1, 7, 64])
             assert.deepEqual(detect(image, 'high', {bandRows}).rectangles, expected, `${name} ${bandRows}`);
     }
+});
+
+test('a zone wider than 16 bits keeps its row extents', () => {
+    const width = 65560;
+    const image = boxes(width, 40, [255, 255, 255], [[width - 40, 10, 30, 20, [0, 0, 0]]]);
+    assert.deepEqual(detect(image, 'high').rectangles, [{kind: 'rectangle', x: width - 40, y: 10, width: 30, height: 20}]);
 });
