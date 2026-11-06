@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/cr0cK/measure-things/compare/v0.3.0...v0.4.0) (2026-11-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove the v0.2 settings keys and their migration ([#30](https://github.com/cr0cK/measure-things/issues/30))
+
+### Changed
+
+* remove the v0.2 settings keys and their migration ([#30](https://github.com/cr0cK/measure-things/issues/30)) ([aaf0d83](https://github.com/cr0cK/measure-things/commit/aaf0d83a2cc20f404df2700fa4769fd02e8c6d64))
+
 ## [0.3.0](https://github.com/cr0cK/measure-things/compare/v0.2.0...v0.3.0) (2026-11-06)
 
 
