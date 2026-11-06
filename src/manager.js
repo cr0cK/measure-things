@@ -10,7 +10,6 @@ import {
     MAX_FILE_BYTES,
     MAX_HELPERS,
     defaultContent,
-    migrateSettings,
     nextColor,
     nextUntitledName,
     serializeSet,
@@ -73,7 +72,6 @@ export class Manager {
         this._mutterSignal = this._mutterSettings.connect('changed::experimental-features',
             () => this._syncViews());
         this.ready = this.store.load()
-            .then(() => this._migrate())
             .catch(error => console.warn(`Measure Things: could not read the sets: ${error.message}`));
     }
 
@@ -779,51 +777,5 @@ export class Manager {
     toggleGrid(model) {
         model.content.grid.visible = !model.content.grid.visible;
         this.commit(model);
-    }
-
-    /**
-     * Turns the v0.2 settings into a set once. The marker is written only after the file, and a
-     * set file from an earlier, interrupted run stops a second one.
-     */
-    async _migrate() {
-        const settings = this._settings;
-        if (settings.get_boolean('migrated'))
-            return;
-        const migrated = this.store.entries().some(entry => entry.id && this.store.get(entry.id).migrated);
-        const primary = Main.layoutManager.primaryMonitor ?? {x: 0, y: 0, geometry_scale: 1};
-        const scale = this.isLogical() ? 1 : primary.geometry_scale;
-        const zoom = settings.get_int('zoom') / 100;
-        const result = migrated ? null : migrateSettings({
-            helpers: settings.get_string('helpers'),
-            showHelpers: settings.get_boolean('show-helpers'),
-            color: settings.get_string('color'),
-            zoom: settings.get_int('zoom'),
-            gridColumns: settings.get_int('grid-columns'),
-            gridGutter: settings.get_int('grid-gutter'),
-            gridMargin: settings.get_int('grid-margin'),
-            gridMaxWidth: settings.get_int('grid-max-width'),
-            mockupFile: settings.get_string('mockup-file'),
-            mockupVisible: settings.get_boolean('mockup-visible'),
-            mockupOpacity: settings.get_int('mockup-opacity'),
-            mockupDensity: settings.get_int('mockup-density'),
-            mockupPosition: settings.get_value('mockup-position').deepUnpack(),
-        }, {origin: [primary.x, primary.y], toCss: value => value / scale / zoom});
-        if (result) {
-            const {content, leftOut} = result;
-            const written = await this.store.write({
-                id: GLib.uuid_string_random(),
-                name: uniqueName('Untitled 1', this.takenNames()),
-                revision: 0,
-                edited: Date.now(),
-                migrated: true,
-                content,
-            });
-            if (!written)
-                return;
-            if (leftOut > 0)
-                notify(`${leftOut} v0.2 helpers were left out: a set holds at most ${MAX_HELPERS}.`);
-            this._changed();
-        }
-        settings.set_boolean('migrated', true);
     }
 }

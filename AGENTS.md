@@ -13,7 +13,7 @@ new `src/*.js` modules on its own.
 | Path | Role |
 |---|---|
 | `src/extension.js` | Panel indicator and menu (sets on screen, library), keyboard shortcuts, wiring of the manager, the overlay, and the picker |
-| `src/manager.js` | The sets on screen: models, their views, commits, undo, load, rename, delete, migration from v0.2 |
+| `src/manager.js` | The sets on screen: models, their views, commits, undo, load, rename, delete |
 | `src/view.js` | A set drawn inside a window actor: helpers, labels, gaps, grid, mockup, badge; the window's geometry |
 | `src/overlay.js` | The stage-wide input layer: edit mode, targeting the window under the pointer, area measuring, snapping, loading a set onto a window |
 | `src/store.js` | The sets folder: one JSON file per set, read at start, watched, written atomically through a queue per file; applies what `library.js` decides |
@@ -33,7 +33,7 @@ new `src/*.js` modules on its own.
 | `src/detect.js` | Find helpers detection: guides on long edges, rectangles around uniform regions, fed rows of pixels (pure) |
 | `src/finder.js` | Find helpers run: covered check, capture, banded reads, staleness, commit |
 | `src/library.js` | What a change in the sets folder means once it settled: own write or not, add, import, replace, remove, conflict, startup scan, notices (pure) |
-| `src/sets.js` | Set file parsing and writing, names, colors, the v0.2 migration (pure) |
+| `src/sets.js` | Set file parsing and writing, names, colors (pure) |
 | `src/schemas/` | GSettings schema; settings live under `org.gnome.shell.extensions.measure-things` |
 | `tests/` | `node --test` suites for the pure modules; `tests/fixtures/images.js` draws the synthetic test images and their ground truth, `tests/golden/` holds the detector's output per image and level |
 | `docs/specs/` | Product contracts, one per spec code, and the project settings of the spec delivery process in its README.md |
