@@ -12,6 +12,7 @@ import {
     defaultContent,
     nextColor,
     nextUntitledName,
+    resolveName,
     serializeSet,
     uniqueName,
 } from './sets.js';
@@ -666,6 +667,14 @@ export class Manager {
         // A load counts as an edit for the library's order.
         this._write(model);
         return view;
+    }
+
+    /**
+     * Sets the name of a model as Set settings and the badge menu do, before their commit: trimmed,
+     * an empty name keeps the current one, and a taken name gets a numeric suffix.
+     */
+    setName(model, name) {
+        model.name = resolveName(name, model.name, this.takenNames(model));
     }
 
     /** Renames a set from the library. It is not an undo step: the history keeps the new name. */

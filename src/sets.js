@@ -184,6 +184,14 @@ export function uniqueName(name, takenNames) {
     return withSuffix();
 }
 
+/**
+ * The name a set takes when `text` is typed for it, in Set settings or the badge menu: trimmed, the
+ * current name when it is empty, and a numeric suffix when taken by another set.
+ */
+export function resolveName(text, current, takenNames) {
+    return uniqueName(text.trim() || current, takenNames);
+}
+
 /** The first palette color that no set on screen uses, or the first one when all are. */
 export function nextColor(usedColors) {
     const used = new Set(usedColors.map(color => color.toLowerCase()));

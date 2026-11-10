@@ -96,6 +96,20 @@
   font-weight: bold;
 }
 
+.measure-things-menu-title-button {
+  padding: 0;
+  border-radius: 4px;
+}
+
+.measure-things-menu-title-button:hover,
+.measure-things-menu-title-button:focus {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.measure-things-title-entry {
+  min-width: 14em;
+}
+
 .measure-things-menu-subtitle {
   font-size: 0.85em;
   color: rgba(255, 255, 255, 0.6);

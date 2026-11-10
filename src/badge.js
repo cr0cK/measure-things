@@ -6,7 +6,7 @@ import * as BoxPointer from 'resource:///org/gnome/shell/ui/boxpointer.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
-import {TOLERANCES} from './sets.js';
+import {MAX_NAME_LENGTH, TOLERANCES} from './sets.js';
 
 const TOLERANCE_LABELS = {low: 'Low', medium: 'Medium', high: 'High'};
 
@@ -32,16 +32,32 @@ export class BadgeMenu {
         this._manager = manager;
         this._destroyId = 0;
         this._confirmRow = null;
+        // The entry that edits the main view's name, while it does.
+        this._nameEntry = null;
+        this._titleButton = null;
 
         this.menu = new PopupMenu.PopupMenu(view.badgeActor, 0.5, St.Side.BOTTOM);
         this.menu.actor.add_style_class_name('measure-things-badge-menu');
         Main.uiGroup.add_child(this.menu.actor);
-        // Escape on a confirmation that asks for it cancels the confirmation, not the menu. The
-        // menu manager closes the menu on Escape from the same signal, so this is connected first.
+        // Escape on the name entry leaves it, and on a confirmation that asks for it cancels the
+        // confirmation, not the menu. The menu manager closes the menu on Escape from the same
+        // signal, so this is connected first. A press anywhere in the menu but the entry ends the
+        // edit, before the item under it handles the click.
         this.menu.actor.connect('captured-event', (_actor, event) => {
-            const escape = event.type() === Clutter.EventType.KEY_PRESS &&
-                event.get_key_symbol() === Clutter.KEY_Escape;
-            if (!escape || !this._confirmRow || !this._escapeCancels)
+            const type = event.type();
+            if (type === Clutter.EventType.BUTTON_PRESS || type === Clutter.EventType.TOUCH_BEGIN) {
+                const target = global.stage.get_event_actor(event);
+                if (this._nameEntry && !(target && this._nameEntry.contains(target)))
+                    this._endNameEdit(true);
+                return Clutter.EVENT_PROPAGATE;
+            }
+            if (type !== Clutter.EventType.KEY_PRESS || event.get_key_symbol() !== Clutter.KEY_Escape)
+                return Clutter.EVENT_PROPAGATE;
+            if (this._nameEntry) {
+                this._endNameEdit(false);
+                return Clutter.EVENT_STOP;
+            }
+            if (!this._confirmRow || !this._escapeCancels)
                 return Clutter.EVENT_PROPAGATE;
             this._confirmRow.destroy();
             return Clutter.EVENT_STOP;
@@ -56,6 +72,7 @@ export class BadgeMenu {
         this.menu.connect('open-state-changed', (_menu, open) => {
             if (open || this._destroyId)
                 return;
+            this._endNameEdit(true);
             onClosed();
             // An action closes the menu while its item still handles the click.
             this._destroyId = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
@@ -66,10 +83,24 @@ export class BadgeMenu {
         });
     }
 
-    _header(title, subtitle) {
+    /** The header: a title, which a click turns into a text entry when `onTitle` is given, and a subtitle. */
+    _header(title, subtitle, onTitle = null) {
         const header = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         const titles = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL});
-        titles.add_child(new St.Label({text: title, style_class: 'measure-things-menu-title'}));
+        this._titles = titles;
+        this._title = new St.Label({text: title, style_class: 'measure-things-menu-title'});
+        if (onTitle) {
+            this._titleButton = new St.Button({
+                child: this._title,
+                can_focus: true,
+                x_align: Clutter.ActorAlign.START,
+                style_class: 'measure-things-menu-title-button',
+            });
+            this._titleButton.connect('clicked', onTitle);
+            titles.add_child(this._titleButton);
+        } else {
+            titles.add_child(this._title);
+        }
         const label = new St.Label({text: subtitle, style_class: 'measure-things-menu-subtitle'});
         titles.add_child(label);
         header.add_child(titles);
@@ -77,10 +108,55 @@ export class BadgeMenu {
         return label;
     }
 
+    /** Turns the main view's name into a text entry holding it, selected. */
+    _startNameEdit() {
+        if (this._nameEntry || !this.menu)
+            return;
+        // A confirmation in the menu goes: the edit is what the user does now.
+        this._confirmRow?.destroy();
+        const entry = new St.Entry({
+            text: this._view.model.name,
+            can_focus: true,
+            x_expand: true,
+            style_class: 'measure-things-entry measure-things-title-entry',
+        });
+        entry.clutter_text.max_length = MAX_NAME_LENGTH;
+        entry.clutter_text.connect('activate', () => this._endNameEdit(true, {keepFocus: true}));
+        this._nameEntry = entry;
+        this._titleButton.hide();
+        this._titles.insert_child_at_index(entry, 0);
+        entry.grab_key_focus();
+        entry.clutter_text.set_selection(0, -1);
+    }
+
+    /**
+     * Leaves the name entry. With `apply`, the set takes the name it holds as Set settings would:
+     * one commit, one undo step. Without it, the name is dropped. The menu manager's grab needs the
+     * key focus back in the menu once the entry is gone.
+     */
+    _endNameEdit(apply, {keepFocus = true} = {}) {
+        const entry = this._nameEntry;
+        if (!entry)
+            return;
+        this._nameEntry = null;
+        const text = entry.text;
+        entry.destroy();
+        this._titleButton?.show();
+        const model = this._view.model;
+        if (apply && this._manager.models.includes(model)) {
+            this._manager.setName(model, text);
+            this._manager.commit(model);
+        }
+        if (this._title)
+            this._title.text = model.name;
+        if (keepFocus && this.menu?.isOpen)
+            this.menu.actor.grab_key_focus();
+    }
+
     _buildMain(view, {onSettings, onSaveAs, onAddCopy, onFind, onTolerance}) {
         const model = view.model;
         const manager = this._manager;
-        this._saved = this._header(model.name, savedText(model));
+        this._saved = this._header(model.name, savedText(model), () => this._startNameEdit());
 
         const chips = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
         const box = new St.BoxLayout({style_class: 'measure-things-chips'});
@@ -296,7 +372,12 @@ export class BadgeMenu {
         this.menu.open(BoxPointer.PopupAnimation.NONE);
     }
 
-    close() {
+    /**
+     * Closes the menu. A name being edited is dropped, as the set may be gone or replaced; with
+     * `apply`, the set takes it, as when the user closes the menu.
+     */
+    close({apply = false} = {}) {
+        this._endNameEdit(apply, {keepFocus: false});
         this.menu?.close(BoxPointer.PopupAnimation.NONE);
         this.destroy();
     }
@@ -310,6 +391,7 @@ export class BadgeMenu {
         if (this._destroyId)
             GLib.source_remove(this._destroyId);
         this._destroyId = 0;
+        this._nameEntry = null;
         if (!this.menu)
             return;
         const menu = this.menu;

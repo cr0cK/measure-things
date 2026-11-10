@@ -497,6 +497,87 @@ expect "$E2E.bounds($E2E.view('Page')._grid.get_child_at_index(0)).split(',').sl
 press_keys Escape
 expect "$OVERLAY.badgeMenu + ' ' + $OVERLAY.editing" 'null true' 'Escape closes the badge menu first'
 
+# Inline rename: a click on the name of a main view turns it into an entry.
+NAME_ENTRY="$OVERLAY.badgeMenu._nameEntry"
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$OVERLAY.badgeMenu._titleButton"
+expect "[!!$NAME_ENTRY, $NAME_ENTRY.text, $NAME_ENTRY.contains(global.stage.key_focus),
+    $NAME_ENTRY.clutter_text.get_selection(), $OVERLAY.badgeMenu._titleButton.visible].join()" \
+    'true,Untitled 2,true,Untitled 2,false' 'a click on the name opens an entry holding it, selected and focused'
+click_actor "$NAME_ENTRY"
+expect "!!$NAME_ENTRY + ' ' + $OVERLAY.badgeMenu.menu.isOpen" 'true true' 'a click inside the entry keeps editing'
+press_keys Control_L a
+# Typing and Enter rename: the file, the header, the badge, and the panel library follow, as one undo step.
+type_text 'Renamed'
+press_keys Return
+expect "[$E2E.model('Page').name, $E2E.file('$PAGE').name, $E2E.labels($OVERLAY.badgeMenu.menu.box)[0],
+    $E2E.view('Page')._badgeLabel.text, $E2E.entry('Renamed')?.id === '$PAGE', $E2E.entry('Untitled 2') === null,
+    $OVERLAY.badgeMenu.menu.isOpen, $OVERLAY.badgeMenu._nameEntry === null, $OVERLAY.badgeMenu._titleButton.visible].join()" \
+    'Renamed,Renamed,Renamed,Renamed,true,true,true,true,true' \
+    'Enter renames the set: file, header, badge, and library entry, with the menu still open'
+# Esc leaves the entry without renaming, and keeps the menu open; a second Esc closes it.
+click_actor "$OVERLAY.badgeMenu._titleButton"
+type_text 'Dropped'
+press_keys Escape
+expect "[$E2E.model('Page').name, $E2E.file('$PAGE').name, $E2E.labels($OVERLAY.badgeMenu.menu.box)[0],
+    $OVERLAY.badgeMenu.menu.isOpen, $OVERLAY.badgeMenu._nameEntry === null, $OVERLAY.editing].join()" \
+    'Renamed,Renamed,Renamed,true,true,true' 'Esc leaves the entry without renaming and keeps the menu open'
+press_keys Escape
+expect "$OVERLAY.badgeMenu + ' ' + $OVERLAY.editing" 'null true' 'the next Esc closes the menu'
+# An empty name keeps the current one, and renames nothing.
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$OVERLAY.badgeMenu._titleButton"
+press_keys BackSpace
+type_text '   '
+press_keys Return
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box)[0]" \
+    'Renamed Renamed Renamed' 'an empty name keeps the current one'
+# A taken name gets a numeric suffix, and a name is trimmed.
+click_actor "$OVERLAY.badgeMenu._titleButton"
+type_text '  Untitled 1 '
+press_keys Return
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box)[0]" \
+    'Untitled 1 2 Untitled 1 2 Untitled 1 2' 'a taken name gets a numeric suffix'
+# Editing the name dismisses the Find helpers confirmation.
+shell_eval "$OVERLAY.badgeMenu.findItem.activate()" >/dev/null
+expect "!!$OVERLAY.badgeMenu._confirmRow" true 'Find helpers asks before replacing helpers'
+click_actor "$OVERLAY.badgeMenu._titleButton"
+expect "$OVERLAY.badgeMenu._confirmRow + ' ' + !!$NAME_ENTRY" 'null true' 'editing the name dismisses the confirmation'
+type_text 'Dialog name'
+# A click on a menu action renames first, so the dialog it opens shows the new name.
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Set settings…')"
+wait_for "!!$E2E.dialog()?.visible"
+expect "$E2E.entries($E2E.dialog())[0].text + ' ' + $E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name" \
+    'Dialog name Dialog name Dialog name' 'a click on Set settings… renames first, and the dialog shows the new name'
+click_actor "$E2E.button($E2E.dialog(), 'Cancel')"
+wait_for "!$E2E.dialog()?.visible"
+# The menu closing renames too.
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$OVERLAY.badgeMenu._titleButton"
+type_text 'Closed name'
+pointer_click 1300 500
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $OVERLAY.badgeMenu" \
+    'Closed name Closed name null' 'a click outside closes the menu and renames'
+# One Ctrl+Z restores the previous name, one step per rename.
+pointer_move 600 600
+press_keys Control_L z
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name" 'Dialog name Dialog name' \
+    'one Ctrl+Z undoes one rename'
+press_keys Control_L z
+expect "$E2E.model('Page').name" 'Untitled 1 2' 'the history holds one step per rename'
+# A set replaced while its name is edited closes the menu without renaming.
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$OVERLAY.badgeMenu._titleButton"
+type_text 'Never'
+shell_eval "$OVERLAY._onSetReplaced($MANAGER.setOf($E2E.model('Page')))" >/dev/null
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $OVERLAY.badgeMenu" \
+    'Untitled 1 2 Untitled 1 2 null' 'a set replaced while its name is edited closes the menu without renaming'
+# Back to the name the next checks expect.
+press_keys Control_L z
+press_keys Control_L z
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $E2E.model('Page').content.grid.visible" \
+    'Untitled 2 Untitled 2 true' 'the renames undone leave the set as it was'
+
 # Set settings: one commit, and one undo step.
 click_actor "$E2E.view('Page').badgeActor"
 click_actor "$E2E.item($OVERLAY.badgeMenu, 'Set settings…')"
@@ -913,6 +994,8 @@ expect "$E2E.fileHelpers('$SPLIT_SET')" 'V 80' 'and the set is saved when the dr
 click_actor "$HOST_COPY.badgeActor"
 expect "$OVERLAY.badgeMenu?.view === $HOST_COPY && $E2E.labels($OVERLAY.badgeMenu.menu.box).slice(0, 2).join(' / ')" \
     "Copy of $SPLIT_NAME / Follows the main view" 'the badge of a copy opens its own menu'
+expect "$OVERLAY.badgeMenu._titleButton + ' ' + $OVERLAY.badgeMenu._nameEntry" 'null null' \
+    'the header of a copy cannot be edited'
 expect "$E2E.item($OVERLAY.badgeMenu, 'Reset zone').sensitive + ' ' + $E2E.item($OVERLAY.badgeMenu, 'Save as new set…').visible" \
     'false false' 'Reset zone is unavailable on an automatic zone, and Save as new set… on a linked copy'
 click_actor "$E2E.item($OVERLAY.badgeMenu, 'Linked')"
