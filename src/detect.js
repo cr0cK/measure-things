@@ -367,7 +367,10 @@ export class Detector {
      * takes none in. The `count` positions along the side are in the edge map from `start`, `step`
      * apart; there, `flag` is set when the first pixel beyond the box differs from the box's own.
      * Going out from it, `outward` entries apart, the first entry with `flag` set after `t` steps
-     * is the far boundary of a line `t` thick. `room` is how many steps the zone leaves for it.
+     * is the far boundary of a line `t` thick, unless the next entry has `flag` set too: the pixel
+     * beyond the boundary would then be a line of one pixel itself, the second half of a line
+     * drawn across two device pixels (a border at a fractional scale), and the line is thicker.
+     * `room` is how many steps the zone leaves for it.
      * Only the positions where `covers(i)` holds vote: the region's own pixel is at the box's side,
      * as its row extents tell, and not a notch of it.
      */
@@ -382,7 +385,8 @@ export class Detector {
             if (!(edges[at] & flag) || !covers(i))
                 continue;
             for (let t = 1; t <= reach; t++) {
-                if (edges[at + t * outward] & flag) {
+                if ((edges[at + t * outward] & flag) &&
+                    (t === reach || !(edges[at + (t + 1) * outward] & flag))) {
                     counts[t]++;
                     break;
                 }

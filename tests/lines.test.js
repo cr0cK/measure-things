@@ -212,3 +212,71 @@ test('the fill share is that of the moved box, and a side is judged on the box b
     ]);
     assert.deepEqual(foundWhole(image, 'high').find(r => r[0] === 20 && r[1] === 20), [20, 20, 101, 101]);
 });
+
+// A 1-CSS-pixel border at 125% is drawn across two device pixels, each blended with its side of the
+// border. These are the two pixels GTK drew between the panels of the end-to-end window `#e6eaf2`,
+// `#1f2a44`, `#d5dbe8`, as GNOME Shell 49 and 50 captured them; the pixels differ from each other by
+// 11 and 19, on both sides of the medium tolerance of 12.
+const PANEL = [230, 234, 242];
+const PANEL_RIGHT = [213, 219, 232];
+const BLENDED = {
+    'GNOME 49': [[97, 107, 125], [86, 96, 118]],
+    'GNOME 50': [[136, 143, 158], [118, 126, 144]],
+    'pixels as far apart as can be': [[31, 42, 68], [255, 255, 255]],
+};
+const blended = (pair, vertical = true) => {
+    const fills = vertical
+        ? [[20, 20, 180, 260, PANEL], [200, 20, 1, 260, pair[0]], [201, 20, 1, 260, pair[1]],
+            [202, 20, 178, 260, PANEL_RIGHT]]
+        : [[20, 20, 360, 130, PANEL], [20, 150, 360, 1, pair[0]], [20, 151, 360, 1, pair[1]],
+            [20, 152, 360, 128, PANEL_RIGHT]];
+    return scene(fills);
+};
+
+test('a border drawn across two blended device pixels is taken in whole by both panels, at every level', () => {
+    for (const [name, pair] of Object.entries(BLENDED)) {
+        for (const level of LEVELS) {
+            for (const scale of [1.25, 1.5, 2]) {
+                assert.deepEqual(foundWhole(blended(pair), level, {scale}),
+                    [[20, 20, 182, 260], [200, 20, 180, 260]], `${name}, ${level} at ${scale}`);
+                assert.deepEqual(foundWhole(blended(pair, false), level, {scale}),
+                    [[20, 20, 360, 132], [20, 150, 360, 130]], `${name}, ${level} at ${scale}, across`);
+            }
+        }
+    }
+});
+
+test('the two panels overlap on the blended border, so their edges are on one line', () => {
+    for (const [name, pair] of Object.entries(BLENDED)) {
+        const [a, b] = foundWhole(blended(pair), 'medium', {scale: 1.25});
+        assert.equal(a[0] + a[2] - b[0], 2, name);
+    }
+});
+
+test('at scale 1 a line is one pixel, whatever follows it', () => {
+    // No room for a second pixel: each panel takes the pixel next to it, so they only touch.
+    for (const level of ['medium', 'high'])
+        assert.deepEqual(foundWhole(blended(BLENDED['GNOME 50']), level), [[20, 20, 181, 260], [201, 20, 179, 260]], level);
+});
+
+test('a crisp 1-pixel border at a fractional scale stays one pixel', () => {
+    for (const level of LEVELS) {
+        for (const scale of [1.25, 1.5, 2])
+            assert.deepEqual(foundWhole(split(1), level, {scale}), [[20, 20, 181, 260], [200, 20, 180, 260]], `${level} at ${scale}`);
+    }
+});
+
+test('a border drawn across two pixels is not taken in when its second half is a region of its own', () => {
+    // The second pixel is followed by more of the same color: it is no half of a line but the
+    // start of a region, so the line is the one pixel.
+    const image = scene([[20, 20, 180, 260, BLUE], [200, 20, 1, 260, INK], [201, 20, 179, 260, SAND]]);
+    assert.deepEqual(foundWhole(image, 'medium', {scale: 1.25}), [[20, 20, 181, 260], [200, 20, 180, 260]]);
+});
+
+test('three lines in a row at 125% are not all taken in', () => {
+    // The thickness cannot go past ceil(scale) = 2: the third pixel stays out.
+    const image = scene([[20, 20, 180, 260, BLUE], [200, 20, 1, 260, INK], [201, 20, 1, 260, WHITE],
+        [202, 20, 1, 260, INK], [203, 20, 177, 260, SAND]]);
+    const [a] = foundWhole(image, 'medium', {scale: 1.25});
+    assert.equal(a[2], 182);
+});
