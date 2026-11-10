@@ -2,7 +2,7 @@
 code: SET
 status: done
 version: v0.3
-amended: [v0.4]
+amended: [v0.4, v0.5]
 created: 2026-11-01
 builds-on: PIX
 tracking: "#8"
@@ -287,7 +287,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - A vertical guide is a 1-pixel line across its zone at an x position, labeled `x <position>` at
   the top of the zone. A horizontal guide is the same at a y position, labeled `y <position>` at
   the left of the zone.
-- Neighboring parallel guides show the distance between them on a line joining them.
+- Neighboring parallel guides show the distance between them on a line joining them. A distance
+  line, between guides or from a selected rectangle, ends in a filled arrowhead at each end, 5 stage
+  pixels long and 5 wide, in the line's color, its tip on the edge the line reaches, so it never
+  reads as a guide. A line shorter than 12 stage pixels has no arrowheads.
 - A selected rectangle shows the distance to its nearest neighbor on each side: a guide, or a
   rectangle that overlaps it across the gap. Touching or overlapping neighbors show nothing.
 - A rectangle is a 1-pixel outline with a light fill, labeled with its size, `width × height`,
@@ -342,6 +345,16 @@ The images are mockups. Where an image and the text disagree, the text wins.
   row, horizontal ones on its column: within the zone's visible part for helpers, within the window
   frame for zone edges. Moving a whole rectangle does not snap. Holding `Ctrl` while dragging turns
   snapping off.
+- A dragged guide also snaps to a long edge anywhere along it: a boundary that is a screen edge on
+  at least 16 consecutive stage pixels (`16 × scale` device pixels, rounded up) of the zone's
+  visible part, so an edge that ends above or below the pointer counts, and most text does not.
+  Candidate boundaries are the same as on the pointer's row or column, within the same bounds, and
+  convert to a stage position the same way. The nearest edge within 6 stage pixels wins, from the
+  pointer's row or column or a long one; at equal distance, the one first in reading order, left or
+  top. Rectangle edges and zone edges search the pointer's row or column only.
+- The pixels a guide's long edges need, the band within 6 stage pixels of it across the zone's
+  visible part, are read once per position, like a line, and a drag released while they are read
+  finishes after the read, as for a line. A read that fails adds no long edge.
 - **Measuring areas**: `D` toggles area measuring. The crosshair is replaced by the extent of the
   pixels that share the color under the pointer, along its row and column within the zone, with
   their width and height. `Enter` adds a rectangle on that area.
@@ -399,6 +412,13 @@ The images are mockups. Where an image and the text disagree, the text wins.
 
 - Header: the set's name, then `Main view · saved`, or `Main view · not saved` after a failed
   write.
+- A click on the name turns it into a text entry holding the name, selected. `Enter`, a click
+  elsewhere in the menu, or the menu closing renames the set as a name saved in **Set settings**
+  does: one commit and one undo step, a taken name gets a numeric suffix, and an empty name keeps
+  the current one. A click on a menu action renames first, then runs the action, so a dialog it
+  opens shows the new name. `Esc` leaves the entry without renaming and keeps the menu open; it
+  reaches the entry before anything else in the menu. Editing the name dismisses a **Find helpers**
+  confirmation. A copy's header cannot be edited.
 - Chips, each saved with the set and applying to the main view and its linked copies:
   - **Helpers**: shows the guides and rectangles outside edit mode. Edit mode always shows them.
   - **Grid**: shows the column grid.
@@ -554,6 +574,17 @@ The panel menu manages the sets: which ones are on screen, and the library.
     10% of its area: the bands, columns, and quarters of the layout, not the cards in them. A
     full-width band at least Low's smallest rectangle high passes, form fields included; that
     trade-off of fixed thresholds is accepted. Medium and High have no such rule;
+  - a rectangle takes in a thin line along one of its sides, so that two regions separated by a
+    1-pixel border both reach across it: their edges are drawn on the border, one line on screen,
+    and each size counts the border, as a CSS border box does. A side takes in a line `t` device
+    pixels thick, `t` from 1 to `ceil(scale)`, when on at least 85% of the positions along the side,
+    the first pixel beyond the region's box is an edge with the region's pixel, at the level's
+    tolerance, and the pixel `t` beyond the box is the first one past it that is an edge with the
+    pixel before it: one far boundary at the same distance. The smallest such `t` wins. The far
+    boundary must lie inside the zone, so a line against the zone's edge is not taken in. Every
+    side is judged against the region's own box, before any side moves, and the 85% filter, the
+    nested merge, the Low filter, and the 30-rectangle cap apply to the moved boxes. Rectangles that
+    then share a box are one;
   - a guide within 1 pixel of a kept rectangle's edge is dropped, whatever its extent, since a
     guide spans the zone.
 - Found helpers sit on pixel boundaries, rounded to stage pixels exactly as snapping rounds, so a
