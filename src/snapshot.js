@@ -6,6 +6,8 @@ Gio._promisify(Shell.Screenshot, 'composite_to_stream');
 
 // Lines kept per axis: enough for a drag that wanders across a few rows and columns.
 const CACHED_LINES = 8;
+// Bands kept, for the long edges of a dragged guide: one per position of the guide.
+const CACHED_BANDS = 16;
 
 /**
  * A still image of the stage, kept on the GPU, from which small areas and lines of pixels are
@@ -25,6 +27,7 @@ export class Snapshot {
         this.width = texture.get_width();
         this.height = texture.get_height();
         this._lines = {row: new Map(), column: new Map()};
+        this._bands = new Map();
     }
 
     /**
@@ -100,6 +103,54 @@ export class Snapshot {
                     callback();
             });
         return null;
+    }
+
+    /**
+     * An area of device pixels, like area(), kept in a cache of its own: the pixels if they have
+     * been read already; otherwise null, and `onRead` runs once the read ends. An area that could
+     * not be read stays null; bandReading() tells the two apart.
+     */
+    band(x, y, width, height, onRead) {
+        const key = `${x},${y},${width},${height}`;
+        const entry = this._bands.get(key);
+        if (entry?.area || entry?.failed)
+            return entry.area;
+        if (entry) {
+            entry.callbacks.add(onRead);
+            return null;
+        }
+
+        const pending = {area: null, failed: false, callbacks: new Set([onRead])};
+        this._bands.set(key, pending);
+        // A band being read is never evicted: its callbacks and the drag waiting on it need it.
+        for (const [oldKey, old] of this._bands) {
+            if (this._bands.size <= CACHED_BANDS)
+                break;
+            if (old.area || old.failed)
+                this._bands.delete(oldKey);
+        }
+        this.area(x, y, width, height)
+            .then(area => {
+                if (area)
+                    pending.area = area;
+                else
+                    pending.failed = true;
+            })
+            .catch(error => {
+                pending.failed = true;
+                console.warn(`Measure Things: could not read the screen: ${error.message}`);
+            })
+            .finally(() => {
+                for (const callback of pending.callbacks)
+                    callback();
+            });
+        return null;
+    }
+
+    /** Whether a band is being read. */
+    bandReading(x, y, width, height) {
+        const entry = this._bands.get(`${x},${y},${width},${height}`);
+        return Boolean(entry && !entry.area && !entry.failed);
     }
 
     /** Whether the line through a stage coordinate is being read. */

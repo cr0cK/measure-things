@@ -68,13 +68,15 @@ const keep = value => value;
 /**
  * The helper as it was at drag start, moved or resized by the pointer delta. `snapX(x)` and
  * `snapY(y)` pull the dragged guide or edges onto nearby screen edges, before a rectangle dragged
- * past its opposite edge flips; whole rectangle moves do not snap.
+ * past its opposite edge flips; whole rectangle moves do not snap. A guide goes through
+ * `snapGuideX` or `snapGuideY` instead, which also snap to long edges.
  */
-export function dragHelper(origin, part, dx, dy, snapX = keep, snapY = keep) {
+export function dragHelper(origin, part, dx, dy, snapX = keep, snapY = keep,
+    snapGuideX = snapX, snapGuideY = snapY) {
     if (origin.kind === 'horizontal')
-        return {...origin, y: snapY(origin.y + dy)};
+        return {...origin, y: snapGuideY(origin.y + dy)};
     if (origin.kind === 'vertical')
-        return {...origin, x: snapX(origin.x + dx)};
+        return {...origin, x: snapGuideX(origin.x + dx)};
     if (part === 'move' || part === 'inside')
         return {...origin, x: origin.x + dx, y: origin.y + dy};
 
