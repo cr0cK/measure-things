@@ -180,3 +180,45 @@ test('a boundary exactly the radius away counts despite the rounding of fraction
     // One device pixel farther is still out.
     assert.equal(nearestBoundary(flat, at125, 6 * 1.25, undefined, {extra: [17]}), null);
 });
+
+// A line of RGBA pixels from [red, green, blue] triples.
+const rgbLine = colors => ({
+    data: Uint8Array.from(colors.flatMap(color => [...color, 255])),
+    step: 4,
+    length: colors.length,
+});
+
+test('a boundary between colors that differ on one channel only is found, whichever channel', () => {
+    // The gray fixtures above differ on every channel at once.
+    for (const channel of [0, 1, 2]) {
+        const tint = Array.from({length: 3}, (_, i) => (i === channel ? 13 : 0));
+        const pixels = rgbLine([[0, 0, 0], [0, 0, 0], tint, tint]);
+        assert.equal(nearestBoundary(pixels, 2, 1), 2, `channel ${channel}`);
+        assert.deepEqual(regionAround(pixels, 0), {start: 0, end: 2}, `channel ${channel}`);
+    }
+});
+
+test('a difference of exactly the tolerance is the same surface, one more is an edge', () => {
+    for (const channel of [0, 1, 2]) {
+        const color = level => Array.from({length: 3}, (_, i) => (i === channel ? level : 100));
+        const same = rgbLine([color(100), color(100), color(112), color(112)]);
+        assert.equal(nearestBoundary(same, 2, 1), null, `channel ${channel}`);
+        assert.deepEqual(regionAround(same, 0), {start: 0, end: 4}, `channel ${channel}`);
+        const edge = rgbLine([color(100), color(100), color(113), color(113)]);
+        assert.equal(nearestBoundary(edge, 2, 1), 2, `channel ${channel}`);
+        assert.deepEqual(regionAround(edge, 0), {start: 0, end: 2}, `channel ${channel}`);
+    }
+});
+
+test('a region is judged against the pixel under the point, so a gradient does not run on forever', () => {
+    // Each step is within the tolerance of its neighbor, but not of the pixel under the point.
+    const ramp = line([0, 10, 20, 30, 40, 50, 60]);
+    assert.deepEqual(regionAround(ramp, 3), {start: 2, end: 5});
+    assert.deepEqual(regionAround(ramp, 0), {start: 0, end: 2});
+});
+
+test('a region reaches both ends of the line', () => {
+    const flat = line([7, 7, 7, 7]);
+    for (const index of [0, 1, 3])
+        assert.deepEqual(regionAround(flat, index), {start: 0, end: 4}, `from ${index}`);
+});
