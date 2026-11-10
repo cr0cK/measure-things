@@ -6,6 +6,7 @@ import {
     SNAP_DISTANCE,
     longEdgeBand,
     longEdges,
+    measureRun,
     nearestBoundary,
     regionAround,
     snapPosition,
@@ -319,4 +320,32 @@ test('a snapped position stays in the zone, halves of a device pixel rounding ou
     // It ends at stage 110, device 137.5: boundary 138 is in, 139 out.
     assert.equal(snapPosition(at(138), 1.25, 109, {origin: 90, length: 20}), 110.4);
     assert.equal(snapPosition(at(139), 1.25, 109, {origin: 90, length: 20}), 109);
+});
+
+test('an area runs over the same color around the pointer pixel, up to the pointer\'s last pixel', () => {
+    // A block from device pixel 10 to 19, between two others.
+    const block = line([...Array(10).fill(0), ...Array(10).fill(200), ...Array(10).fill(0)]);
+    const whole = {origin: 0, length: 30};
+    assert.deepEqual(measureRun(block, 15, 1, whole), {start: 10, end: 20});
+    // The pointer on the block's last pixel, at 100% and at 125%: still the block.
+    assert.deepEqual(measureRun(block, 19.9, 1, whole), {start: 10, end: 20});
+    assert.deepEqual(measureRun(block, 15.9, 1.25, whole), {start: 8, end: 16});
+    // The pointer on the next pixel measures the next block.
+    assert.deepEqual(measureRun(block, 20, 1, whole), {start: 20, end: 30});
+});
+
+test('an area stops at the zone, rounded to the nearest device pixel', () => {
+    const flat = line(Array(60).fill(90));
+    assert.deepEqual(measureRun(flat, 20, 1, {origin: 12, length: 5}), {start: 12, end: 17});
+    // At 125% a zone from stage 10.2 to 30.2 is device 12.75 to 37.75: pixels 13 to 38.
+    assert.deepEqual(measureRun(flat, 20, 1.25, {origin: 10.2, length: 20}), {start: 10.4, end: 30.4});
+    // A zone from stage 10.32 starts at device 12.9: pixel 13 too, not 12.
+    assert.deepEqual(measureRun(flat, 20, 1.25, {origin: 10.32, length: 20}).start, 10.4);
+    // One ending at stage 29.8, device 37.25, ends on boundary 37, not 38.
+    assert.equal(measureRun(flat, 20, 1.25, {origin: 10.2, length: 19.6}).end, 29.6);
+});
+
+test('an area outside the zone is empty, where the pointer is', () => {
+    const block = line([...Array(10).fill(0), ...Array(10).fill(200)]);
+    assert.deepEqual(measureRun(block, 15, 1, {origin: 0, length: 8}), {start: 10, end: 10});
 });

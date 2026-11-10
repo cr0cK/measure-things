@@ -9,7 +9,7 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {BadgeMenu} from './badge.js';
 import {setCursor} from './cursor.js';
-import {longEdgeBand, longEdges, regionAround, snapPosition} from './edges.js';
+import {longEdgeBand, longEdges, measureRun, snapPosition} from './edges.js';
 import {Finder} from './finder.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {cursorFor, dragHelper, monitorAt, rectFromPoints, targetAt, windowRole} from './geometry.js';
@@ -595,20 +595,16 @@ export class Overlay {
         if (!shown)
             return;
 
-        const {scale} = snapshot;
         const zone = this._zoneOf(target);
-        const clamp = ({start, end}, origin, length) => ({
-            start: Math.max(start, Math.round(origin * scale)),
-            end: Math.min(end, Math.round((origin + length) * scale)),
-        });
         const {visible} = zone;
-        const across = clamp(regionAround(row, snapshot.pixel(x)), zone.originX + visible.x, visible.width);
-        const down = clamp(regionAround(column, snapshot.pixel(y)), zone.originY + visible.y, visible.height);
+        const {scale} = snapshot;
+        const across = measureRun(row, x, scale, {origin: zone.originX + visible.x, length: visible.width});
+        const down = measureRun(column, y, scale, {origin: zone.originY + visible.y, length: visible.height});
         const region = {
-            x: across.start / scale,
-            y: down.start / scale,
-            width: Math.max(0, across.end - across.start) / scale,
-            height: Math.max(0, down.end - down.start) / scale,
+            x: across.start,
+            y: down.start,
+            width: across.end - across.start,
+            height: down.end - down.start,
         };
         this._region = region;
         const ratio = this._ratioOf(target);

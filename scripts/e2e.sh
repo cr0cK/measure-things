@@ -638,9 +638,20 @@ shell_eval "$OVERLAY.openBadgeMenu($E2E.view('Page')); null" >/dev/null
 expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + !!$NAME_ENTRY" 'Again Again false' \
     'opening a badge menu while the name is typed keeps the typed name'
 press_keys Escape
-# Back to the name the next checks expect.
+# Undo puts back a name another set took since with a numeric suffix.
+shell_eval "const view = $MANAGER.load('$MIGRATED', $E2E.win('Other'));
+    $MANAGER.setName(view.model, 'Left'); $MANAGER.commit(view.model); $MANAGER.removeFromScreen(view.model);
+    null" >/dev/null
+wait_for "$E2E.file('$MIGRATED').name === 'Left'"
 pointer_move 600 600
 press_keys Control_L z
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name" 'Left 2 Left 2' \
+    'undo puts back a name another set took since, with a numeric suffix'
+shell_eval "const view = $MANAGER.load('$MIGRATED', $E2E.win('Other'));
+    $MANAGER.setName(view.model, 'Untitled 1'); $MANAGER.commit(view.model); $MANAGER.removeFromScreen(view.model);
+    null" >/dev/null
+wait_for "$E2E.file('$MIGRATED').name === 'Untitled 1'"
+# Back to the name the next checks expect.
 press_keys Control_L z
 press_keys Control_L z
 press_keys Control_L z
@@ -653,7 +664,7 @@ click_actor "$E2E.item($OVERLAY.badgeMenu, 'Set settings…')"
 wait_for "!!$E2E.dialog()?.visible"
 # Numbers are rounded; an empty entry keeps the previous value.
 shell_eval "const [name, , zoom, columns, gutter] = $E2E.entries($E2E.dialog());
-    name.text = 'Landing page';
+    name.text = '  Landing page  ';
     zoom.text = '125';
     columns.text = '5.6';
     gutter.text = '';" >/dev/null
@@ -1219,6 +1230,15 @@ pointer_move 1180 640
 pointer_button PRESSED
 pointer_button RELEASED
 expect "$OVERLAY._latched === $SPLIT_COPY && $SPLIT_COPY.selectedId" 1 'a press on a helper latches its view'
+# An area measured in the latched zone is not measured outside it, in the same window.
+press_keys d
+wait_for "$OVERLAY._readout.text === '100 × 100'"
+pointer_move 1450 800
+expect "$OVERLAY._areaGroup.visible + ' ' + $OVERLAY._region" 'false null' \
+    'an area measured in a latched zone stops outside the zone'
+pointer_move 1180 640
+wait_for "$OVERLAY._areaGroup.visible"
+press_keys d
 pointer_move 1450 800
 expect "$OVERLAY._target.view === $SPLIT_COPY && $OVERLAY._readout.visible" false \
     'a latched view stays the target outside its zone, where the readout shows nothing'
@@ -1720,6 +1740,19 @@ expect "$OVERLAY.dragging + ' ' + $E2E.helpers('LibA')" \
     'false V 40 | V 90 | V 100 | V 110 | V 120 | V 130 | V 140 | V 150' 'an external edit cancels a gesture on the set'
 pointer_button RELEASED
 expect "$E2E.fileHelpers('$EDIT') === $E2E.helpers('LibA')" true 'and nothing was committed'
+# A gesture on an unlinked copy goes on: the copy does not follow the file.
+pointer_move 830 830
+pointer_button PRESSED
+pointer_move 880 880
+pointer_move 930 900
+expect "$OVERLAY.dragging + ' ' + ($OVERLAY._drag?.view === $E2E.views('LibC')[0])" 'true true' \
+    'a rectangle is being drawn on the unlinked copy'
+edit_file "$SETS/$EDIT.json" 'd["helpers"].append({"kind": "vertical", "x": 160})'
+wait_for "$E2E.helpers('LibA').endsWith('V 160')"
+expect "$OVERLAY.dragging" true 'an external edit does not cancel a gesture on an unlinked copy'
+pointer_button RELEASED
+press_keys Control_L z
+expect "$E2E.views('LibC')[0].local.localChanges" 1 'the rectangle drawn on the copy is undone'
 
 # A file removed while its set is shown removes the set, during a gesture too: its views leave,
 # unlinked copies included, and the notice counts the local changes lost.
