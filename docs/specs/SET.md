@@ -2,7 +2,7 @@
 code: SET
 status: done
 version: v0.3
-amended: [v0.4]
+amended: [v0.4, v0.5]
 created: 2026-11-01
 builds-on: PIX
 tracking: "#8"
@@ -287,7 +287,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - A vertical guide is a 1-pixel line across its zone at an x position, labeled `x <position>` at
   the top of the zone. A horizontal guide is the same at a y position, labeled `y <position>` at
   the left of the zone.
-- Neighboring parallel guides show the distance between them on a line joining them.
+- Neighboring parallel guides show the distance between them on a line joining them. A distance
+  line, between guides or from a selected rectangle, ends in a cap at each end: a perpendicular tick
+  7 stage pixels long, centered on the line, one device pixel wide like the line, so it never reads
+  as a guide.
 - A selected rectangle shows the distance to its nearest neighbor on each side: a guide, or a
   rectangle that overlaps it across the gap. Touching or overlapping neighbors show nothing.
 - A rectangle is a 1-pixel outline with a light fill, labeled with its size, `width × height`,
@@ -342,6 +345,11 @@ The images are mockups. Where an image and the text disagree, the text wins.
   row, horizontal ones on its column: within the zone's visible part for helpers, within the window
   frame for zone edges. Moving a whole rectangle does not snap. Holding `Ctrl` while dragging turns
   snapping off.
+- A dragged guide also snaps to a long edge anywhere along it: a boundary that is a screen edge on
+  at least 16 consecutive stage pixels of the zone's visible part, so an edge that ends above or
+  below the pointer counts, and text does not. The nearest edge within 6 stage pixels wins, from the
+  pointer's row or column or a long one; at equal distance, the one first in reading order, left or
+  top. Rectangle edges and zone edges search the pointer's row or column only.
 - **Measuring areas**: `D` toggles area measuring. The crosshair is replaced by the extent of the
   pixels that share the color under the pointer, along its row and column within the zone, with
   their width and height. `Enter` adds a rectangle on that area.
