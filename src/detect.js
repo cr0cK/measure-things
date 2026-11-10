@@ -370,6 +370,7 @@ export class Detector {
      * is the far boundary of a line `t` thick, unless the next entry has `flag` set too: the pixel
      * beyond the boundary would then be a line of one pixel itself, the second half of a line
      * drawn across two device pixels (a border at a fractional scale), and the line is thicker.
+     * When no thickness reaches the share that way, the first far boundary decides.
      * `room` is how many steps the zone leaves for it.
      * Only the positions where `covers(i)` holds vote: the region's own pixel is at the box's side,
      * as its row extents tell, and not a notch of it.
@@ -379,22 +380,33 @@ export class Detector {
         const reach = Math.min(this._reach, room);
         if (reach < 1)
             return 0;
+        // `counts` votes by the line's thickness as above; `plain` by the first far boundary alone.
         const counts = new Int32Array(reach + 1);
+        const plain = new Int32Array(reach + 1);
         for (let i = 0, at = start; i < count; i++, at += step) {
             // The edge between the region's pixel and the first one beyond the box.
             if (!(edges[at] & flag) || !covers(i))
                 continue;
+            let first = 0;
             for (let t = 1; t <= reach; t++) {
-                if ((edges[at + t * outward] & flag) &&
-                    (t === reach || !(edges[at + (t + 1) * outward] & flag))) {
+                if (!(edges[at + t * outward] & flag))
+                    continue;
+                first ||= t;
+                if (t === reach || !(edges[at + (t + 1) * outward] & flag)) {
                     counts[t]++;
                     break;
                 }
             }
+            if (first)
+                plain[first]++;
         }
-        for (let t = 1; t <= reach; t++) {
-            if (counts[t] * 100 >= LINE_PERCENT * count)
-                return t;
+        // A stripe beyond the line on some positions only is not a line drawn across more pixels:
+        // when the thicker lines cover too little, the first far boundary alone decides.
+        for (const votes of [counts, plain]) {
+            for (let t = 1; t <= reach; t++) {
+                if (votes[t] * 100 >= LINE_PERCENT * count)
+                    return t;
+            }
         }
         return 0;
     }

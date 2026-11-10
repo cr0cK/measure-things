@@ -280,3 +280,13 @@ test('three lines in a row at 125% are not all taken in', () => {
     const [a] = foundWhole(image, 'medium', {scale: 1.25});
     assert.equal(a[2], 182);
 });
+
+test('a stripe beyond a one-pixel line on a few rows does not cost the line its 85%', () => {
+    // A is 260 rows high; its border covers 221 of them (85%), and another stripe sits beyond it on 42
+    // of those: the border is still one pixel, and A takes it in.
+    const image = scene([
+        [20, 20, 180, 260, BLUE], [200, 20, 1, 221, INK], [201, 20, 179, 260, SAND], [201, 40, 1, 42, WHITE],
+    ]);
+    for (const scale of [1.25, 1.5, 2])
+        assert.equal(foundWhole(image, 'medium', {scale})[0][2], 181, `at ${scale}`);
+});
