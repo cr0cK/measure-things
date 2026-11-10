@@ -8,6 +8,7 @@ import {formatLength, formatSize, withAlpha} from './format.js';
 import {
     columnGrid,
     gapArrowheads,
+    pixelBox,
     guideGaps,
     hitTest,
     highestScaleMonitor,
@@ -634,17 +635,8 @@ export class View {
 
     /** A filled opaque triangle in the set's color, in stage pixels. Non-reactive like every actor here. */
     _arrowhead(points) {
-        const left = Math.floor(Math.min(...points.map(([x]) => x)));
-        const top = Math.floor(Math.min(...points.map(([, y]) => y)));
-        const right = Math.ceil(Math.max(...points.map(([x]) => x)));
-        const bottom = Math.ceil(Math.max(...points.map(([, y]) => y)));
-        const area = new St.DrawingArea({
-            name: 'measure-things-arrowhead',
-            x: left,
-            y: top,
-            width: right - left,
-            height: bottom - top,
-        });
+        const {x: left, y: top, width, height} = pixelBox(points);
+        const area = new St.DrawingArea({name: 'measure-things-arrowhead', x: left, y: top, width, height});
         area.connect('repaint', () => {
             const cr = area.get_context();
             const rgb = parseInt(this._color().slice(1), 16);

@@ -449,6 +449,33 @@ expect "$E2E.helpers('Page') + ' / ' + $E2E.fileHelpers('$PAGE')" \
     'R 120,110 201x170 | V 510 | V 300 / R 120,110 201x170 | V 510 | V 300' \
     'a drag released before the long edges are read still snaps'
 press_keys Delete
+# The same race held open: the band of long edges stays unread until the test lets it go. The
+# guide waits instead of snapping to the pointer row alone, the release waits too, and the drag
+# ends snapped once the band is read, even when the replay has to start another read.
+shell_eval "const snapshot = $OVERLAY._snapshot;
+    global._held = {band: snapshot.band, bandReading: snapshot.bandReading, callbacks: []};
+    snapshot.band = (x, y, width, height, onRead) => { global._held.callbacks.push(onRead); return null; };
+    snapshot.bandReading = () => true; 1" >/dev/null
+pointer_move 490 720
+press_keys v
+pointer_button PRESSED
+pointer_move 497 570
+expect "$E2E.helpers('Page') + ' ' + $OVERLAY._drag?.waiting" 'R 120,110 201x170 | V 510 | V 297 true' \
+    'a guide waits for its band of long edges instead of snapping to the pointer row alone'
+pointer_button RELEASED
+expect "!!$OVERLAY._drag + ' ' + $OVERLAY._drag?.released" 'true true' \
+    'a guide released while its band is read keeps waiting'
+shell_eval "const snapshot = $OVERLAY._snapshot;
+    snapshot.band = global._held.band;
+    snapshot.bandReading = global._held.bandReading;
+    // An earlier drag at this position read the band: drop it, so the replay reads it again.
+    snapshot._bands.clear();
+    global._held.callbacks.forEach(callback => callback()); 1" >/dev/null
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Page') + ' / ' + $E2E.fileHelpers('$PAGE')" \
+    'R 120,110 201x170 | V 510 | V 300 / R 120,110 201x170 | V 510 | V 300' \
+    'once the band is read, the released guide snaps to the long edge and is saved'
+press_keys Delete
 pointer_move 900 300
 press_keys h
 pointer_button PRESSED
@@ -587,8 +614,34 @@ shell_eval "global._gone = $MANAGER.modelOf('$MIGRATED');
 sleep 1
 expect "$OVERLAY.badgeMenu + ' ' + global._gone.name + ' ' + $E2E.file('$MIGRATED').name + ' ' + ($E2E.file('$MIGRATED').revision - global._goneRevision) + ' ' + !!$E2E.entry('Gone')" \
     "null Untitled 1 Untitled 1 0 false" 'a set removed while its name is edited is not renamed, nor its file rewritten'
+# The entry takes at most 200 characters, as many as a set name keeps.
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$OVERLAY.badgeMenu._titleButton"
+shell_eval "$NAME_ENTRY.clutter_text.insert_text('x'.repeat(250), 0); null" >/dev/null
+expect "$NAME_ENTRY.text.length" 200 'the name entry takes at most 200 characters'
+press_keys Escape
+press_keys Escape
+# A name being typed is kept when edit mode ends, and when the badge menu opens again.
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$OVERLAY.badgeMenu._titleButton"
+type_text 'Left'
+shell_eval "$OVERLAY.exitEdit(); null" >/dev/null
+wait_for "!$OVERLAY.editing"
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $OVERLAY.badgeMenu" 'Left Left null' \
+    'leaving edit mode while the name is typed keeps the typed name'
+press_keys Super_L Shift_L m
+wait_for "$OVERLAY.editing"
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$OVERLAY.badgeMenu._titleButton"
+type_text 'Again'
+shell_eval "$OVERLAY.openBadgeMenu($E2E.view('Page')); null" >/dev/null
+expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + !!$NAME_ENTRY" 'Again Again false' \
+    'opening a badge menu while the name is typed keeps the typed name'
+press_keys Escape
 # Back to the name the next checks expect.
 pointer_move 600 600
+press_keys Control_L z
+press_keys Control_L z
 press_keys Control_L z
 press_keys Control_L z
 expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $E2E.model('Page').content.grid.visible" \
@@ -1618,6 +1671,7 @@ shell_eval "$MANAGER.addCopy($E2E.set('$EDIT'), $E2E.win('LibB'));
     const copy = $MANAGER.addCopy($E2E.set('$EDIT'), $E2E.win('LibC'));
     $MANAGER.unlink(copy);
     $MANAGER.addHelper(copy.local, {kind: 'horizontal', y: 10});
+    copy.selectedId = $MANAGER.addHelper(copy.local, {kind: 'horizontal', y: 20}).id;
     $MANAGER.commit(copy.local); 1" >/dev/null
 cp "$SETS/$EDIT.json" "$WORK/edit.backup.json"
 edit_file "$SETS/$EDIT.json" 'd["name"] = "P3 edited"; d["helpers"].append({"kind": "vertical", "x": 90})'
@@ -1625,7 +1679,8 @@ expect "$E2E.set('$EDIT').name + ' | ' + $E2E.helpers('LibA') + ' | ' + $E2E.set
     'P3 edited | V 40 | V 90 | 0' 'an external edit replaces the set in memory and starts its history over'
 expect "$E2E.labels($E2E.views('LibB')[0].layer).includes('x 90')" true 'a linked copy shows the edited file'
 expect "$E2E.views('LibC')[0].local.localChanges + ' ' + $E2E.views('LibC')[0].local.content.helpers.length" \
-    '1 2' 'an unlinked copy is not affected by the edit'
+    '1 3' 'an unlinked copy is not affected by the edit'
+expect "$E2E.views('LibC')[0].selectedId" 3 'an unlinked copy keeps its selection, an id the edited file does not have'
 expect "$(notices 'P3 edited')" 1 'an external edit shows one notice'
 
 # A dialog or a menu open for the set closes without applying.

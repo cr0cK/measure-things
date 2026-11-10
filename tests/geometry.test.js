@@ -15,6 +15,7 @@ import {
     isInZone,
     isLogicalLayout,
     monitorAt,
+    pixelBox,
     rectangleGaps,
     rectFromPoints,
     scaleHelper,
@@ -417,4 +418,12 @@ test('a window that ends where a monitor starts does not touch it', () => {
     // Starting where the 2× monitor ends is not touching it either.
     assert.equal(highestScaleMonitor(monitors, {x: 2880, y: 100, width: 100, height: 100}), -1);
     assert.equal(highestScaleMonitor(monitors, {x: 1700, y: 800, width: 100, height: 100}), -1);
+});
+
+test('an arrowhead is drawn in the smallest box of whole pixels that holds all of it', () => {
+    // At 125% the line's middle is 0.4 stage pixels past its edge: no corner is on a whole pixel.
+    const box = pixelBox([[100.4, 50.4], [105.4, 47.9], [105.4, 52.9]]);
+    assert.deepEqual(box, {x: 100, y: 47, width: 6, height: 6});
+    assert.deepEqual(pixelBox([[10.6, 20.6], [12.4, 22.4]]), {x: 10, y: 20, width: 3, height: 3});
+    assert.deepEqual(pixelBox([[3, 4], [8, 9]]), {x: 3, y: 4, width: 5, height: 5});
 });
