@@ -243,6 +243,7 @@ arrow_checks() {
         # The head at the top of the 100 pixel line between the horizontal guides: tip on top, base below.
         read -r HX HY < <(shell_eval "$ARROWS($view)[2].get_transformed_position().map(Math.round).join(' ')")
         expect "$PICK($((HX + 1)), $((HY + 4)))" '255,45,149' "$where, the arrowhead is filled with the set's color"
+        expect "$PICK($((HX + 2)), $((HY + 1)))" '255,45,149' "$where, the arrowhead's tip is filled too, just below the guide it touches"
         # The page, read right of the head; the tip sits on the guide, row 0; row 1 leaves both corners of the box bare.
         BG=$(shell_eval "$PICK($((HX + 8)), $((HY + 2)))" | tr -d '"')
         expect "Promise.all([$PICK($HX, $((HY + 1))), $PICK($((HX + 4)), $((HY + 1)))]).then(cs => cs.every(c =>
