@@ -6,6 +6,12 @@
 
 // Largest difference on any color channel between two pixels of the same surface.
 export const EDGE_TOLERANCE = 12;
+// Dragged edges snap to screen edges this close, in stage pixels.
+export const SNAP_DISTANCE = 6;
+// A guide also snaps to an edge this many stage pixels long, wherever it lies along the guide.
+export const LONG_EDGE = 16;
+// Stage coordinates times a fractional scale land a hair off whole device pixels.
+const EPSILON = 1e-6;
 
 function differs(line, a, b, tolerance) {
     const i = a * line.step;
@@ -93,4 +99,45 @@ export function longEdges(area, vertical, minRun, tolerance = EDGE_TOLERANCE) {
         }
     }
     return edges;
+}
+
+/**
+ * The boundaries nearest to both ends of a stage span `{origin, length}` at `scale`, halves
+ * rounding outward: the limits of the boundaries a dragged edge in that span can snap to.
+ */
+function spanBoundaries({origin, length}, scale) {
+    return {from: Math.ceil(origin * scale - 0.5), to: Math.floor((origin + length) * scale + 0.5)};
+}
+
+/**
+ * The stage coordinate a dragged edge at the stage coordinate `position` snaps to: the nearest
+ * boundary of `line`, or of `extra` (device boundaries, such as long edges), within SNAP_DISTANCE
+ * and within the stage span `bounds`, `{origin, length}`; `position` itself when there is none.
+ */
+export function snapPosition(line, scale, position, bounds, extra = []) {
+    const boundary = nearestBoundary(line, position * scale, SNAP_DISTANCE * scale, undefined,
+        {...spanBoundaries(bounds, scale), extra});
+    return boundary === null ? position : boundary / scale;
+}
+
+/**
+ * The area of the capture that holds the long edges a guide at the stage coordinate `position`
+ * can snap to, `{x, y, width, height}` in device pixels, with the run `minRun` that makes an edge
+ * long at `scale`; null when there is none to read. `along` is the stage span `{origin, length}`
+ * of the zone's visible part on the guide's axis, `across` on the other; `vertical` for a vertical
+ * guide. The area starts a pixel before the first boundary, so longEdges() sees both its sides.
+ */
+export function longEdgeBand(position, scale, along, across, vertical) {
+    const span = spanBoundaries(along, scale);
+    const first = Math.max(Math.ceil((position - SNAP_DISTANCE) * scale - EPSILON), span.from, 1);
+    const last = Math.min(Math.floor((position + SNAP_DISTANCE) * scale + EPSILON), span.to);
+    // Only the device pixels fully inside the zone's visible part, on both sides of each boundary.
+    const start = Math.ceil(across.origin * scale - EPSILON);
+    const end = Math.floor((across.origin + across.length) * scale + EPSILON);
+    if (last < first || end <= start)
+        return null;
+    const minRun = Math.ceil(LONG_EDGE * scale - EPSILON);
+    return vertical ?
+        {x: first - 1, y: start, width: last - first + 2, height: end - start, minRun} :
+        {x: start, y: first - 1, width: end - start, height: last - first + 2, minRun};
 }

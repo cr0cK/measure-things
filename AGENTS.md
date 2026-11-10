@@ -117,7 +117,7 @@ in `Manager`; a view draws a model inside one window.
   in chunks of 64 rows with a `PRIORITY_DEFAULT_IDLE` idle between them, so the frame clock and the
   timers run first. The detector is fast enough at full resolution (a 4K zone in a fraction of a
   second), so nothing is downsampled. A boundary of the capture becomes a stage position the way
-  `_nearest()` does, `boundary / scale`, then goes through `view.toCss()`: a found guide and a snapped
+  `snapPosition()` does, `boundary / scale`, then goes through `view.toCss()`: a found guide and a snapped
   one are the same number. A run commits only if `_stamp()` (set revision, zone geometry, zoom) is
   what it was at the start. The detector keeps the edge map of the whole zone, a byte per pixel: a
   region's thin lines are judged in `finish()` against its box, and those below it arrive after its last

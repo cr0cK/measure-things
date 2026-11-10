@@ -9,7 +9,7 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {BadgeMenu} from './badge.js';
 import {setCursor} from './cursor.js';
-import {longEdges, nearestBoundary, regionAround} from './edges.js';
+import {longEdgeBand, longEdges, regionAround, snapPosition} from './edges.js';
 import {Finder} from './finder.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {cursorFor, dragHelper, monitorAt, rectFromPoints, targetAt, windowRole} from './geometry.js';
@@ -21,10 +21,6 @@ import {dragEdge, pickHit, targetZone, zoneEntry} from './zones.js';
 
 // A press must travel this far, in stage pixels, before it draws a rectangle.
 const DRAG_THRESHOLD = 3;
-// Dragged edges snap to screen edges this close, in stage pixels.
-const SNAP_DISTANCE = 6;
-// A guide also snaps to an edge this many stage pixels long.
-const LONG_EDGE = 16;
 const LABEL_MARGIN = 4;
 const NEUTRAL_COLOR = '#ff2d95';
 const HINT_TEXT = [
@@ -664,8 +660,8 @@ export class Overlay {
             this._drag.waiting ||= Boolean(snapshot);
             return x;
         }
-        const snapped = this._nearest(row ?? {data: [], step: 0, length: snapshot.width},
-            snapshot.scale, zone.originX + x, zone.originX + bounds.x, bounds.width, longEdges?.edges);
+        const snapped = snapPosition(row ?? {data: [], step: 0, length: snapshot.width}, snapshot.scale,
+            zone.originX + x, {origin: zone.originX + bounds.x, length: bounds.width}, longEdges?.edges);
         return snapped - zone.originX;
     }
 
@@ -680,8 +676,8 @@ export class Overlay {
             this._drag.waiting ||= Boolean(snapshot);
             return y;
         }
-        const snapped = this._nearest(column ?? {data: [], step: 0, length: snapshot.height},
-            snapshot.scale, zone.originY + y, zone.originY + bounds.y, bounds.height, longEdges?.edges);
+        const snapped = snapPosition(column ?? {data: [], step: 0, length: snapshot.height}, snapshot.scale,
+            zone.originY + y, {origin: zone.originY + bounds.y, length: bounds.height}, longEdges?.edges);
         return snapped - zone.originY;
     }
 
@@ -691,49 +687,23 @@ export class Overlay {
      * is being read. A band that cannot be read has none.
      */
     _readLongEdges(snapshot, zone, vertical, position) {
-        const {scale} = snapshot;
-        const eps = 1e-6;
         const {visible} = zone;
-        // Along the guide's axis, the zone's visible part bounds the boundaries _nearest() can
-        // pick; across it, the band runs the visible part's length.
+        // Along the guide's axis, the zone's visible part bounds the boundaries the guide can
+        // snap to; across it, the band runs the visible part's length.
         const along = vertical ?
             {origin: zone.originX + visible.x, length: visible.width} :
             {origin: zone.originY + visible.y, length: visible.height};
         const across = vertical ?
             {origin: zone.originY + visible.y, length: visible.height} :
             {origin: zone.originX + visible.x, length: visible.width};
-        const first = Math.max(Math.ceil((position - SNAP_DISTANCE) * scale - eps),
-            Math.ceil(along.origin * scale - 0.5), 1);
-        const last = Math.min(Math.floor((position + SNAP_DISTANCE) * scale + eps),
-            Math.floor((along.origin + along.length) * scale + 0.5));
-        // Only the device pixels fully inside the zone's visible part, on both sides of each
-        // boundary.
-        const start = Math.ceil(across.origin * scale - eps);
-        const end = Math.floor((across.origin + across.length) * scale + eps);
-        if (last < first || end <= start)
+        const band = longEdgeBand(position, snapshot.scale, along, across, vertical);
+        if (!band)
             return {pending: false, edges: []};
-        const args = vertical ?
-            [first - 1, start, last - first + 2, end - start] :
-            [start, first - 1, end - start, last - first + 2];
+        const args = [band.x, band.y, band.width, band.height];
         const area = snapshot.band(...args, this._onLineRead);
         if (!area)
             return {pending: snapshot.bandReading(...args), edges: []};
-        return {pending: false, edges: longEdges(area, vertical, Math.ceil(LONG_EDGE * scale - eps))};
-    }
-
-    /**
-     * The stage coordinate of the nearest screen edge within the zone, or `position` itself.
-     * `extra` holds device boundaries from elsewhere, such as long edges, that compete with the
-     * line's own.
-     */
-    _nearest(line, scale, position, origin, length, extra = []) {
-        // Only boundaries within the zone count: the nearest one may lie outside it.
-        const boundary = nearestBoundary(line, position * scale, SNAP_DISTANCE * scale, undefined, {
-            from: Math.ceil(origin * scale - 0.5),
-            to: Math.floor((origin + length) * scale + 0.5),
-            extra,
-        });
-        return boundary === null ? position : boundary / scale;
+        return {pending: false, edges: longEdges(area, vertical, band.minRun)};
     }
 
     _onPress(event) {
