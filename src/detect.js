@@ -66,6 +66,11 @@ export const MAX_PER_KIND = 30;
 const NEAR = 1;
 // A region at least this share of the zone in both directions is the background.
 const BACKGROUND = 0.95;
+// The percentage of a side's positions that a thin line must cover for the region to take it in.
+const LINE_PERCENT = 85;
+// Flags of the edge map kept for every pixel: an edge with the pixel to its left, and with the one above.
+const LEFT = 1;
+const ABOVE = 2;
 
 const size = ({fraction, floor}, length) => Math.max(floor, Math.round(fraction * length));
 
@@ -180,14 +185,18 @@ class Regions {
 }
 
 export class Detector {
-    /** `level` is `low`, `medium`, or `high`; the zone is `width` × `height` pixels. */
-    constructor(width, height, level) {
+    /**
+     * `level` is `low`, `medium`, or `high`; the zone is `width` × `height` pixels, read at `scale`
+     * device pixels per CSS pixel: a rectangle takes in a line up to `ceil(scale)` pixels thick.
+     */
+    constructor(width, height, level, scale = 1) {
         const parameters = PARAMETERS[level];
         if (!parameters)
             throw new Error(`Unknown tolerance: ${level}`);
         this.width = width;
         this.height = height;
         this.rows = 0;
+        this._reach = Math.max(1, Math.ceil(scale));
         this._edge = parameters.edge;
         // Runs along a column count against the zone's height, and along a row against its width.
         this._runY = size(parameters.run, height);
@@ -209,7 +218,10 @@ export class Detector {
         this._above = new Int32Array(width);
         this._regions = new Regions(width);
         this._alive = [];
-        this._found = [];
+        // The regions that ended, judged in `finish()`: a line beside one may be in rows not fed yet.
+        this._ended = [];
+        // The edge map, kept to find the thin lines beside the regions.
+        this._edges = new Uint8Array(width * height);
     }
 
     /**
@@ -239,6 +251,7 @@ export class Detector {
                 Math.abs(b - blue) > edge);
             const horizontal = y > 0 && (Math.abs(r - previous[p]) > edge ||
                 Math.abs(g - previous[p + 1]) > edge || Math.abs(b - previous[p + 2]) > edge);
+            this._edges[y * width + x] = (vertical ? LEFT : 0) | (horizontal ? ABOVE : 0);
             red = r;
             green = g;
             blue = b;
@@ -328,26 +341,96 @@ export class Detector {
         alive.length = kept;
     }
 
-    /** A region that cannot grow any more: kept when it is big and full enough. */
+    /** A region that cannot grow any more: kept for judging when it can still be big and full enough. */
     _finish(id) {
         const {minX, maxX, minY, maxY, extent, used} = this._regions;
         const width = maxX[id] + 1 - minX[id];
         const height = maxY[id] + 1 - minY[id];
-        if (width < this._minWidth || height < this._minHeight)
-            return;
-        if (width < this._spans * this.width && height < this._spans * this.height &&
-            width * height < this._area * this.width * this.height)
+        // The box grows by a line on each side at most.
+        const reach = 2 * this._reach;
+        if (width + reach < this._minWidth || height + reach < this._minHeight)
             return;
         // The share of its box that the region spans, row by row.
         let span = 0;
         const rows = extent[id];
         for (let k = 0; k < used[id]; k += 2)
             span += rows[k + 1] - rows[k] + 1;
+        // A box only grows, so a region below the fill share of its own box is below it afterwards.
         if (span < this._fill * width * height)
             return;
+        // The row extents are copied: a freed region's list is reused by the next of that id.
+        this._ended.push({x: minX[id], y: minY[id], width, height, span, rows: rows.slice(0, used[id])});
+    }
+
+    /**
+     * How thick a line along one side of a box is, from 1 to `_reach` pixels, or 0 when the side
+     * takes none in. The `count` positions along the side are in the edge map from `start`, `step`
+     * apart; there, `flag` is set when the first pixel beyond the box differs from the box's own.
+     * Going out from it, `outward` entries apart, the first entry with `flag` set after `t` steps
+     * is the far boundary of a line `t` thick. `room` is how many steps the zone leaves for it.
+     * Only the positions where `covers(i)` holds vote: the region's own pixel is at the box's side,
+     * as its row extents tell, and not a notch of it.
+     */
+    _line(start, step, count, outward, room, flag, covers) {
+        const edges = this._edges;
+        const reach = Math.min(this._reach, room);
+        if (reach < 1)
+            return 0;
+        const counts = new Int32Array(reach + 1);
+        for (let i = 0, at = start; i < count; i++, at += step) {
+            // The edge between the region's pixel and the first one beyond the box.
+            if (!(edges[at] & flag) || !covers(i))
+                continue;
+            for (let t = 1; t <= reach; t++) {
+                if (edges[at + t * outward] & flag) {
+                    counts[t]++;
+                    break;
+                }
+            }
+        }
+        for (let t = 1; t <= reach; t++) {
+            if (counts[t] * 100 >= LINE_PERCENT * count)
+                return t;
+        }
+        return 0;
+    }
+
+    /** The box of an ended region with the thin lines along its sides taken in. */
+    _grown({x, y, width, height, rows}) {
+        const w = this.width;
+        const x1 = x + width - 1;
+        const y1 = y + height - 1;
+        const last = (height - 1) * 2;
+        // Each side is judged against the region's own box. `room` is how many boundaries the zone
+        // has beyond the near one, so that the far boundary lies inside it.
+        const left = this._line(y * w + x, w, height, -1, x - 1, LEFT, i => rows[i * 2] === x);
+        const right = this._line(y * w + x1 + 1, w, height, 1, w - x1 - 2, LEFT, i => rows[i * 2 + 1] === x1);
+        const top = this._line(y * w + x, 1, width, -w, y - 1, ABOVE,
+            i => rows[0] <= x + i && x + i <= rows[1]);
+        const bottom = this._line((y1 + 1) * w + x, 1, width, w, this.height - y1 - 2, ABOVE,
+            i => rows[last] <= x + i && x + i <= rows[last + 1]);
+        return {
+            x: x - left,
+            y: y - top,
+            width: width + left + right,
+            height: height + top + bottom,
+        };
+    }
+
+    /** A region's box, with its lines, when it is big and full enough to be a rectangle. */
+    _rectangle(region) {
+        const box = this._grown(region);
+        const {x, y, width, height} = box;
+        if (width < this._minWidth || height < this._minHeight)
+            return null;
+        if (width < this._spans * this.width && height < this._spans * this.height &&
+            width * height < this._area * this.width * this.height)
+            return null;
+        if (region.span < this._fill * width * height)
+            return null;
         if (width >= BACKGROUND * this.width && height >= BACKGROUND * this.height)
-            return;
-        this._found.push({x: minX[id], y: minY[id], width, height});
+            return null;
+        return {x, y, width, height};
     }
 
     /**
@@ -366,6 +449,13 @@ export class Detector {
         for (const id of this._alive)
             this._finish(id);
         this._alive.length = 0;
+        const found = [];
+        for (const region of this._ended) {
+            const box = this._rectangle(region);
+            if (box)
+                found.push(box);
+        }
+        this._ended.length = 0;
 
         const candidates = [];
         for (let x = 1; x < this.width; x++) {
@@ -376,7 +466,7 @@ export class Detector {
             if (this._rowCover[y] >= this._needX)
                 candidates.push({kind: 'horizontal', y, cover: this._rowCover[y]});
         }
-        return selectHelpers(this._found.map(rect => ({kind: 'rectangle', ...rect})), candidates);
+        return selectHelpers(found.map(rect => ({kind: 'rectangle', ...rect})), candidates);
     }
 }
 
@@ -452,11 +542,11 @@ export function selectHelpers(rectangles, candidates) {
 /**
  * The helpers in an image `{data, width, height, stride, channels}` at a tolerance level; `stride`
  * and `channels` default to a tightly packed RGBA image. `bandRows` feeds the rows in pieces of
- * that height, as a caller reading the zone in bands does.
+ * that height, as a caller reading the zone in bands does; `scale` is the image's device scale.
  */
-export function detect(image, level, {bandRows = image.height} = {}) {
+export function detect(image, level, {bandRows = image.height, scale = 1} = {}) {
     const {data, width, height, channels = 4, stride = width * channels} = image;
-    const detector = new Detector(width, height, level);
+    const detector = new Detector(width, height, level, scale);
     for (let y = 0; y < height; y += bandRows)
         detector.addRows(data, y * stride, stride, channels, Math.min(bandRows, height - y));
     return detector.finish();

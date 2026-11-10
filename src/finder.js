@@ -183,7 +183,7 @@ export class Finder {
         if (afterCapture)
             return afterCapture;
 
-        const detector = new Detector(width, height, level);
+        const detector = new Detector(width, height, level, scale);
         for (let y = 0; y < height; y += BAND_ROWS) {
             const rows = Math.min(BAND_ROWS, height - y);
             let area = null;
