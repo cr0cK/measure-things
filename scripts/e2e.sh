@@ -578,10 +578,15 @@ expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $OVERLAY
 shell_eval "$OVERLAY.openBadgeMenu($MANAGER.load('$MIGRATED', $E2E.win('Other')));
     $OVERLAY.badgeMenu._startNameEdit();
     $OVERLAY.badgeMenu._nameEntry.text = 'Gone';
-    $MANAGER.removeFromScreen($MANAGER.modelOf('$MIGRATED'));
     null" >/dev/null
-expect "$OVERLAY.badgeMenu + ' ' + $E2E.file('$MIGRATED').name + ' ' + $E2E.entry('Untitled 1')?.id + ' ' + !!$E2E.entry('Gone')" \
-    "null Untitled 1 $MIGRATED false" 'a set removed while its name is edited is not renamed'
+sleep 1
+shell_eval "global._gone = $MANAGER.modelOf('$MIGRATED');
+    global._goneRevision = $E2E.file('$MIGRATED').revision;
+    $MANAGER.removeFromScreen(global._gone);
+    null" >/dev/null
+sleep 1
+expect "$OVERLAY.badgeMenu + ' ' + global._gone.name + ' ' + $E2E.file('$MIGRATED').name + ' ' + ($E2E.file('$MIGRATED').revision - global._goneRevision) + ' ' + !!$E2E.entry('Gone')" \
+    "null Untitled 1 Untitled 1 0 false" 'a set removed while its name is edited is not renamed, nor its file rewritten'
 # Back to the name the next checks expect.
 pointer_move 600 600
 press_keys Control_L z
