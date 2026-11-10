@@ -92,6 +92,19 @@ test('a difference within the tolerance is not an edge', () => {
     assert.deepEqual(longEdges(clear, true, 16), [5]);
 });
 
+test('a long edge between colors that differ on one channel only is found, whichever channel', () => {
+    // The fixtures above are gray: every channel differs at once. Here only one does.
+    for (const channel of [0, 1, 2]) {
+        const tinted = area(10, 40, () => 0);
+        for (let y = 0; y < 40; y++) {
+            for (let x = 5; x < 10; x++)
+                tinted.data[(y * 10 + x) * 4 + channel] = 13;
+        }
+        assert.deepEqual(longEdges(tinted, true, 16), [5], `channel ${channel}`);
+        assert.deepEqual(longEdges(tinted, false, 16), [], `channel ${channel}, across`);
+    }
+});
+
 test('boundaries are reported ascending, in the coordinates of the page', () => {
     const two = area(12, 40, x => (x >= 3 ? (x >= 9 ? 0 : 255) : 0), {x: 100, y: 7});
     assert.deepEqual(longEdges(two, true, 16), [103, 109]);

@@ -313,3 +313,28 @@ test('a region a border short of the smallest rectangle reaches it with the bord
     assert.deepEqual(at(foundWhole(down(minHeight.floor - 1), 'high'), 50, 100), [50, 100, 300, minHeight.floor]);
     assert.equal(at(foundWhole(down(minHeight.floor - 2), 'high'), 50, 100), undefined);
 });
+
+test('a line on any side of a region is taken in on 85% of that side, flush with either end', () => {
+    // A is 200 × 200 at 40,40; a 1-pixel line runs along one side over 170 pixels (85%) or 168 (84%),
+    // from the side's first pixel or up to its last: every pixel of the side counts the same.
+    const sides = {
+        top: (n, end) => [40 + (end ? 200 - n : 0), 39, n, 1],
+        bottom: (n, end) => [40 + (end ? 200 - n : 0), 240, n, 1],
+        left: (n, end) => [39, 40 + (end ? 200 - n : 0), 1, n],
+        right: (n, end) => [240, 40 + (end ? 200 - n : 0), 1, n],
+    };
+    const grown = {top: [40, 39, 200, 201], bottom: [40, 40, 200, 201], left: [39, 40, 201, 200],
+        right: [40, 40, 201, 200]};
+    const region = rectangles => rectangles.find(r => r[2] >= 200 && r[3] >= 200);
+    for (const [side, line] of Object.entries(sides)) {
+        for (const end of [false, true]) {
+            for (const scale of [1, 1.25]) {
+                const image = n => scene([[40, 40, 200, 200, BLUE], [...line(n, end), INK]]);
+                const where = `${side}, ${end ? 'flush with the end' : 'from the start'}, at ${scale}`;
+                assert.deepEqual(region(foundWhole(image(170), 'medium', {scale})), grown[side], where);
+                assert.deepEqual(region(foundWhole(image(168), 'medium', {scale})), [40, 40, 200, 200],
+                    `84%, ${where}`);
+            }
+        }
+    }
+});
