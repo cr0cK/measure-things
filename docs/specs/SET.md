@@ -574,6 +574,11 @@ The panel menu manages the sets: which ones are on screen, and the library.
     10% of its area: the bands, columns, and quarters of the layout, not the cards in them. A
     full-width band at least Low's smallest rectangle high passes, form fields included; that
     trade-off of fixed thresholds is accepted. Medium and High have no such rule;
+  - a rectangle takes in a line along one of its sides, at most `ceil(scale)` device pixels thick
+    and over at least 85% of that side, of colors other than the region's: its edge moves to the
+    line's far boundary. Two regions separated by a 1-pixel border both reach across it, so their
+    edges are drawn on the border, one line on screen, and each size counts the border, as a CSS
+    border box does. Rectangles that then share a box are one;
   - a guide within 1 pixel of a kept rectangle's edge is dropped, whatever its extent, since a
     guide spans the zone.
 - Found helpers sit on pixel boundaries, rounded to stage pixels exactly as snapping rounds, so a
