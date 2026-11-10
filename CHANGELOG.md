@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/cr0cK/measure-things/compare/v0.4.0...v0.5.0) (2026-11-10)
+
+
+### Added
+
+* rename a set by clicking its name in the badge menu ([#43](https://github.com/cr0cK/measure-things/issues/43)) ([f9cd16c](https://github.com/cr0cK/measure-things/commit/f9cd16c042a4d5ea8ba05793665293eae365ce9f))
+
+
+### Fixed
+
+* end distance lines in arrowheads so they no longer read as guides ([#42](https://github.com/cr0cK/measure-things/issues/42)) ([6251d2b](https://github.com/cr0cK/measure-things/commit/6251d2bba24a1f6651d782469164728cacda66e5))
+* snap a dragged guide to long edges along its whole length ([#39](https://github.com/cr0cK/measure-things/issues/39)) ([efdfd44](https://github.com/cr0cK/measure-things/commit/efdfd44a7b15264714c77f77ca02303a127aa79a))
+* take a 1-pixel border into the Find helpers rectangles beside it ([#40](https://github.com/cr0cK/measure-things/issues/40)) ([41e0408](https://github.com/cr0cK/measure-things/commit/41e0408dbff7f3f2580d47fc8c34b76aa19eb667))
+
 ## [0.4.0](https://github.com/cr0cK/measure-things/compare/v0.3.0...v0.4.0) (2026-11-06)
 
 
