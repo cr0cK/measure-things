@@ -55,3 +55,21 @@ test('replaces the current state in place', () => {
     assert.equal(history.undo(), 'a');
     assert.equal(history.redo(), 'c');
 });
+
+test('tells whether a state was recorded, also when it equals an older one', () => {
+    const history = new History('a');
+    assert.equal(history.record('b'), true);
+    assert.equal(history.record('a'), true);
+    assert.equal(history.undo(), 'b');
+});
+
+test('keeps 100 states by default', () => {
+    const history = new History('s0');
+    for (let i = 1; i <= 150; i++)
+        history.record(`s${i}`);
+    let undos = 0;
+    while (history.undo() !== null)
+        undos++;
+    assert.equal(undos, 99);
+    assert.equal(history.current, 's51');
+});

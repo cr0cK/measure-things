@@ -15,6 +15,7 @@ import {
     isInZone,
     isLogicalLayout,
     monitorAt,
+    pixelBox,
     rectangleGaps,
     rectFromPoints,
     scaleHelper,
@@ -322,4 +323,109 @@ test('keeps arrowheads in stage pixels at fractional scales and zoom, tips on th
     assert.equal(gapArrowheads({axis: 'x', from: 0, to: 6 * 2}, 0).length, 2);
     assert.equal(gapArrowheads({axis: 'x', from: 0, to: 8 * 1.25}, 0).length, 0);
     assert.equal(gapArrowheads({axis: 'x', from: 0, to: 8 * 1.5}, 0).length, 2);
+});
+
+test('a rectangle thinner than two tolerances names the top edge whenever it is in reach', () => {
+    // 6 pixels high: both edges are within 4 pixels of the middle rows, and the top comes first,
+    // even 2 pixels from the bottom and 4 from the top.
+    const helpers = [rect(100, 100, 200, 6)];
+    assert.equal(hitTest(helpers, 200, 101).part, 'top');
+    assert.equal(hitTest(helpers, 200, 103).part, 'top');
+    assert.equal(hitTest(helpers, 200, 104).part, 'top');
+    assert.equal(hitTest(helpers, 200, 105).part, 'bottom');
+    assert.equal(hitTest(helpers, 101, 103).part, 'top-left');
+});
+
+test('a rectangle catches the pointer exactly the tolerance away on every side, and not one further', () => {
+    const helpers = [rect(100, 100, 200, 100)];
+    assert.equal(hitTest(helpers, 304, 150).part, 'right');
+    assert.equal(hitTest(helpers, 305, 150), null);
+    assert.equal(hitTest(helpers, 96, 150).part, 'left');
+    assert.equal(hitTest(helpers, 95, 150), null);
+    assert.equal(hitTest(helpers, 200, 204).part, 'bottom');
+    assert.equal(hitTest(helpers, 200, 205), null);
+    assert.equal(hitTest(helpers, 200, 96).part, 'top');
+    assert.equal(hitTest(helpers, 200, 95), null);
+});
+
+test('guide gaps follow numeric order, whatever the number of digits', () => {
+    const guides = [100, 5, 40, 1000].map((x, i) => ({id: i + 1, kind: 'vertical', x}));
+    assert.deepEqual(guideGaps(guides), [
+        {axis: 'x', from: 5, to: 40},
+        {axis: 'x', from: 40, to: 100},
+        {axis: 'x', from: 100, to: 1000},
+    ]);
+});
+
+test('two neighbors at the same distance: the first listed gives the gap', () => {
+    // A guide and a rectangle both 30 pixels left of the selection: the line runs from the guide,
+    // at the selection's middle row, not at the middle of its overlap with the rectangle.
+    const helpers = [rect(100, 100, 100, 100, 1), {id: 2, kind: 'vertical', x: 70}, rect(20, 180, 50, 100, 3)];
+    assert.deepEqual(rectangleGaps(helpers, 1), [{axis: 'x', from: 70, to: 100, at: 150}]);
+    const swapped = [helpers[0], helpers[2], helpers[1]];
+    assert.deepEqual(rectangleGaps(swapped, 1), [{axis: 'x', from: 70, to: 100, at: 190}]);
+});
+
+test('rectangles that only share a corner have no gap between them', () => {
+    // 2 is up and to the right of 1: their rows touch at y 100, their columns at x 200.
+    const helpers = [rect(100, 100, 100, 100, 1), rect(250, 50, 50, 50, 2), rect(200, 250, 50, 50, 3)];
+    assert.deepEqual(rectangleGaps(helpers, 1), []);
+});
+
+test('a gap line sits at the rounded middle, half pixels rounding up', () => {
+    // 1 is 5 wide and 5 high: its middle is 102.5, drawn at 103.
+    const helpers = [rect(100, 100, 5, 5, 1), {id: 2, kind: 'vertical', x: 80}, {id: 3, kind: 'horizontal', y: 80}];
+    assert.deepEqual(rectangleGaps(helpers, 1), [
+        {axis: 'x', from: 80, to: 100, at: 103},
+        {axis: 'y', from: 80, to: 100, at: 103},
+    ]);
+    // Against a rectangle, the middle of the rows they share: 101 to 104, drawn at 103.
+    assert.deepEqual(rectangleGaps([rect(100, 100, 5, 5, 1), rect(50, 101, 10, 3, 2)], 1),
+        [{axis: 'x', from: 60, to: 100, at: 103}]);
+});
+
+test('a grid whose gutters and margins take exactly the width has no columns', () => {
+    // 2 × 50 margin + 3 × 100 gutters = 400: nothing is left for the four columns.
+    assert.deepEqual(columnGrid({width: 400, columns: 4, gutter: 100, margin: 50, maxWidth: 0}), []);
+    assert.equal(columnGrid({width: 404, columns: 4, gutter: 100, margin: 50, maxWidth: 0}).length, 4);
+});
+
+test('a grid max width larger than the zone is the zone width', () => {
+    assert.deepEqual(columnGrid({width: 300, columns: 2, gutter: 20, margin: 10, maxWidth: 1200}),
+        columnGrid({width: 300, columns: 2, gutter: 20, margin: 10, maxWidth: 0}));
+    assert.deepEqual(columnGrid({width: 300, columns: 2, gutter: 20, margin: 10, maxWidth: 1200}),
+        [{x: 10, width: 130}, {x: 160, width: 130}]);
+});
+
+test('a point on the first pixel of a monitor belongs to it, not to its neighbor', () => {
+    const monitors = [{x: 0, y: 0, width: 1920, height: 1080}, {x: 1920, y: 0, width: 1280, height: 1080}];
+    assert.equal(monitorAt(monitors, 1920, 500), 1);
+    assert.equal(monitorAt(monitors, 500, 1080), 0);
+});
+
+test('a point as far from two monitors goes to the first', () => {
+    const monitors = [{x: 0, y: 0, width: 100, height: 100}, {x: 200, y: 0, width: 100, height: 100}];
+    // The last pixel of the first is 99: 149.5 is 50.5 from both.
+    assert.equal(monitorAt(monitors, 149.5, 50), 0);
+});
+
+test('a window that ends where a monitor starts does not touch it', () => {
+    const monitors = [
+        {x: 0, y: 0, width: 1600, height: 1000, geometry_scale: 1},
+        {x: 1600, y: 0, width: 1280, height: 800, geometry_scale: 2},
+    ];
+    assert.equal(highestScaleMonitor(monitors, {x: 1000, y: 100, width: 600, height: 400}), 0);
+    assert.equal(highestScaleMonitor(monitors, {x: 1000, y: 100, width: 601, height: 400}), 1);
+    assert.equal(highestScaleMonitor(monitors, {x: 1600, y: 1000, width: 100, height: 100}), -1);
+    // Starting where the 2× monitor ends is not touching it either.
+    assert.equal(highestScaleMonitor(monitors, {x: 2880, y: 100, width: 100, height: 100}), -1);
+    assert.equal(highestScaleMonitor(monitors, {x: 1700, y: 800, width: 100, height: 100}), -1);
+});
+
+test('an arrowhead is drawn in the smallest box of whole pixels that holds all of it', () => {
+    // At 125% the line's middle is 0.4 stage pixels past its edge: no corner is on a whole pixel.
+    const box = pixelBox([[100.4, 50.4], [105.4, 47.9], [105.4, 52.9]]);
+    assert.deepEqual(box, {x: 100, y: 47, width: 6, height: 6});
+    assert.deepEqual(pixelBox([[10.6, 20.6], [12.4, 22.4]]), {x: 10, y: 20, width: 3, height: 3});
+    assert.deepEqual(pixelBox([[3, 4], [8, 9]]), {x: 3, y: 4, width: 5, height: 5});
 });

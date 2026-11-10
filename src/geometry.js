@@ -148,6 +148,15 @@ export function gapArrowheads({axis, from, to}, center) {
     return [head(from, from + ARROW_LENGTH), head(to, to - ARROW_LENGTH)];
 }
 
+/** The smallest box of whole pixels around `points`, `[[x, y], ...]`. */
+export function pixelBox(points) {
+    const xs = points.map(([x]) => x);
+    const ys = points.map(([, y]) => y);
+    const x = Math.floor(Math.min(...xs));
+    const y = Math.floor(Math.min(...ys));
+    return {x, y, width: Math.ceil(Math.max(...xs)) - x, height: Math.ceil(Math.max(...ys)) - y};
+}
+
 /**
  * Distances from a rectangle to the nearest helper on each side: guides, and rectangles that
  * overlap it across the gap. `axis` is the coordinate the gap runs along, `at` where the line

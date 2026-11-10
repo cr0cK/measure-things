@@ -28,7 +28,7 @@ new `src/*.js` modules on its own.
 | `src/geometry.js` | Helper storage, hit testing, drag math, grid layout, pixel units (pure) |
 | `src/zones.js` | Zone geometry, targeting among the views of a window, badge placement (pure) |
 | `src/format.js` | Length and color formatting (pure) |
-| `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |
+| `src/edges.js` | Edge and same-color run detection on lines of pixels, snapping limits, the long edge band, and measured runs (pure) |
 | `src/history.js` | Undo and redo history (pure) |
 | `src/detect.js` | Find helpers detection: guides on long edges, rectangles around uniform regions, fed rows of pixels (pure) |
 | `src/finder.js` | Find helpers run: covered check, capture, banded reads, staleness, commit |
@@ -117,7 +117,7 @@ in `Manager`; a view draws a model inside one window.
   in chunks of 64 rows with a `PRIORITY_DEFAULT_IDLE` idle between them, so the frame clock and the
   timers run first. The detector is fast enough at full resolution (a 4K zone in a fraction of a
   second), so nothing is downsampled. A boundary of the capture becomes a stage position the way
-  `_nearest()` does, `boundary / scale`, then goes through `view.toCss()`: a found guide and a snapped
+  `snapPosition()` does, `boundary / scale`, then goes through `view.toCss()`: a found guide and a snapped
   one are the same number. A run commits only if `_stamp()` (set revision, zone geometry, zoom) is
   what it was at the start. The detector keeps the edge map of the whole zone, a byte per pixel: a
   region's thin lines are judged in `finish()` against its box, and those below it arrive after its last

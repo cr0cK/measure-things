@@ -8,6 +8,7 @@ import {
     edgeAt,
     intersect,
     pickHit,
+    pixelRange,
     placeBadges,
     stackOrder,
     storedZone,
@@ -172,4 +173,146 @@ test('a zone is covered when any rectangle above overlaps it, not when one only 
     assert.equal(covers([rect(0, 0, 50, 50), rect(250, 150, 100, 100)], zone), true);
     assert.equal(covers([rect(300, 100, 50, 100), rect(0, 0, 100, 100)], zone), false);
     assert.equal(covers([], zone), false);
+});
+
+test('intersects a one pixel overlap', () => {
+    assert.deepEqual(intersect(rect(0, 0, 10, 10), rect(9, 0, 5, 5)), rect(9, 0, 1, 5));
+    assert.deepEqual(intersect(rect(0, 0, 10, 10), rect(0, 9, 5, 5)), rect(0, 9, 5, 1));
+    assert.equal(intersect(rect(0, 0, 10, 10), rect(0, 10, 5, 5)), null);
+});
+
+test('a fixed zone is scaled on every side', () => {
+    const scaled = zoneRects(frame, {x: 10, y: 20, width: 30, height: 40}, 2);
+    assert.deepEqual(scaled.rect, rect(20, 40, 60, 80));
+    assert.deepEqual(scaled.visible, rect(20, 40, 60, 80));
+    // The frame limits the visible part on both axes.
+    const cut = zoneRects({width: 70, height: 100}, {x: 10, y: 20, width: 30, height: 40}, 2);
+    assert.deepEqual(cut.visible, rect(20, 40, 50, 60));
+});
+
+test('a zone is stored rounded to the nearest whole stage pixel on every side', () => {
+    assert.deepEqual(storedZone(rect(100.6, 20.4, 300.5, 200.4), 1.25),
+        {x: 101 / 1.25, y: 20 / 1.25, width: 301 / 1.25, height: 200 / 1.25});
+});
+
+test('the device pixels of a zone are the whole ones inside it', () => {
+    assert.deepEqual(pixelRange(rect(10, 20, 30, 40), 1, 100, 100),
+        {left: 10, top: 20, width: 30, height: 40});
+    // Positions off by less than the epsilon count as whole pixels.
+    assert.deepEqual(pixelRange(rect(10.0004, 20.0004, 29.9992, 39.9992), 1, 100, 100),
+        {left: 10, top: 20, width: 30, height: 40});
+    // Past the epsilon the edge pixel is partly outside.
+    assert.deepEqual(pixelRange(rect(10.005, 20.005, 29.99, 39.99), 1, 100, 100),
+        {left: 11, top: 21, width: 28, height: 38});
+    assert.deepEqual(pixelRange(rect(10, 20, 30, 40), 2, 200, 200),
+        {left: 20, top: 40, width: 60, height: 80});
+    // A custom epsilon is honoured.
+    assert.equal(pixelRange(rect(10.005, 20, 30, 40), 1, 100, 100, 0.01).left, 10);
+});
+
+test('the device pixels of a zone must all lie in the image and be two or more across', () => {
+    assert.deepEqual(pixelRange(rect(2, 3, 98, 47), 1, 100, 50), {left: 2, top: 3, width: 98, height: 47});
+    assert.equal(pixelRange(rect(-1, 0, 50, 50), 1, 100, 100), null);
+    assert.equal(pixelRange(rect(0, -1, 50, 50), 1, 100, 100), null);
+    assert.equal(pixelRange(rect(1, 0, 100, 50), 1, 100, 100), null);
+    assert.equal(pixelRange(rect(0, 1, 50, 100), 1, 100, 100), null);
+    assert.deepEqual(pixelRange(rect(5, 5, 2, 2), 1, 100, 100), {left: 5, top: 5, width: 2, height: 2});
+    assert.equal(pixelRange(rect(5, 5, 1, 20), 1, 100, 100), null);
+    assert.equal(pixelRange(rect(5, 5, 20, 1), 1, 100, 100), null);
+});
+
+test('the edge under a point is found right at the ends of its length and of the tolerance', () => {
+    const zone = rect(100, 50, 300, 200);
+    // Each point is within 4 of two edges and closer to the one expected.
+    assert.equal(edgeAt(zone, 98, 46), 'left');
+    assert.equal(edgeAt(zone, 98, 254), 'left');
+    assert.equal(edgeAt(zone, 402, 46), 'right');
+    assert.equal(edgeAt(zone, 402, 254), 'right');
+    assert.equal(edgeAt(zone, 96, 52), 'top');
+    assert.equal(edgeAt(zone, 404, 52), 'top');
+    assert.equal(edgeAt(zone, 96, 248), 'bottom');
+    assert.equal(edgeAt(zone, 404, 248), 'bottom');
+    // Just past the end of an edge's length, near it, is no edge.
+    assert.equal(edgeAt(zone, 90, 52), null);
+    assert.equal(edgeAt(zone, 410, 248), null);
+    assert.equal(edgeAt(zone, 98, 40), null);
+    assert.equal(edgeAt(zone, 98, 260), null);
+    // The distance of exactly the tolerance counts; a default tolerance of 4.
+    assert.equal(edgeAt(zone, 96, 150), 'left');
+    assert.equal(edgeAt(zone, 95, 150), null);
+});
+
+test('a corner goes to the left or right edge, and a tie between them to the left', () => {
+    const zone = rect(100, 50, 300, 200);
+    assert.equal(edgeAt(zone, 100, 50), 'left');
+    assert.equal(edgeAt(zone, 100, 250), 'left');
+    assert.equal(edgeAt(zone, 400, 50), 'right');
+    assert.equal(edgeAt(zone, 400, 250), 'right');
+    assert.equal(edgeAt(rect(100, 50, 6, 200), 103, 150), 'left');
+    assert.equal(edgeAt(rect(100, 50, 200, 6), 200, 53), 'top');
+});
+
+test('dragging an edge of a zone partly outside the frame first clips it to the frame', () => {
+    assert.deepEqual(dragEdge(rect(100, -30, 300, 200), 'left', 150, frame), rect(150, 0, 250, 170));
+    assert.deepEqual(dragEdge(rect(100, 500, 300, 200), 'left', 150, frame), rect(150, 500, 250, 100));
+    assert.deepEqual(dragEdge(rect(-30, 100, 200, 300), 'top', 150, frame), rect(0, 150, 170, 250));
+    assert.deepEqual(dragEdge(rect(700, 100, 200, 300), 'top', 150, frame), rect(700, 150, 100, 250));
+});
+
+test('a zone slightly under the minimum grows back to it', () => {
+    assert.deepEqual(dragEdge(rect(100, 50, 300, 39.5), 'left', 100, frame), rect(100, 50, 300, 40));
+    assert.deepEqual(dragEdge(rect(100, 50, 39.5, 300), 'top', 50, frame), rect(100, 50, 40, 300));
+    // At the bottom of the frame it grows upward.
+    assert.deepEqual(dragEdge(rect(100, 590, 300, 5), 'left', 100, frame), rect(100, 560, 300, 40));
+    assert.deepEqual(dragEdge(rect(790, 100, 5, 300), 'top', 100, frame), rect(760, 100, 40, 300));
+});
+
+test('each axis of a frame smaller than the minimum is limited by its own size', () => {
+    const narrow = {width: 30, height: 600};
+    assert.deepEqual(dragEdge(rect(0, 0, 30, 300), 'top', 280, narrow), rect(0, 260, 30, 40));
+    const short = {width: 600, height: 30};
+    assert.deepEqual(dragEdge(rect(0, 0, 300, 30), 'top', 20, short), rect(0, 0, 300, 30));
+    assert.deepEqual(dragEdge(rect(0, 0, 300, 30), 'bottom', 20, short), rect(0, 0, 300, 30));
+});
+
+test('stacking the views of a window leaves the entries as they were', () => {
+    const entries = [{id: 'b', area: 100, seq: 2}, {id: 'a', area: 500, seq: 1}];
+    assert.deepEqual(stackOrder(entries), ['a', 'b']);
+    assert.deepEqual(entries.map(entry => entry.id), ['b', 'a']);
+});
+
+test('a zone entry has the area of its visible part, or none', () => {
+    assert.deepEqual(zoneEntry('a', rect(0, 0, 10, 20), 7), {id: 'a', visible: rect(0, 0, 10, 20), area: 200, seq: 7});
+    assert.deepEqual(zoneEntry('b', null, 8), {id: 'b', visible: null, area: 0, seq: 8});
+});
+
+test('a zone covers its left and top edges and not its right and bottom ones', () => {
+    const entries = [zoneEntry('z', rect(400, 300, 400, 300), 1)];
+    assert.equal(targetZone(entries, 400, 300), 'z');
+    assert.equal(targetZone(entries, 799, 599), 'z');
+    assert.equal(targetZone(entries, 399, 300), null);
+    assert.equal(targetZone(entries, 400, 299), null);
+    assert.equal(targetZone(entries, 800, 599), null);
+    assert.equal(targetZone(entries, 799, 600), null);
+});
+
+test('the last targeted view wins among badges, but never among zones', () => {
+    const badges = [hit('big', 1000, 1, 'badge'), hit('small', 100, 2, 'badge')];
+    assert.equal(pickHit(badges, 'big').id, 'big');
+    assert.equal(pickHit(badges).id, 'small');
+    const zones = [hit('big', 1000, 1, 'zone'), hit('small', 100, 2, 'zone')];
+    assert.equal(pickHit(zones, 'big').id, 'small');
+});
+
+test('a badge that ends exactly at the left edge stays on its row', () => {
+    const badge = {width: 20, height: 20, right: 100, bottom: 600};
+    assert.deepEqual(placeBadges([badge, badge, badge, badge]),
+        [{x: 72, y: 572}, {x: 48, y: 572}, {x: 24, y: 572}, {x: 0, y: 572}]);
+});
+
+test('a crowd of badges in one corner ends: the one that finds no room stays on the first row', () => {
+    const badge = {width: 80, height: 20, right: 200, bottom: 600};
+    const placed = placeBadges(Array.from({length: 150}, () => badge));
+    assert.equal(placed.length, 150);
+    assert.deepEqual(placed.at(-1), {x: 112, y: 572});
 });
