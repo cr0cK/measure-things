@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 
-import {LEVELS, detect} from '../src/detect.js';
+import {LEVELS, PARAMETERS, detect} from '../src/detect.js';
 
 const WHITE = [255, 255, 255];
 const BLUE = [79, 124, 255];
@@ -293,4 +293,23 @@ test('a stripe beyond a one-pixel line on a few rows does not cost the line its 
         assert.equal(foundWhole(image(221), 'medium', {scale})[0][2], 181, `at ${scale}`);
         assert.equal(foundWhole(image(220), 'medium', {scale})[0][2], 180, `84% at ${scale}`);
     }
+});
+
+test('a region a border short of the smallest rectangle reaches it with the borders it takes in', () => {
+    // At the high level the smallest rectangle is 16 × 12 on this zone. A 14-pixel panel between two
+    // 1-pixel borders is 16 pixels with them, and is found; a 13-pixel one is 15, and is not. An
+    // 11-row panel above a border is 12 rows with it. A region too small on its own must not be
+    // dropped before its borders are taken in.
+    const {minWidth, minHeight} = PARAMETERS.high;
+    const across = size => scene([
+        [100, 50, 1, 200, INK], [101, 50, size, 200, BLUE], [101 + size, 50, 1, 200, INK],
+        [102 + size, 50, 150, 200, SAND],
+    ]);
+    const down = size => scene([[50, 100, 300, size, BLUE], [50, 100 + size, 300, 1, INK],
+        [50, 101 + size, 300, 150, SAND]]);
+    const at = (rectangles, x, y) => rectangles.find(r => r[0] === x && r[1] === y);
+    assert.deepEqual(at(foundWhole(across(minWidth.floor - 2), 'high'), 100, 50), [100, 50, minWidth.floor, 200]);
+    assert.equal(at(foundWhole(across(minWidth.floor - 3), 'high'), 100, 50), undefined);
+    assert.deepEqual(at(foundWhole(down(minHeight.floor - 1), 'high'), 50, 100), [50, 100, 300, minHeight.floor]);
+    assert.equal(at(foundWhole(down(minHeight.floor - 2), 'high'), 50, 100), undefined);
 });
