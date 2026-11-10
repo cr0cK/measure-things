@@ -574,11 +574,17 @@ The panel menu manages the sets: which ones are on screen, and the library.
     10% of its area: the bands, columns, and quarters of the layout, not the cards in them. A
     full-width band at least Low's smallest rectangle high passes, form fields included; that
     trade-off of fixed thresholds is accepted. Medium and High have no such rule;
-  - a rectangle takes in a line along one of its sides, at most `ceil(scale)` device pixels thick
-    and over at least 85% of that side, of colors other than the region's: its edge moves to the
-    line's far boundary. Two regions separated by a 1-pixel border both reach across it, so their
-    edges are drawn on the border, one line on screen, and each size counts the border, as a CSS
-    border box does. Rectangles that then share a box are one;
+  - a rectangle takes in a thin line along one of its sides, so that two regions separated by a
+    1-pixel border both reach across it: their edges are drawn on the border, one line on screen,
+    and each size counts the border, as a CSS border box does. A side takes in a line `t` device
+    pixels thick, `t` from 1 to `ceil(scale)`, when on at least 85% of the positions along the side,
+    the first pixel beyond the region's box is an edge with the region's pixel, at the level's
+    tolerance, and the pixel `t` beyond the box is the first one past it that is an edge with the
+    pixel before it: one far boundary at the same distance. The smallest such `t` wins. The far
+    boundary must lie inside the zone, so a line against the zone's edge is not taken in. Every
+    side is judged against the region's own box, before any side moves, and the 85% filter, the
+    nested merge, the Low filter, and the 30-rectangle cap apply to the moved boxes. Rectangles that
+    then share a box are one;
   - a guide within 1 pixel of a kept rectangle's edge is dropped, whatever its extent, since a
     guide spans the zone.
 - Found helpers sit on pixel boundaries, rounded to stage pixels exactly as snapping rounds, so a
