@@ -9,7 +9,7 @@ import St from 'gi://St';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {BadgeMenu} from './badge.js';
 import {setCursor} from './cursor.js';
-import {nearestBoundary, regionAround} from './edges.js';
+import {longEdges, nearestBoundary, regionAround} from './edges.js';
 import {Finder} from './finder.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {cursorFor, dragHelper, monitorAt, rectFromPoints, targetAt, windowRole} from './geometry.js';
@@ -23,6 +23,8 @@ import {dragEdge, pickHit, targetZone, zoneEntry} from './zones.js';
 const DRAG_THRESHOLD = 3;
 // Dragged edges snap to screen edges this close, in stage pixels.
 const SNAP_DISTANCE = 6;
+// A guide also snaps to an edge this many stage pixels long.
+const LONG_EDGE = 16;
 const LABEL_MARGIN = 4;
 const NEUTRAL_COLOR = '#ff2d95';
 const HINT_TEXT = [
@@ -648,42 +650,88 @@ export class Overlay {
     /**
      * The nearest screen edge to a vertical edge at `x`, on the row through `y`, both in pixels
      * from the corner of `zone`, within `bounds` in the same pixels: the zone's visible part for
-     * helpers, the window frame for a zone edge. Marks the drag as waiting while that row is
-     * being read.
+     * helpers, the window frame for a zone edge. With `long`, for a guide, the long edges of the
+     * zone's visible part count too. Marks the drag as waiting while the row or the band of long
+     * edges is being read.
      */
-    _snapX(zone, x, y, bounds = zone.visible) {
+    _snapX(zone, x, y, bounds = zone.visible, long = false) {
         const snapshot = this._snapshot;
         const stageY = zone.originY + y;
         const row = snapshot?.line('row', stageY, this._onLineRead);
-        if (!row) {
-            this._drag.waiting ||= Boolean(snapshot?.reading('row', stageY));
+        const longEdges = long && snapshot &&
+            this._readLongEdges(snapshot, zone, true, zone.originX + x);
+        if (!snapshot || (!row && snapshot.reading('row', stageY)) || longEdges?.pending) {
+            this._drag.waiting ||= Boolean(snapshot);
             return x;
         }
-        const snapped = this._nearest(row, snapshot.scale, zone.originX + x, zone.originX + bounds.x,
-            bounds.width);
+        const snapped = this._nearest(row ?? {data: [], step: 0, length: snapshot.width},
+            snapshot.scale, zone.originX + x, zone.originX + bounds.x, bounds.width, longEdges?.edges);
         return snapped - zone.originX;
     }
 
     /** Like _snapX(), for a horizontal edge at `y` on the column through `x`. */
-    _snapY(zone, x, y, bounds = zone.visible) {
+    _snapY(zone, x, y, bounds = zone.visible, long = false) {
         const snapshot = this._snapshot;
         const stageX = zone.originX + x;
         const column = snapshot?.line('column', stageX, this._onLineRead);
-        if (!column) {
-            this._drag.waiting ||= Boolean(snapshot?.reading('column', stageX));
+        const longEdges = long && snapshot &&
+            this._readLongEdges(snapshot, zone, false, zone.originY + y);
+        if (!snapshot || (!column && snapshot.reading('column', stageX)) || longEdges?.pending) {
+            this._drag.waiting ||= Boolean(snapshot);
             return y;
         }
-        const snapped = this._nearest(column, snapshot.scale, zone.originY + y, zone.originY + bounds.y,
-            bounds.height);
+        const snapped = this._nearest(column ?? {data: [], step: 0, length: snapshot.height},
+            snapshot.scale, zone.originY + y, zone.originY + bounds.y, bounds.height, longEdges?.edges);
         return snapped - zone.originY;
     }
 
-    /** The stage coordinate of the nearest screen edge within the zone, or `position` itself. */
-    _nearest(line, scale, position, origin, length) {
+    /**
+     * The long edges within snapping distance of a guide at the stage coordinate `position`,
+     * across the zone's visible part, as device boundaries; `pending` while the band holding them
+     * is being read. A band that cannot be read has none.
+     */
+    _readLongEdges(snapshot, zone, vertical, position) {
+        const {scale} = snapshot;
+        const eps = 1e-6;
+        const {visible} = zone;
+        // Along the guide's axis, the zone's visible part bounds the boundaries _nearest() can
+        // pick; across it, the band runs the visible part's length.
+        const along = vertical ?
+            {origin: zone.originX + visible.x, length: visible.width} :
+            {origin: zone.originY + visible.y, length: visible.height};
+        const across = vertical ?
+            {origin: zone.originY + visible.y, length: visible.height} :
+            {origin: zone.originX + visible.x, length: visible.width};
+        const first = Math.max(Math.ceil((position - SNAP_DISTANCE) * scale - eps),
+            Math.ceil(along.origin * scale - 0.5), 1);
+        const last = Math.min(Math.floor((position + SNAP_DISTANCE) * scale + eps),
+            Math.floor((along.origin + along.length) * scale + 0.5));
+        // Only the device pixels fully inside the zone's visible part, on both sides of each
+        // boundary.
+        const start = Math.ceil(across.origin * scale - eps);
+        const end = Math.floor((across.origin + across.length) * scale + eps);
+        if (last < first || end <= start)
+            return {pending: false, edges: []};
+        const args = vertical ?
+            [first - 1, start, last - first + 2, end - start] :
+            [start, first - 1, end - start, last - first + 2];
+        const area = snapshot.band(...args, this._onLineRead);
+        if (!area)
+            return {pending: snapshot.bandReading(...args), edges: []};
+        return {pending: false, edges: longEdges(area, vertical, Math.ceil(LONG_EDGE * scale - eps))};
+    }
+
+    /**
+     * The stage coordinate of the nearest screen edge within the zone, or `position` itself.
+     * `extra` holds device boundaries from elsewhere, such as long edges, that compete with the
+     * line's own.
+     */
+    _nearest(line, scale, position, origin, length, extra = []) {
         // Only boundaries within the zone count: the nearest one may lie outside it.
         const boundary = nearestBoundary(line, position * scale, SNAP_DISTANCE * scale, undefined, {
             from: Math.ceil(origin * scale - 0.5),
             to: Math.floor((origin + length) * scale + 0.5),
+            extra,
         });
         return boundary === null ? position : boundary / scale;
     }
@@ -810,9 +858,12 @@ export class Overlay {
         const [startX, startY] = view.toZone(drag.x, drag.y);
         const snapX = (value, rowY = zoneY) => (snap ? this._snapX(zone, value, rowY) : value);
         const snapY = (value, columnX = zoneX) => (snap ? this._snapY(zone, columnX, value) : value);
+        const guideX = value => (snap ? this._snapX(zone, value, zoneY, zone.visible, true) : value);
+        const guideY = value => (snap ? this._snapY(zone, zoneX, value, zone.visible, true) : value);
         let helper;
         if (drag.kind === 'move') {
-            helper = dragHelper(drag.origin, drag.part, zoneX - startX, zoneY - startY, snapX, snapY);
+            helper = dragHelper(drag.origin, drag.part, zoneX - startX, zoneY - startY, snapX, snapY,
+                guideX, guideY);
         } else {
             const rect = rectFromPoints(snapX(startX, startY), snapY(startY, startX),
                 snapX(zoneX), snapY(zoneY));

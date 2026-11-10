@@ -53,6 +53,23 @@ test('moves guides along their axis only', () => {
         {id: 1, kind: 'horizontal', y: 19});
 });
 
+test('guides use the guide snappers, rectangles the plain ones', () => {
+    const plainX = x => x + 100;
+    const plainY = y => y + 200;
+    const guideX = x => x + 1000;
+    const guideY = y => y + 2000;
+    assert.equal(dragHelper({id: 1, kind: 'vertical', x: 10}, 'move', 5, 9, plainX, plainY, guideX, guideY).x, 1015);
+    assert.equal(dragHelper({id: 1, kind: 'horizontal', y: 10}, 'move', 5, 9, plainX, plainY, guideX, guideY).y, 2019);
+    // Without guide snappers, a guide falls back to the plain ones.
+    assert.equal(dragHelper({id: 1, kind: 'vertical', x: 10}, 'move', 5, 9, plainX, plainY).x, 115);
+    // A rectangle edge never goes through the guide snappers.
+    const origin = {id: 2, kind: 'rectangle', x: 0, y: 0, width: 50, height: 50};
+    const resized = dragHelper(origin, 'right', 10, 0, plainX, plainY, guideX, guideY);
+    assert.equal(resized.x + resized.width, 160);
+    const corner = dragHelper(origin, 'top-left', 0, 0, x => x, y => y, () => -1, () => -1);
+    assert.deepEqual([corner.x, corner.y], [0, 0]);
+});
+
 test('moves and resizes rectangles', () => {
     const origin = rect(100, 100, 200, 100);
     assert.deepEqual(dragHelper(origin, 'inside', -10, 5), rect(90, 105, 200, 100));

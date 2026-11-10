@@ -333,6 +333,64 @@ expect "$E2E.helpers('Page') + ' / ' + $E2E.fileHelpers('$PAGE')" \
     'a drag released before its row is read still snaps'
 press_keys Delete
 
+# Long edges: a guide also snaps to an edge that ends above or below the pointer. Row 570 and
+# column 800 hold no edge near the guide, but the red block (stage 500 to 740 across, 350 to 510
+# down) has long edges on both axes.
+pointer_move 490 720
+press_keys v
+pointer_button PRESSED
+pointer_move 497 570
+pointer_button RELEASED
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Page')" 'R 120,110 201x170 | V 510 | V 300' \
+    'a vertical guide dragged below the block snaps to its left edge'
+press_keys Delete
+pointer_move 490 720
+press_keys v
+pointer_button PRESSED
+shell_eval "const {Clutter, GLib} = imports.gi;
+    global._headlessPointer.notify_absolute_motion(GLib.get_monotonic_time(), 498, 575);
+    global._headlessPointer.notify_button(GLib.get_monotonic_time(), Clutter.BUTTON_PRIMARY,
+        Clutter.ButtonState.RELEASED);" >/dev/null
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Page') + ' / ' + $E2E.fileHelpers('$PAGE')" \
+    'R 120,110 201x170 | V 510 | V 300 / R 120,110 201x170 | V 510 | V 300' \
+    'a drag released before the long edges are read still snaps'
+press_keys Delete
+pointer_move 900 300
+press_keys h
+pointer_button PRESSED
+pointer_move 800 347
+pointer_button RELEASED
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Page')" 'R 120,110 201x170 | V 510 | H 200' \
+    'a horizontal guide dragged beside the block snaps to its top edge'
+press_keys Delete
+pointer_move 490 720
+press_keys v
+key_state Control_L PRESSED
+pointer_button PRESSED
+pointer_move 497 570
+pointer_button RELEASED
+key_state Control_L RELEASED
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Page')" 'R 120,110 201x170 | V 510 | V 297' 'Ctrl+drag does not snap to long edges'
+press_keys Delete
+pointer_move 490 720
+press_keys v
+pointer_button PRESSED
+pointer_move 492 680
+pointer_button RELEASED
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Page')" 'R 120,110 201x170 | V 510 | V 292' \
+    'a guide farther than 6 pixels from a long edge stays where it is'
+press_keys Delete
+# A rectangle edge snaps on the pointer row only, so the same drag leaves it where it is.
+pointer_drag 600 570 497 620
+expect "$E2E.helpers('Page')" 'R 120,110 201x170 | V 510 | R 297,420 103x50' \
+    'a rectangle edge does not snap to a long edge'
+press_keys Delete
+
 # The badge menu, opened from the badge in the window's bottom-right corner.
 expect "$E2E.view('Page').badgeActor.visible + ' ' + $E2E.view('Page')._badgeLabel.text" 'true Untitled 2' \
     'edit mode shows the badge of each view'
@@ -2083,6 +2141,23 @@ press_keys Super_L Shift_L m
 wait_for "!!$OVERLAY._snapshot"
 pointer_drag 800 500 405 500
 expect "$E2E.helpers('Bar')" 'V 302' 'at 125%, a dragged guide snaps to the edge of the bar'
+# The bar ends at stage y 650, and its top edge is device pixel 312, CSS 149.6: a guide dragged at row 690, below it, still snaps to its edge.
+pointer_move 800 690
+press_keys v
+pointer_button PRESSED
+pointer_move 405 690
+pointer_button RELEASED
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Bar')" 'V 302 | V 302' 'at 125%, a guide dragged below the bar snaps to its long edge'
+press_keys Delete
+pointer_move 800 690
+press_keys h
+pointer_button PRESSED
+pointer_move 700 247
+pointer_button RELEASED
+wait_for "$OVERLAY._drag === null"
+expect "$E2E.helpers('Bar')" 'V 302 | H 149.6' 'at 125%, a horizontal guide dragged beside the bar snaps to its top edge'
+press_keys Delete
 shell_eval "$OVERLAY._find($E2E.view('Bar'), 'medium'); 1" >/dev/null
 wait_for "$E2E.model('Bar').found === true"
 expect "$E2E.helpers('Bar')" 'V 302 | V 322' 'at 125%, Find helpers puts its guide where snapping put the dragged one'
