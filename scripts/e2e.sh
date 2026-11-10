@@ -230,6 +230,23 @@ arrow_checks() {
     expect "(v => { const [x, y] = $ARROWS(v)[0].get_transformed_position();
         return $E2E.inViews(global.stage.get_actor_at_pos(imports.gi.Clutter.PickMode.REACTIVE, x + 2, y + 2)); })($view)" \
         false "$where, a pick over an arrowhead finds no actor of the views"
+    if [[ $where == 'at 100%' ]]; then
+        # Painted pixels: inside the left head of the 200 pixel line, in the set's color and opaque
+        # where the translucent line is not; outside it, above the tip, the page.
+        PICK="(async (x, y) => { const {Gio, Shell} = imports.gi;
+            Gio._promisify(Shell.Screenshot.prototype, 'screenshot_stage_to_content');
+            Gio._promisify(Shell.Screenshot, 'composite_to_stream');
+            const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
+            const pixbuf = await Shell.Screenshot.composite_to_stream(content.get_texture(), x * scale, y * scale,
+                1, 1, scale, null, 0, 0, 1, Gio.MemoryOutputStream.new_resizable());
+            return pixbuf.read_pixel_bytes().toArray().slice(0, 3).join(); })"
+        read -r HX HY < <(shell_eval "$ARROWS($view)[0].get_transformed_position().map(Math.round).join(' ')")
+        expect "$PICK($((HX + 4)), $((HY + 2)))" '255,45,149' "$where, the arrowhead is filled with the set's color"
+        expect "$PICK($((HX + 12)), $((HY + 2))).then(c => c !== '255,45,149' && c !== '61,56,70')" true \
+            "$where, the line next to the arrowhead is translucent: the arrowhead is not"
+        expect "Promise.all([$PICK($HX, $HY), $PICK($HX - 8, $HY)]).then(([a, b]) => a === b)" true \
+            "$where, a corner of the arrowhead's box outside the triangle is the page"
+    fi
     # A selected rectangle: 92 to the guide on its left, 100 to the one above it get arrowheads; the
     # 8 pixel gap to the guide on its right does not.
     shell_eval "$view.selectedId = global._arrowRect; $view.syncHelpers(); 1" >/dev/null
@@ -244,6 +261,19 @@ arrow_checks() {
             model.content.helpers.find(h => h.kind === 'vertical' && h.x > 100).x = $x; $MANAGER.commit(model); 1" >/dev/null
         wait_for "$ARROWS($view).length === $count"
     done
+    # The threshold is on stage pixels, not CSS: at a zoom of 40% the 92 and 100 pixel gaps shrink to
+    # 36.8 and 40 and keep their arrowheads, the 4.8 one to the right still has none; at 5% every
+    # gap is under 12 stage pixels, and none has any.
+    shell_eval "$E2E.model('$title').content.zoom = 40; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
+    wait_for "$ARROWS($view).length === 8"
+    shell_eval "$E2E.model('$title').content.zoom = 5; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
+    wait_for "$ARROWS($view).length === 0"
+    shell_eval "$E2E.model('$title').content.zoom = 100; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
+    wait_for "$ARROWS($view).length === 10"
+    # A sync destroys the arrowheads it replaces.
+    expect "(v => { const old = $ARROWS(v); let gone = 0; old.forEach(a => a.connect('destroy', () => gone++));
+        v.syncHelpers(); return gone === old.length && $ARROWS(v).length === old.length && !$ARROWS(v).some(a => old.includes(a)); })($view)" \
+        true "$where, a sync destroys the arrowheads it replaces"
     shell_eval "$view.selectedId = null; $view.syncHelpers(); $MANAGER.removeFromScreen($E2E.model('$title'));
         $E2E.win('$title').delete(global.get_current_time()); 1" >/dev/null
 }
