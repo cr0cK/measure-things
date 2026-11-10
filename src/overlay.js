@@ -603,8 +603,8 @@ export class Overlay {
         const region = {
             x: across.start,
             y: down.start,
-            width: across.end - across.start,
-            height: down.end - down.start,
+            width: across.length,
+            height: down.length,
         };
         this._region = region;
         const ratio = this._ratioOf(target);

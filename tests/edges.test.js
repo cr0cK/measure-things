@@ -326,26 +326,33 @@ test('an area runs over the same color around the pointer pixel, up to the point
     // A block from device pixel 10 to 19, between two others.
     const block = line([...Array(10).fill(0), ...Array(10).fill(200), ...Array(10).fill(0)]);
     const whole = {origin: 0, length: 30};
-    assert.deepEqual(measureRun(block, 15, 1, whole), {start: 10, end: 20});
+    assert.deepEqual(measureRun(block, 15, 1, whole), {start: 10, length: 10});
     // The pointer on the block's last pixel, at 100% and at 125%: still the block.
-    assert.deepEqual(measureRun(block, 19.9, 1, whole), {start: 10, end: 20});
-    assert.deepEqual(measureRun(block, 15.9, 1.25, whole), {start: 8, end: 16});
+    assert.deepEqual(measureRun(block, 19.9, 1, whole), {start: 10, length: 10});
+    assert.deepEqual(measureRun(block, 15.9, 1.25, whole), {start: 8, length: 8});
     // The pointer on the next pixel measures the next block.
-    assert.deepEqual(measureRun(block, 20, 1, whole), {start: 20, end: 30});
+    assert.deepEqual(measureRun(block, 20, 1, whole), {start: 20, length: 10});
 });
 
 test('an area stops at the zone, rounded to the nearest device pixel', () => {
     const flat = line(Array(60).fill(90));
-    assert.deepEqual(measureRun(flat, 20, 1, {origin: 12, length: 5}), {start: 12, end: 17});
+    assert.deepEqual(measureRun(flat, 20, 1, {origin: 12, length: 5}), {start: 12, length: 5});
     // At 125% a zone from stage 10.2 to 30.2 is device 12.75 to 37.75: pixels 13 to 38.
-    assert.deepEqual(measureRun(flat, 20, 1.25, {origin: 10.2, length: 20}), {start: 10.4, end: 30.4});
+    assert.deepEqual(measureRun(flat, 20, 1.25, {origin: 10.2, length: 20}), {start: 10.4, length: 20});
     // A zone from stage 10.32 starts at device 12.9: pixel 13 too, not 12.
     assert.deepEqual(measureRun(flat, 20, 1.25, {origin: 10.32, length: 20}).start, 10.4);
     // One ending at stage 29.8, device 37.25, ends on boundary 37, not 38.
-    assert.equal(measureRun(flat, 20, 1.25, {origin: 10.2, length: 19.6}).end, 29.6);
+    assert.equal(measureRun(flat, 20, 1.25, {origin: 10.2, length: 19.6}).length, 19.2);
 });
 
 test('an area outside the zone is empty, where the pointer is', () => {
     const block = line([...Array(10).fill(0), ...Array(10).fill(200)]);
-    assert.deepEqual(measureRun(block, 15, 1, {origin: 0, length: 8}), {start: 10, end: 10});
+    assert.deepEqual(measureRun(block, 15, 1, {origin: 0, length: 8}), {start: 10, length: 0});
+});
+
+test('an area length is its device length over the scale, wherever it starts', () => {
+    // Device pixels 251 to 261 at 125%: 11 / 1.25 is 8.8, while 261.6 - 200.8 is 8.799999999999983,
+    // which a 128% set would show and save as 6.87 instead of 6.88.
+    const run = line([...Array(251).fill(0), ...Array(11).fill(200), ...Array(20).fill(0)]);
+    assert.equal(measureRun(run, 205, 1.25, {origin: 0, length: 300}).length, 8.8);
 });

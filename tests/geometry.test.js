@@ -325,11 +325,13 @@ test('keeps arrowheads in stage pixels at fractional scales and zoom, tips on th
     assert.equal(gapArrowheads({axis: 'x', from: 0, to: 8 * 1.5}, 0).length, 2);
 });
 
-test('a rectangle thinner than two tolerances names the nearer edge, the top on a tie', () => {
-    // 6 pixels high: both edges are within 4 pixels of the middle rows.
+test('a rectangle thinner than two tolerances names the top edge whenever it is in reach', () => {
+    // 6 pixels high: both edges are within 4 pixels of the middle rows, and the top comes first,
+    // even 2 pixels from the bottom and 4 from the top.
     const helpers = [rect(100, 100, 200, 6)];
     assert.equal(hitTest(helpers, 200, 101).part, 'top');
     assert.equal(hitTest(helpers, 200, 103).part, 'top');
+    assert.equal(hitTest(helpers, 200, 104).part, 'top');
     assert.equal(hitTest(helpers, 200, 105).part, 'bottom');
     assert.equal(hitTest(helpers, 101, 103).part, 'top-left');
 });

@@ -144,12 +144,13 @@ export function longEdgeBand(position, scale, along, across, vertical) {
 
 /**
  * The run of same-colored pixels of `line` around the stage coordinate `position`, at `scale`,
- * cut to the stage span `bounds`, `{origin, length}`: `{start, end}` in stage pixels, empty when
- * the run and the span do not meet.
+ * cut to the stage span `bounds`, `{origin, length}`: `{start, length}` in stage pixels, the
+ * length 0 when the run and the span do not meet. The length is the device length over the scale,
+ * so it reads the same wherever the run starts.
  */
-export function measureRun(line, position, scale, {origin, length}) {
+export function measureRun(line, position, scale, bounds) {
     const {start, end} = regionAround(line, Math.floor(position * scale));
-    const from = Math.max(start, Math.round(origin * scale));
-    const to = Math.min(end, Math.round((origin + length) * scale));
-    return {start: from / scale, end: Math.max(from, to) / scale};
+    const from = Math.max(start, Math.round(bounds.origin * scale));
+    const to = Math.min(end, Math.round((bounds.origin + bounds.length) * scale));
+    return {start: from / scale, length: Math.max(0, to - from) / scale};
 }
