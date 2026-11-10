@@ -415,8 +415,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
 - A click on the name turns it into a text entry holding the name, selected. `Enter`, a click
   elsewhere in the menu, or the menu closing renames the set as a name saved in **Set settings**
   does: one commit and one undo step, a taken name gets a numeric suffix, and an empty name keeps
-  the current one. `Esc` leaves the entry without renaming and keeps the menu open. A copy's
-  header cannot be edited.
+  the current one. A click on a menu action renames first, then runs the action, so a dialog it
+  opens shows the new name. `Esc` leaves the entry without renaming and keeps the menu open; it
+  reaches the entry before anything else in the menu. Editing the name dismisses a **Find helpers**
+  confirmation. A copy's header cannot be edited.
 - Chips, each saved with the set and applying to the main view and its linked copies:
   - **Helpers**: shows the guides and rectangles outside edit mode. Edit mode always shows them.
   - **Grid**: shows the column grid.
