@@ -681,6 +681,17 @@ press_keys Control_L z
 expect "$E2E.model('Page').name + ' ' + $E2E.model('Page').content.zoom" 'Untitled 2 100' \
     'Ctrl+Z undoes Set settings in one step'
 press_keys Control_L y
+# A name another set has gets a numeric suffix, as in the badge menu.
+click_actor "$E2E.view('Page').badgeActor"
+click_actor "$E2E.item($OVERLAY.badgeMenu, 'Set settings…')"
+wait_for "!!$E2E.dialog()?.visible"
+shell_eval "$E2E.entries($E2E.dialog())[0].text = 'Untitled 1'" >/dev/null
+click_actor "$E2E.button($E2E.dialog(), 'Save')"
+expect "$E2E.model('Page').name + ' / ' + $E2E.file('$PAGE').name" 'Untitled 1 2 / Untitled 1 2' \
+    'Set settings suffixes a name another set has'
+pointer_move 600 600
+press_keys Control_L z
+expect "$E2E.model('Page').name" 'Landing page' 'and Ctrl+Z puts the name back'
 
 # A long name is cut in the badge.
 shell_eval "const model = $E2E.model('Page'); model.name = 'x'.repeat(40); model.view.sync();" >/dev/null
