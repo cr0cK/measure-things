@@ -5,6 +5,10 @@ import {
     columnGrid,
     cursorFor,
     dragHelper,
+    ARROW_LENGTH,
+    ARROW_MIN_GAP,
+    ARROW_WIDTH,
+    gapArrowheads,
     guideGaps,
     hitTest,
     highestScaleMonitor,
@@ -253,4 +257,69 @@ test('hides the helpers outside the visible part of a zone that starts before th
     assert.deepEqual([49, 50, 149, 150].map(y => inside({kind: 'horizontal', y})), [false, true, true, false]);
     assert.equal(inside(rect(0, 60, 100, 10)), false);
     assert.equal(inside(rect(0, 60, 101, 10)), true);
+});
+
+test('ends a horizontal-running distance line in an arrowhead at each end, tips on the edges', () => {
+    const heads = gapArrowheads({axis: 'x', from: 100, to: 300}, 40.5);
+    assert.deepEqual(heads, [
+        [[100, 40.5], [105, 38], [105, 43]],
+        [[300, 40.5], [295, 38], [295, 43]],
+    ]);
+});
+
+test('ends a vertical-running distance line in an arrowhead at each end, tips on the edges', () => {
+    const heads = gapArrowheads({axis: 'y', from: 50, to: 250}, 20);
+    assert.deepEqual(heads, [
+        [[20, 50], [17.5, 55], [22.5, 55]],
+        [[20, 250], [17.5, 245], [22.5, 245]],
+    ]);
+});
+
+test('sizes arrowheads 5 long and 5 wide, whatever the axis or the line length', () => {
+    for (const axis of ['x', 'y']) {
+        for (const length of [12, 12.5, 40, 4000]) {
+            const heads = gapArrowheads({axis, from: 10, to: 10 + length}, 7);
+            assert.equal(heads.length, 2);
+            const [along, across] = axis === 'x' ? [0, 1] : [1, 0];
+            for (const [tip, a, b] of heads) {
+                assert.equal(Math.abs(a[along] - tip[along]), ARROW_LENGTH);
+                assert.equal(a[along], b[along]);
+                assert.equal(Math.abs(a[across] - b[across]), ARROW_WIDTH);
+                assert.equal(tip[across], 7);
+                assert.equal((a[across] + b[across]) / 2, 7);
+            }
+            assert.equal(heads[0][0][along], 10);
+            assert.equal(heads[1][0][along], 10 + length);
+        }
+    }
+});
+
+test('gives a distance line no arrowheads below 12 stage pixels, and some from 12', () => {
+    assert.equal(ARROW_MIN_GAP, 12);
+    assert.deepEqual(gapArrowheads({axis: 'x', from: 0, to: 11.99}, 0), []);
+    assert.deepEqual(gapArrowheads({axis: 'y', from: 5, to: 16.99}, 0), []);
+    assert.deepEqual(gapArrowheads({axis: 'x', from: 0, to: 0}, 0), []);
+    assert.equal(gapArrowheads({axis: 'x', from: 0, to: 12}, 0).length, 2);
+    assert.equal(gapArrowheads({axis: 'y', from: 5, to: 17}, 0).length, 2);
+});
+
+test('keeps arrowheads in stage pixels at fractional scales and zoom, tips on the stage edges', () => {
+    // At 125% and 150%, a guide sits at a fractional stage position; a zoom stretches the gap but
+    // not the arrowheads. The line is one device pixel thick, so its center is half of it past `at`.
+    for (const scale of [1.25, 1.5]) {
+        for (const zoom of [0.5, 1, 2.5]) {
+            const from = 100.4 * zoom;
+            const to = 300.8 * zoom;
+            const center = 33 + 0.5 / scale;
+            const [first, second] = gapArrowheads({axis: 'x', from, to}, center);
+            assert.deepEqual(first[0], [from, center]);
+            assert.deepEqual(second[0], [to, center]);
+            assert.equal(first[1][0] - from, ARROW_LENGTH);
+            assert.equal(to - second[1][0], ARROW_LENGTH);
+        }
+    }
+    // A 12 stage pixel gap is 12 / zoom CSS pixels: the threshold is on the stage, not on CSS.
+    assert.equal(gapArrowheads({axis: 'x', from: 0, to: 6 * 2}, 0).length, 2);
+    assert.equal(gapArrowheads({axis: 'x', from: 0, to: 8 * 1.25}, 0).length, 0);
+    assert.equal(gapArrowheads({axis: 'x', from: 0, to: 8 * 1.5}, 0).length, 2);
 });

@@ -126,6 +126,28 @@ export function guideGaps(helpers) {
     return gaps;
 }
 
+/** The arrowhead at each end of a distance line: stage pixels along the line, and across it. */
+export const ARROW_LENGTH = 5;
+export const ARROW_WIDTH = 5;
+/** A distance line shorter than this, in stage pixels, has no arrowheads. */
+export const ARROW_MIN_GAP = 12;
+
+/**
+ * The two arrowheads of a distance line along `axis`, from `from` to `to`, drawn across the line at
+ * `center`: three corners each, the tip first and exactly on the edge the line reaches. A line
+ * shorter than `ARROW_MIN_GAP` has none.
+ */
+export function gapArrowheads({axis, from, to}, center) {
+    if (to - from < ARROW_MIN_GAP)
+        return [];
+    const half = ARROW_WIDTH / 2;
+    const head = (tip, base) => {
+        const corners = [[tip, center], [base, center - half], [base, center + half]];
+        return axis === 'x' ? corners : corners.map(([along, across]) => [across, along]);
+    };
+    return [head(from, from + ARROW_LENGTH), head(to, to - ARROW_LENGTH)];
+}
+
 /**
  * Distances from a rectangle to the nearest helper on each side: guides, and rectangles that
  * overlap it across the gap. `axis` is the coordinate the gap runs along, `at` where the line

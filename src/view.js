@@ -7,6 +7,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {formatLength, formatSize, withAlpha} from './format.js';
 import {
     columnGrid,
+    gapArrowheads,
     guideGaps,
     hitTest,
     highestScaleMonitor,
@@ -614,6 +615,10 @@ export class View {
         });
         this._gapLines.add_child(line);
         this._gapLabels.add_child(label);
+        // The line is one device pixel thick, from `at` down or right.
+        const center = at + 0.5 / this.geometry.devicePerStage;
+        for (const points of gapArrowheads({axis, from, to}, center))
+            this._gapLabels.add_child(this._arrowhead(points));
         const [, labelWidth] = label.get_preferred_width(-1);
         const [, labelHeight] = label.get_preferred_height(-1);
         if (axis === 'x') {
@@ -625,6 +630,31 @@ export class View {
             line.set_size(this._line(), (to - from) / k);
             label.set_position(Math.round(at + LABEL_MARGIN), Math.round(middle - labelHeight / 2));
         }
+    }
+
+    /** A filled opaque triangle in the set's color, in stage pixels. Non-reactive like every actor here. */
+    _arrowhead(points) {
+        const left = Math.floor(Math.min(...points.map(([x]) => x)));
+        const top = Math.floor(Math.min(...points.map(([, y]) => y)));
+        const right = Math.ceil(Math.max(...points.map(([x]) => x)));
+        const bottom = Math.ceil(Math.max(...points.map(([, y]) => y)));
+        const area = new St.DrawingArea({
+            name: 'measure-things-arrowhead',
+            x: left,
+            y: top,
+            width: right - left,
+            height: bottom - top,
+        });
+        area.connect('repaint', () => {
+            const cr = area.get_context();
+            const rgb = parseInt(this._color().slice(1), 16);
+            cr.setSourceRGBA((rgb >> 16) / 255, ((rgb >> 8) & 255) / 255, (rgb & 255) / 255, 1);
+            points.forEach(([x, y], i) => cr[i === 0 ? 'moveTo' : 'lineTo'](x - left, y - top));
+            cr.closePath();
+            cr.fill();
+            cr.$dispose();
+        });
+        return area;
     }
 
     _syncGrid() {

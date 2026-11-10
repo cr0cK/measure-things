@@ -191,6 +191,98 @@ expect "(f => [f.migrated, f.zoom, f.grid.columns, f.grid.visible].join())($E2E.
     'true,125,4,false' 'and keeps its migrated mark'
 expect "$MANAGER.models.length" 0 'and is not shown'
 
+# Distance lines end in arrowheads: ARROWS, the non-reactive actors named measure-things-arrowhead.
+# arrow_checks WHERE TITLE X Y: opens a window and a set with two horizontal guides 100 apart, three
+# vertical ones (50, 58, 258) and a rectangle between them at (150, 300) of 100 x 50.
+ARROWS="(v => v._gapLabels.get_children().filter(a => a.name === 'measure-things-arrowhead'))"
+arrow_checks() {
+    local where=$1 title=$2
+    open_window "$title" "$3" "$4" 800x600 '#3d3846'
+    shell_eval "const model = $MANAGER.createSet($E2E.win('$title')).model;
+        model.name = '$title';
+        for (const x of [50, 58, 258]) $MANAGER.addHelper(model, {kind: 'vertical', x});
+        for (const y of [100, 200]) $MANAGER.addHelper(model, {kind: 'horizontal', y});
+        global._arrowRect = $MANAGER.addHelper(model, {kind: 'rectangle', x: 150, y: 300, width: 100, height: 50}).id;
+        $MANAGER.commit(model);
+        1" >/dev/null
+    local view="$E2E.view('$title')"
+    # Two guides 100 apart (y) and two 200 apart (x) get a pair each; the 8 pixel gap gets none.
+    wait_for "$ARROWS($view).length === 4"
+    expect "$ARROWS($view).map(a => a.reactive).join()" 'false,false,false,false' \
+        "$where, arrowheads are not reactive"
+    # The head at each end of the 100 pixel line between the horizontal guides: tip on the guide's
+    # edge (the line's own ends), 5 long and 5 wide.
+    expect "(v => { const line = v._gapLines.get_children()[2], heads = $ARROWS(v).slice(2);
+        const [lx, ly] = line.get_transformed_position(), [lw, lh] = line.get_transformed_size();
+        const [ax, ay] = heads[0].get_transformed_position(), [bx, by] = heads[1].get_transformed_position();
+        const fit = n => n >= 5 && n < 6.01; // the 5 x 5 triangle, in the whole pixels that cover it
+        const [aw, ah] = heads[0].get_transformed_size(), [bw, bh] = heads[1].get_transformed_size();
+        return [Math.abs(ay - ly) < 1, Math.abs(by + bh - (ly + lh)) < 1, fit(aw), fit(ah), fit(bw), fit(bh), Math.abs(ax + aw / 2 - (lx + lw / 2)) < 1.5].join(); })($view)" \
+        'true,true,true,true,true,true,true' "$where, a vertical distance line has an arrowhead of 5 x 5 on each end"
+    expect "(v => { const line = v._gapLines.get_children()[1], heads = $ARROWS(v).slice(0, 2);
+        const [lx, ly] = line.get_transformed_position(), [lw, lh] = line.get_transformed_size();
+        const [ax, ay] = heads[0].get_transformed_position(), [bx, by] = heads[1].get_transformed_position();
+        const fit = n => n >= 5 && n < 6.01; // the 5 x 5 triangle, in the whole pixels that cover it
+        const [aw, ah] = heads[0].get_transformed_size(), [bw, bh] = heads[1].get_transformed_size();
+        return [Math.abs(ax - lx) < 1, Math.abs(bx + bw - (lx + lw)) < 1, fit(aw), fit(ah), fit(bw), fit(bh), Math.abs(ay + ah / 2 - (ly + lh / 2)) < 1.5].join(); })($view)" \
+        'true,true,true,true,true,true,true' "$where, a horizontal distance line has a 5 x 5 arrowhead on each end"
+    # Nothing in the layer takes the pointer: a pick over an arrowhead finds no actor of the views.
+    expect "(v => { const [x, y] = $ARROWS(v)[0].get_transformed_position();
+        return $E2E.inViews(global.stage.get_actor_at_pos(imports.gi.Clutter.PickMode.REACTIVE, x + 2, y + 2)); })($view)" \
+        false "$where, a pick over an arrowhead finds no actor of the views"
+    if [[ $where == 'at 100%' ]]; then
+        # Painted pixels: inside the left head of the 200 pixel line, in the set's color and opaque
+        # where the translucent line is not; outside it, above the tip, the page.
+        PICK="(async (x, y) => { const {Gio, Shell} = imports.gi;
+            Gio._promisify(Shell.Screenshot.prototype, 'screenshot_stage_to_content');
+            Gio._promisify(Shell.Screenshot, 'composite_to_stream');
+            const [content, scale] = await new Shell.Screenshot().screenshot_stage_to_content();
+            const pixbuf = await Shell.Screenshot.composite_to_stream(content.get_texture(), x * scale, y * scale,
+                1, 1, scale, null, 0, 0, 1, Gio.MemoryOutputStream.new_resizable());
+            return pixbuf.read_pixel_bytes().toArray().slice(0, 3).join(); })"
+        # The head at the top of the 100 pixel line between the horizontal guides: tip on top, base below.
+        read -r HX HY < <(shell_eval "$ARROWS($view)[2].get_transformed_position().map(Math.round).join(' ')")
+        expect "$PICK($((HX + 1)), $((HY + 4)))" '255,45,149' "$where, the arrowhead is filled with the set's color"
+        expect "$PICK($((HX + 2)), $((HY + 1)))" '255,45,149' "$where, the arrowhead's tip is filled too, just below the guide it touches"
+        # The page, read right of the head; the tip sits on the guide, row 0; row 1 leaves both corners of the box bare.
+        BG=$(shell_eval "$PICK($((HX + 8)), $((HY + 2)))" | tr -d '"')
+        expect "Promise.all([$PICK($HX, $((HY + 1))), $PICK($((HX + 4)), $((HY + 1)))]).then(cs => cs.every(c =>
+            c.split(',').every((v, i) => Math.abs(v - '$BG'.split(',')[i]) <= 2)))" true \
+            "$where, the corners of the arrowhead's box outside the triangle are the page"
+        # The line below the head is the set's color at 60%: a blend with the page, not an opaque color.
+        expect "$PICK($((HX + 2)), $((HY + 20))).then(c => c.split(',').map(Number).every((v, i) =>
+            Math.abs(v - Math.round(0.6 * [255, 45, 149][i] + 0.4 * '$BG'.split(',')[i])) <= 2))" true \
+            "$where, the line below the arrowhead is the set's color at 60%"
+    fi
+    # A selected rectangle: 92 to the guide on its left, 100 to the one above it get arrowheads; the
+    # 8 pixel gap to the guide on its right does not.
+    shell_eval "$view.selectedId = global._arrowRect; $view.syncHelpers(); 1" >/dev/null
+    wait_for "$ARROWS($view).length === 8"
+    expect "$ARROWS($view).map(a => a.reactive).join()" 'false,false,false,false,false,false,false,false' \
+        "$where, a selected rectangle's arrowheads are not reactive"
+    # A gap under 12 stage pixels has none: the guide on the right is moved 4 and 11.5 away from the
+    # rectangle's edge, then 12.
+    for step in '254 8' '261.5 8' '262 10'; do
+        read -r x count <<<"$step"
+        shell_eval "const model = $E2E.model('$title');
+            model.content.helpers.find(h => h.kind === 'vertical' && h.x > 100).x = $x; $MANAGER.commit(model); 1" >/dev/null
+        wait_for "$ARROWS($view).length === $count"
+    done
+    # The threshold is on stage pixels, not CSS: at a zoom of 25% the 92 and 100 pixel gaps shrink to
+    # 23 and 25 and keep their arrowheads, but the 12 pixel one to the right is 3 stage pixels and
+    # loses its own.
+    shell_eval "$E2E.model('$title').content.zoom = 25; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
+    wait_for "$ARROWS($view).length === 8"
+    shell_eval "$E2E.model('$title').content.zoom = 100; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
+    wait_for "$ARROWS($view).length === 10"
+    # A sync destroys the arrowheads it replaces.
+    expect "(v => { const old = $ARROWS(v); let gone = 0; old.forEach(a => a.connect('destroy', () => gone++));
+        v.syncHelpers(); return gone === old.length && $ARROWS(v).length === old.length && !$ARROWS(v).some(a => old.includes(a)); })($view)" \
+        true "$where, a sync destroys the arrowheads it replaces"
+    shell_eval "$view.selectedId = null; $view.syncHelpers(); $MANAGER.removeFromScreen($E2E.model('$title'));
+        $E2E.win('$title').delete(global.get_current_time()); 1" >/dev/null
+}
+
 # A page: a dark backdrop with a red block at CSS (300, 200), 240 × 160. Its frame is at (200, 150),
 # so the block covers stage pixels 500 to 740 across and 350 to 510 down.
 open_window Page 200 150 800x600 '#3d3846' '300,200,240,160,#e01b24'
@@ -2095,6 +2187,8 @@ wait_for "$EXTENSION._picker === null"
 shell_eval "$EXTENSION._settings.reset('pick-color-shortcut'); $PREFS.delete(global.get_current_time())" >/dev/null
 wait_for "!$PREFS"
 
+arrow_checks 'at 100%' Arrows 100 100
+
 # Fractional scaling: at 125% the stage is 1280x800 logical pixels over 1600x1000 device pixels.
 gdbus call --session --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig \
     --method org.gnome.Mutter.DisplayConfig.ApplyMonitorsConfig \
@@ -2163,6 +2257,8 @@ wait_for "$E2E.model('Bar').found === true"
 expect "$E2E.helpers('Bar')" 'V 302 | V 322' 'at 125%, Find helpers puts its guide where snapping put the dragged one'
 press_keys Escape
 shell_eval "$MANAGER.removeFromScreen($E2E.model('Bar')); $E2E.win('Bar').delete(global.get_current_time())" >/dev/null
+
+arrow_checks 'at 125%' Arrows125 100 100
 
 # The warnings the checks above provoke on purpose: a mockup image that went away, a trash that does
 # not exist, a file path that is a directory, and a file that cannot be removed.
