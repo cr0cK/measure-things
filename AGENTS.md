@@ -28,7 +28,7 @@ new `src/*.js` modules on its own.
 | `src/geometry.js` | Helper storage, hit testing, drag math, grid layout, pixel units (pure) |
 | `src/zones.js` | Zone geometry, targeting among the views of a window, badge placement (pure) |
 | `src/format.js` | Length and color formatting (pure) |
-| `src/edges.js` | Edge and same-color run detection on lines of pixels (pure) |
+| `src/edges.js` | Edge and same-color run detection on lines of pixels, snapping limits, the long edge band, and measured runs (pure) |
 | `src/history.js` | Undo and redo history (pure) |
 | `src/detect.js` | Find helpers detection: guides on long edges, rectangles around uniform regions, fed rows of pixels (pure) |
 | `src/finder.js` | Find helpers run: covered check, capture, banded reads, staleness, commit |
