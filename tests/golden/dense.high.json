@@ -3,17 +3,17 @@
  "rectangles": [
   {
    "kind": "rectangle",
-   "x": 261,
-   "y": 49,
-   "width": 1019,
-   "height": 631
+   "x": 260,
+   "y": 48,
+   "width": 1020,
+   "height": 632
   },
   {
    "kind": "rectangle",
    "x": 0,
-   "y": 49,
-   "width": 260,
-   "height": 631
+   "y": 48,
+   "width": 261,
+   "height": 632
   },
   {
    "kind": "rectangle",
@@ -27,7 +27,7 @@
    "x": 0,
    "y": 0,
    "width": 1280,
-   "height": 48
+   "height": 49
   },
   {
    "kind": "rectangle",

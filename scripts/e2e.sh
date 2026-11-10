@@ -2070,6 +2070,19 @@ expect "$E2E.labels($OVERLAY.badgeMenu.menu.box).includes('Find helpers') + ' ' 
 press_keys Escape
 shell_eval "$MANAGER.removeCopy($E2E.views('Blank').at(-1)); 1" >/dev/null
 
+# A rectangle takes in a thin line along its sides: two panels split by a 1-pixel border both reach
+# across it, so their edges are drawn on the border, and a card framed by a 1-pixel outline is one
+# rectangle, the outline's. Framed has a panel, a 1-pixel border, a panel, and the card in the second.
+open_window Framed 1050 460 500x300 '#ffffff' '0,0,200,300,#e6eaf2' '200,0,1,300,#1f2a44' \
+    '201,0,299,300,#d5dbe8' '300,100,162,82,#1f2a44' '301,101,160,80,#e6eaf2'
+FRAMED=$(new_set 'Framed' Framed 450)
+expect "$(find_run Framed medium)" found 'Find helpers runs on a window with a 1-pixel border and an outlined card'
+expect "$E2E.helpers('Framed')" 'R 200,0 300x300 | R 0,0 201x300 | R 300,100 162x82' \
+    'two panels split by a 1-pixel border both reach it, and an outlined card is one rectangle'
+expect "$E2E.helpers('Framed').includes('V ')" false 'and no guide is left on the border'
+shell_eval "$MANAGER.removeFromScreen($E2E.model('Framed')); $E2E.win('Framed').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('Framed')"
+
 # It refuses, with a notice that says why, and changes nothing, when a window covers the zone...
 FOUND_BEFORE=$(shell_eval "$E2E.helpers('Found')")
 open_window Cover 700 300 500x300 '#241f31'
@@ -2259,6 +2272,17 @@ press_keys Escape
 shell_eval "$MANAGER.removeFromScreen($E2E.model('Bar')); $E2E.win('Bar').delete(global.get_current_time())" >/dev/null
 
 arrow_checks 'at 125%' Arrows125 100 100
+
+# A 1-pixel CSS border is drawn across two device pixels at 125%, each blended with its side, and the
+# two differ by more or less than the tolerance depending on the Shell's GTK: the panels on both sides
+# still take in the whole border, so their rectangles overlap by its two pixels, 1.6 CSS pixels.
+open_window Border 100 100 800x600 '#ffffff' '0,0,300,600,#e6eaf2' '300,0,1,600,#1f2a44' '301,0,499,600,#d5dbe8'
+new_set 'Border' Border 700 >/dev/null
+expect "$(find_run Border medium)" found 'at 125%, Find helpers runs on two panels split by a border'
+expect "(r => r.length + ' ' + (Math.round((r[0].x + r[0].width - r[1].x) * 100) / 100))($E2E.model('Border').content.helpers.filter(h => h.kind === 'rectangle').sort((a, b) => a.x - b.x))" \
+    '2 1.6' 'at 125%, the two panels overlap on the border'
+shell_eval "$MANAGER.removeFromScreen($E2E.model('Border')); $E2E.win('Border').delete(global.get_current_time())" >/dev/null
+wait_for "!$E2E.win('Border')"
 
 # The warnings the checks above provoke on purpose: a mockup image that went away, a trash that does
 # not exist, a file path that is a directory, and a file that cannot be removed.
