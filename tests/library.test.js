@@ -71,6 +71,7 @@ test('a file is the shell\'s own write when it has the known etag or the known t
         [known, {etag: 'e2', text: 'two'}, false, 'another etag and another text'],
         [known, {etag: null, text: null}, false, 'unreadable'],
         [{etag: 'e1', text: null}, {etag: 'e2', text: null}, false, 'no text to compare'],
+        [{etag: null, text: 'one'}, {etag: null, text: 'two'}, false, 'no etag to compare'],
         [null, {etag: 'e1', text: 'one'}, false, 'nothing known'],
         [known, null, false, 'gone'],
     ];
@@ -105,6 +106,9 @@ test('judging a name once it settled', () => {
         ['a new file named after its ID, deleted this session', null, disk('a1.json', text), null,
             taken(['a1']), 'import'],
         ['a new file named differently', null, disk('copy.json', text), null, free, 'import'],
+        ['a new file whose name only starts with its ID', null, disk('a1-copy.json', text), null, free, 'import'],
+        ['an existing file whose name only starts with its ID', 'set', disk('a1x.json', other, 'e2'), known, free,
+            'reimport'],
         ['a new file holding the ID of another file', null, disk('b2.json', text), null, free, 'import'],
         ['a new invalid file', null, disk('a1.json', '[]'), null, free, 'unavailable'],
         ['a new file of a newer version', null, disk('a1.json', fileOf(a, {schema: 2})), null, free, 'unavailable'],
@@ -136,8 +140,10 @@ test('a judged file carries the set it holds', () => {
     const verdict = judge({name: 'a1.json', entry: 'set', disk: disk('a1.json', text, 'e2'),
         known: {etag: 'e1', text: ''}, isTaken: free});
     assert.equal(verdict.set.name, 'Edited');
-    const bad = judge({name: 'a1.json', entry: null, disk: disk('a1.json', '{}', 'e2'), known: null, isTaken: free});
+    const bad = judge({name: 'a1.json', entry: null, disk: disk('a1.json', '{}', 'e2', 'My title'), known: null,
+        isTaken: free});
     assert.equal(bad.error, 'invalid');
+    assert.equal(bad.title, 'My title');
 });
 
 test('an imported set has a fresh ID, the import time, and a free name', () => {
@@ -154,10 +160,13 @@ test('an imported set has a fresh ID, the import time, and a free name', () => {
 });
 
 test('a suffix on a found file bumps its revision and keeps the time it was edited', () => {
-    const renamed = renamedSet(set('a1'), 'Project A 2');
+    const original = set('a1');
+    const renamed = renamedSet(original, 'Project A 2');
     assert.equal(renamed.name, 'Project A 2');
     assert.equal(renamed.revision, 4);
     assert.equal(renamed.edited, EDITED);
+    assert.notEqual(renamed.content, original.content);
+    assert.deepEqual(renamed.content, original.content);
 });
 
 test('the startup scan sorts files into the library, imports, and unavailable', () => {
@@ -225,7 +234,16 @@ test('the notices say what happened, once', () => {
             '“A” was removed from the sets folder, and left the screen. 2 local changes in its unlinked copies were lost.'],
         [['unavailable', {name: 'A', lost: 1}],
             '“A” can no longer be read, and left the screen. 1 local change in its unlinked copies was lost.'],
+        [['removed', {name: 'A', dropped: 2, lost: 1}],
+            '“A” was removed from the sets folder, and left the screen. 2 changes not saved were dropped. ' +
+            '1 local change in its unlinked copies was lost.'],
+        [['unavailable', {name: 'A', dropped: 1, lost: 3}],
+            '“A” can no longer be read, and left the screen. 1 change not saved was dropped. ' +
+            '3 local changes in its unlinked copies were lost.'],
         [['replaced', {name: 'A'}], 'The file of “A” now holds another set; “A” left the screen.'],
+        [['replaced', {name: 'A', dropped: 1, lost: 2}],
+            'The file of “A” now holds another set; “A” left the screen. 1 change not saved was dropped. ' +
+            '2 local changes in its unlinked copies were lost.'],
     ];
     for (const [[kind, details], text] of table)
         assert.equal(noticeFor(kind, details), text);

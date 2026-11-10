@@ -159,3 +159,163 @@ test('resolveName trims, keeps the current name when empty, and suffixes a taken
     assert.equal(resolveName('x'.repeat(250), 'Page A', []), 'x'.repeat(200));
     assert.equal(resolveName('x'.repeat(250), 'Page A', ['x'.repeat(200)]), `${'x'.repeat(198)} 2`);
 });
+
+test('a new set starts from the documented defaults', () => {
+    assert.deepEqual(defaultContent(), {
+        color: '#ff2d95',
+        zoom: 100,
+        helpersVisible: true,
+        tolerance: 'medium',
+        grid: {visible: false, columns: 12, gutter: 24, margin: 24, maxWidth: 0},
+        mockup: {file: '', visible: false, x: 0, y: 0, opacity: 50, density: 1},
+        helpers: [],
+    });
+    assert.equal(defaultContent('#33d17a').color, '#33d17a');
+});
+
+test('every numeric field accepts its bounds and refuses a whole number past them', () => {
+    const valid = sample();
+    const grid = changes => ({grid: {...valid.content.grid, ...changes}});
+    const mockup = changes => ({mockup: {...valid.content.mockup, ...changes}});
+    const table = [
+        [{zoom: 25}, {zoom: 24}, 'zoom min'],
+        [{zoom: 500}, {zoom: 501}, 'zoom max'],
+        [grid({columns: 1}), grid({columns: 0}), 'columns min'],
+        [grid({columns: 24}), grid({columns: 25}), 'columns max'],
+        [grid({gutter: 0}), grid({gutter: -1}), 'gutter min'],
+        [grid({gutter: 400}), grid({gutter: 401}), 'gutter max'],
+        [grid({margin: 0}), grid({margin: -1}), 'margin min'],
+        [grid({margin: 800}), grid({margin: 801}), 'margin max'],
+        [grid({maxWidth: 0}), grid({maxWidth: -1}), 'maxWidth min'],
+        [grid({maxWidth: 10000}), grid({maxWidth: 10001}), 'maxWidth max'],
+        [mockup({opacity: 5}), mockup({opacity: 4}), 'opacity min'],
+        [mockup({opacity: 100}), mockup({opacity: 101}), 'opacity max'],
+        [mockup({density: 1}), mockup({density: 0}), 'density min'],
+        [mockup({density: 4}), mockup({density: 5}), 'density max'],
+    ];
+    for (const [ok, refused, why] of table) {
+        assert.ok(parseSet(fileOf(valid, ok)).set, `${why}: bound`);
+        assert.deepEqual(parseSet(fileOf(valid, refused)), {error: 'invalid'}, `${why}: past the bound`);
+    }
+    for (const changes of [
+        {zoom: 100.5},
+        grid({columns: 12.5}),
+        mockup({opacity: 50.5}),
+        mockup({density: 1.5}),
+        {revision: 1.5},
+        {schema: 1.5},
+    ])
+        assert.deepEqual(parseSet(fileOf(valid, changes)), {error: 'invalid'}, JSON.stringify(changes));
+    assert.equal(parseSet(fileOf(valid, {revision: 0})).set.revision, 0);
+});
+
+test('refuses a file whose objects are null or whose fields have the wrong type', () => {
+    const valid = sample();
+    assert.deepEqual(parseSet('null'), {error: 'invalid'});
+    for (const changes of [
+        {grid: null},
+        {mockup: null},
+        {helpers: [null]},
+        {helpers: null},
+        {grid: {...valid.content.grid, visible: 'no'}},
+        {mockup: {...valid.content.mockup, file: 3}},
+        {mockup: {...valid.content.mockup, visible: 1}},
+        {mockup: {...valid.content.mockup, x: '5'}},
+        {mockup: {...valid.content.mockup, y: null}},
+    ])
+        assert.deepEqual(parseSet(fileOf(valid, changes)), {error: 'invalid'}, JSON.stringify(changes));
+});
+
+test('refuses helpers that lack a coordinate or have no area', () => {
+    const valid = sample();
+    for (const helper of [
+        {kind: 'vertical', y: 1},
+        {kind: 'vertical', x: '1'},
+        {kind: 'horizontal', x: 1},
+        {kind: 'rectangle', x: 1, y: 1, width: 4},
+        {kind: 'rectangle', x: 1, y: 1, height: 4},
+        {kind: 'rectangle', x: 1, width: 4, height: 4},
+        {kind: 'rectangle', x: 1, y: 1, width: 4, height: 0},
+        {kind: 'rectangle', x: 1, y: 1, width: 0, height: 4},
+        {kind: 'rectangle', x: 1, y: 1, width: 4, height: -2},
+        {kind: 'rectangle', x: 1, y: 1, width: -2, height: 4},
+        {kind: 'rectangle', x: 1, y: 1, width: 0.001, height: 4},
+    ])
+        assert.deepEqual(parseSet(fileOf(valid, {helpers: [helper]})), {error: 'invalid'}, JSON.stringify(helper));
+    const {set} = parseSet(fileOf(valid, {helpers: [{kind: 'rectangle', x: 1, y: 1, width: 0.01, height: 0.01}]}));
+    assert.equal(set.content.helpers[0].width, 0.01);
+});
+
+test('reads a color in either case and stores it in lower case', () => {
+    assert.equal(parseSet(fileOf(sample(), {color: '#FF2D95'})).set.content.color, '#ff2d95');
+    assert.deepEqual(parseSet(fileOf(sample(), {color: '#ff2d95zz'})), {error: 'invalid'});
+    assert.deepEqual(parseSet(fileOf(sample(), {color: 'x#ff2d95'})), {error: 'invalid'});
+    assert.deepEqual(parseSet(fileOf(sample(), {color: '#ff2d9'})), {error: 'invalid'});
+});
+
+test('rounds the mockup position like helper lengths', () => {
+    const mockup = {...sample().content.mockup, x: 10.456, y: -3.3333};
+    const {set} = parseSet(fileOf(sample(), {mockup}));
+    assert.equal(set.content.mockup.x, 10.46);
+    assert.equal(set.content.mockup.y, -3.33);
+});
+
+test('measures the file size limit in bytes, by default the text length', () => {
+    assert.deepEqual(parseSet(' '.repeat(MAX_FILE_BYTES + 1)), {error: 'too-large'});
+    assert.deepEqual(parseSet(' '.repeat(MAX_FILE_BYTES)), {error: 'invalid'});
+    assert.deepEqual(parseSet('{}', MAX_FILE_BYTES), {error: 'invalid'});
+    assert.deepEqual(parseSet(serializeSet(sample()), 5), {set: sample()});
+});
+
+test('set IDs are 1 to 64 letters, digits, and dashes', () => {
+    for (const id of ['a', 'A-9', 'x'.repeat(64)])
+        assert.equal(parseSet(fileOf(sample(), {id})).set.id, id, id);
+    for (const id of ['x'.repeat(65), 'a_b', 'a.b', 'a b', 'a/b'])
+        assert.deepEqual(parseSet(fileOf(sample(), {id})), {error: 'invalid'}, id);
+});
+
+test('writes a set file indented by two spaces and ends it with a newline', () => {
+    const text = serializeSet(sample());
+    assert.ok(text.endsWith('}\n'));
+    assert.ok(text.startsWith('{\n  "schema": 1,\n  "id": "a1b2-c3",\n'));
+    assert.deepEqual(Object.keys(JSON.parse(text)), [
+        'schema', 'id', 'name', 'revision', 'edited',
+        'color', 'zoom', 'helpersVisible', 'tolerance', 'grid', 'mockup', 'helpers',
+    ]);
+});
+
+test('numbers new sets after the highest Untitled number wherever it is', () => {
+    assert.equal(nextUntitledName(['Untitled 7', 'Untitled 3']), 'Untitled 8');
+    assert.equal(nextUntitledName(['My Untitled 9', 'Untitled 9 copy', 'Untitled 2']), 'Untitled 3');
+});
+
+test('trims a name, also where the cut leaves a space at its end', () => {
+    assert.equal(uniqueName('  Page A ', []), 'Page A');
+    assert.equal(uniqueName(`${'x'.repeat(199)} y`, []), 'x'.repeat(199));
+    const name = `${'x'.repeat(197)} ${'y'.repeat(10)}`;
+    assert.equal(uniqueName(name, [`${'x'.repeat(197)} yy`]), `${'x'.repeat(197)} 2`);
+});
+
+test('makes room for a suffix of several digits', () => {
+    const long = 'x'.repeat(250);
+    const taken = ['x'.repeat(200)];
+    for (let n = 2; n < 10; n++)
+        taken.push(`${'x'.repeat(198)} ${n}`);
+    assert.equal(uniqueName(long, taken), `${'x'.repeat(197)} 10`);
+});
+
+test('reads an entry that is not a finite number as the previous value', () => {
+    assert.equal(readWholeNumber('Infinity', [1, 24], 6), 6);
+    assert.equal(readWholeNumber('-Infinity', [1, 24], 6), 6);
+    assert.equal(readWholeNumber('0', [1, 24], 6), 1);
+});
+
+test('cuts a badge name to nothing but the ellipsis for a zero length', () => {
+    assert.equal(badgeName('abc', 0), '…');
+    assert.equal(badgeName('abc', 1), '…');
+});
+
+test('matches used colors without regard to case', () => {
+    assert.equal(nextColor(['#FF2D95']), PALETTE[1]);
+    assert.equal(nextColor(['#FF2D95', '#2EC2D6', '#F5A623']), PALETTE[3]);
+});
