@@ -122,13 +122,7 @@ export class Snapshot {
 
         const pending = {area: null, failed: false, callbacks: new Set([onRead])};
         this._bands.set(key, pending);
-        // A band being read is never evicted: its callbacks and the drag waiting on it need it.
-        for (const [oldKey, old] of this._bands) {
-            if (this._bands.size <= CACHED_BANDS)
-                break;
-            if (old.area || old.failed)
-                this._bands.delete(oldKey);
-        }
+        this._trimBands();
         this.area(x, y, width, height)
             .then(area => {
                 if (area)
@@ -141,10 +135,24 @@ export class Snapshot {
                 console.warn(`Measure Things: could not read the screen: ${error.message}`);
             })
             .finally(() => {
+                this._trimBands(pending);
                 for (const callback of pending.callbacks)
                     callback();
             });
         return null;
+    }
+
+    /**
+     * Drops the oldest bands read beyond the cache size. A band being read is never dropped: its
+     * callbacks and the drag waiting on it need it. The band that just ended stays, for the replay.
+     */
+    _trimBands(keep = null) {
+        for (const [key, entry] of this._bands) {
+            if (this._bands.size <= CACHED_BANDS)
+                break;
+            if ((entry.area || entry.failed) && entry !== keep)
+                this._bands.delete(key);
+        }
     }
 
     /** Whether a band is being read. */

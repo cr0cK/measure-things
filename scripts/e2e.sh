@@ -349,7 +349,7 @@ pointer_move 490 720
 press_keys v
 pointer_button PRESSED
 shell_eval "const {Clutter, GLib} = imports.gi;
-    global._headlessPointer.notify_absolute_motion(GLib.get_monotonic_time(), 497, 570);
+    global._headlessPointer.notify_absolute_motion(GLib.get_monotonic_time(), 498, 575);
     global._headlessPointer.notify_button(GLib.get_monotonic_time(), Clutter.BUTTON_PRIMARY,
         Clutter.ButtonState.RELEASED);" >/dev/null
 wait_for "$OVERLAY._drag === null"

@@ -154,3 +154,16 @@ test('at a fractional scale the radius is in device pixels', () => {
     assert.equal(nearestBoundary(flat, 30, 6 * 1.5, undefined, {extra: [39]}), 39);
     assert.equal(nearestBoundary(flat, 30, 6 * 1.5, undefined, {extra: [40]}), null);
 });
+
+test('a boundary exactly the radius away counts despite the rounding of fractional scales', () => {
+    const flat = line(new Array(60).fill(0));
+    // A zone at 0.8 and a guide at 19.6 at 125%: device position 25.5 plus a hair, radius 7.5.
+    const at125 = (0.8 + 19.6) * 1.25;
+    assert.ok(at125 - 6 * 1.25 > 18, 'the float really lands above 18');
+    assert.equal(nearestBoundary(flat, at125, 6 * 1.25, undefined, {extra: [18]}), 18);
+    const at150 = (2 / 3 + 30) * 1.5;
+    assert.equal(nearestBoundary(flat, at150, 6 * 1.5, undefined, {extra: [Math.round(at150 - 9)]}),
+        Math.round(at150 - 9));
+    // One device pixel farther is still out.
+    assert.equal(nearestBoundary(flat, at125, 6 * 1.25, undefined, {extra: [17]}), null);
+});

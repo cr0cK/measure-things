@@ -36,8 +36,10 @@ export function regionAround(line, index, tolerance = EDGE_TOLERANCE) {
  */
 export function nearestBoundary(line, position, radius, tolerance = EDGE_TOLERANCE,
     {from = 0, to = line.length, extra = []} = {}) {
-    const first = Math.max(1, from, Math.ceil(position - radius));
-    const last = Math.min(line.length - 1, to, Math.floor(position + radius));
+    // Positions come from stage coordinates times a fractional scale: a hair of tolerance keeps a
+    // boundary exactly `radius` away in.
+    const first = Math.max(1, from, Math.ceil(position - radius - 1e-6));
+    const last = Math.min(line.length - 1, to, Math.floor(position + radius + 1e-6));
     let best = null;
     const consider = b => {
         const distance = Math.abs(b - position);
