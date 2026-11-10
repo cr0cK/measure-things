@@ -522,6 +522,7 @@ press_keys Escape
 expect "[$E2E.model('Page').name, $E2E.file('$PAGE').name, $E2E.labels($OVERLAY.badgeMenu.menu.box)[0],
     $OVERLAY.badgeMenu.menu.isOpen, $OVERLAY.badgeMenu._nameEntry === null, $OVERLAY.editing].join()" \
     'Renamed,Renamed,Renamed,true,true,true' 'Esc leaves the entry without renaming and keeps the menu open'
+expect "$OVERLAY.badgeMenu.menu.actor.contains(global.stage.key_focus)" true 'the key focus stays in the menu after Esc'
 press_keys Escape
 expect "$OVERLAY.badgeMenu + ' ' + $OVERLAY.editing" 'null true' 'the next Esc closes the menu'
 # An empty name keeps the current one, and renames nothing.
@@ -538,6 +539,7 @@ type_text '  Untitled 1 '
 press_keys Return
 expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $E2E.labels($OVERLAY.badgeMenu.menu.box)[0]" \
     'Untitled 1 2 Untitled 1 2 Untitled 1 2' 'a taken name gets a numeric suffix'
+expect "$OVERLAY.badgeMenu.menu.actor.contains(global.stage.key_focus)" true 'the key focus stays in the menu after Enter'
 # Editing the name dismisses the Find helpers confirmation.
 shell_eval "$OVERLAY.badgeMenu.findItem.activate()" >/dev/null
 expect "!!$OVERLAY.badgeMenu._confirmRow" true 'Find helpers asks before replacing helpers'
@@ -572,7 +574,16 @@ type_text 'Never'
 shell_eval "$OVERLAY._onSetReplaced($MANAGER.setOf($E2E.model('Page')))" >/dev/null
 expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $OVERLAY.badgeMenu" \
     'Untitled 1 2 Untitled 1 2 null' 'a set replaced while its name is edited closes the menu without renaming'
+# A set removed from the screen while its name is edited is not renamed, nor its file recreated.
+shell_eval "$OVERLAY.openBadgeMenu($MANAGER.load('$MIGRATED', $E2E.win('Other')));
+    $OVERLAY.badgeMenu._startNameEdit();
+    $OVERLAY.badgeMenu._nameEntry.text = 'Gone';
+    $MANAGER.removeFromScreen($MANAGER.modelOf('$MIGRATED'));
+    null" >/dev/null
+expect "$OVERLAY.badgeMenu + ' ' + $E2E.file('$MIGRATED').name + ' ' + $E2E.entry('Untitled 1')?.id + ' ' + !!$E2E.entry('Gone')" \
+    "null Untitled 1 $MIGRATED false" 'a set removed while its name is edited is not renamed'
 # Back to the name the next checks expect.
+pointer_move 600 600
 press_keys Control_L z
 press_keys Control_L z
 expect "$E2E.model('Page').name + ' ' + $E2E.file('$PAGE').name + ' ' + $E2E.model('Page').content.grid.visible" \
