@@ -205,7 +205,7 @@ export class Overlay {
         if (this._mode !== 'edit')
             return;
 
-        this._badgeMenu?.close();
+        this._badgeMenu?.close({apply: true});
         this._endCopyPick(null);
         // A drag released while its snapping lines were read is done; any other is cancelled.
         if (this._drag?.released)
@@ -245,7 +245,7 @@ export class Overlay {
     openBadgeMenu(view) {
         if (!this.editing || !view)
             return;
-        this._badgeMenu?.close();
+        this._badgeMenu?.close({apply: true});
         this._badgeMenu = new BadgeMenu(view, {
             manager: this._manager,
             onSettings: model => this._onSettings(model),

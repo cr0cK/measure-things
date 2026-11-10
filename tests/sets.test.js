@@ -14,6 +14,7 @@ import {
     readWholeNumber,
     roundCss,
     serializeSet,
+    resolveName,
     uniqueName,
 } from '../src/sets.js';
 
@@ -145,4 +146,16 @@ test('cuts a long set name for its badge', () => {
     assert.equal(badgeName('x'.repeat(25)), `${'x'.repeat(23)}…`);
     assert.equal(badgeName('🎨'.repeat(30)), `${'🎨'.repeat(23)}…`);
     assert.equal(badgeName('Project A', 5), 'Proj…');
+});
+
+test('resolveName trims, keeps the current name when empty, and suffixes a taken name', () => {
+    assert.equal(resolveName('  Page B  ', 'Page A', ['Page A']), 'Page B');
+    assert.equal(resolveName('', 'Page A', ['Page B']), 'Page A');
+    assert.equal(resolveName('   \t', 'Page A', ['Page B']), 'Page A');
+    assert.equal(resolveName('Page B', 'Page A', ['Page B']), 'Page B 2');
+    assert.equal(resolveName('Page B', 'Page A', ['Page B', 'Page B 2']), 'Page B 3');
+    assert.equal(resolveName('Page A', 'Page A', []), 'Page A');
+    assert.equal(resolveName('', 'Page A', ['Page A']), 'Page A 2');
+    assert.equal(resolveName('x'.repeat(250), 'Page A', []), 'x'.repeat(200));
+    assert.equal(resolveName('x'.repeat(250), 'Page A', ['x'.repeat(200)]), `${'x'.repeat(198)} 2`);
 });

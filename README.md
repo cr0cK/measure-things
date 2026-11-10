@@ -57,7 +57,7 @@ Two versions of a page side by side show their regressions at a glance. Below, *
   <img src="docs/screenshots/badge.png" alt="The badge menu of a set in edit mode: its chips, Find helpers asking to replace the set's helpers, the Tolerance list, and the other actions" width="60%">
 </p>
 
-The top bar menu has the same actions, the sets on screen, and the library. A set's badge menu, in edit mode, turns its helpers, grid, and mockup on and off, and has **Find helpers** with its **Tolerance**, **Add a copy…**, **Set settings…**, **Save as new set…**, **Reset zone**, and **Clear helpers**. The badge of a copy has a **Linked** switch, **Reset zone**, **Save as new set…** once unlinked, and **Remove copy**. The shortcuts can be changed in the preferences, which also list the keys of edit mode.
+The top bar menu has the same actions, the sets on screen, and the library. A set's badge menu, in edit mode, renames the set when you click its name (<kbd>Enter</kbd>, a click elsewhere, or closing the menu applies it, <kbd>Esc</kbd> drops it), turns its helpers, grid, and mockup on and off, and has **Find helpers** with its **Tolerance**, **Add a copy…**, **Set settings…**, **Save as new set…**, **Reset zone**, and **Clear helpers**. The badge of a copy has a **Linked** switch, **Reset zone**, **Save as new set…** once unlinked, and **Remove copy**. The shortcuts can be changed in the preferences, which also list the keys of edit mode.
 
 In edit mode, a hint bar lists the keys:
 

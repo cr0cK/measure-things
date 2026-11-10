@@ -420,7 +420,7 @@ export default class MeasureThingsExtension extends Extension {
         if (!draft || !this._manager?.models.includes(model))
             return;
         const {content} = model;
-        model.name = uniqueName(draft.name, this._manager.takenNames(model));
+        this._manager.setName(model, draft.name);
         content.color = draft.color;
         content.zoom = draft.zoom;
         Object.assign(content.grid, draft.grid);
