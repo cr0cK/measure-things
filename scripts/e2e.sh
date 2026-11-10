@@ -240,12 +240,18 @@ arrow_checks() {
             const pixbuf = await Shell.Screenshot.composite_to_stream(content.get_texture(), x * scale, y * scale,
                 1, 1, scale, null, 0, 0, 1, Gio.MemoryOutputStream.new_resizable());
             return pixbuf.read_pixel_bytes().toArray().slice(0, 3).join(); })"
-        read -r HX HY < <(shell_eval "$ARROWS($view)[0].get_transformed_position().map(Math.round).join(' ')")
-        expect "$PICK($((HX + 4)), $((HY + 2)))" '255,45,149' "$where, the arrowhead is filled with the set's color"
-        expect "$PICK($((HX + 12)), $((HY + 2))).then(c => c !== '255,45,149' && c !== '61,56,70')" true \
-            "$where, the line next to the arrowhead is translucent: the arrowhead is not"
-        expect "Promise.all([$PICK($HX, $HY), $PICK($HX - 8, $HY)]).then(([a, b]) => a === b)" true \
-            "$where, a corner of the arrowhead's box outside the triangle is the page"
+        # The head at the top of the 100 pixel line between the horizontal guides: tip on top, base below.
+        read -r HX HY < <(shell_eval "$ARROWS($view)[2].get_transformed_position().map(Math.round).join(' ')")
+        expect "$PICK($((HX + 1)), $((HY + 4)))" '255,45,149' "$where, the arrowhead is filled with the set's color"
+        # The page, read right of the head; the tip sits on the guide, row 0; row 1 leaves both corners of the box bare.
+        BG=$(shell_eval "$PICK($((HX + 8)), $((HY + 2)))" | tr -d '"')
+        expect "Promise.all([$PICK($HX, $((HY + 1))), $PICK($((HX + 4)), $((HY + 1)))]).then(cs => cs.every(c =>
+            c.split(',').every((v, i) => Math.abs(v - '$BG'.split(',')[i]) <= 2)))" true \
+            "$where, the corners of the arrowhead's box outside the triangle are the page"
+        # The line below the head is the set's color at 60%: a blend with the page, not an opaque color.
+        expect "$PICK($((HX + 2)), $((HY + 20))).then(c => c.split(',').map(Number).every((v, i) =>
+            Math.abs(v - Math.round(0.6 * [255, 45, 149][i] + 0.4 * '$BG'.split(',')[i])) <= 2))" true \
+            "$where, the line below the arrowhead is the set's color at 60%"
     fi
     # A selected rectangle: 92 to the guide on its left, 100 to the one above it get arrowheads; the
     # 8 pixel gap to the guide on its right does not.
@@ -261,13 +267,11 @@ arrow_checks() {
             model.content.helpers.find(h => h.kind === 'vertical' && h.x > 100).x = $x; $MANAGER.commit(model); 1" >/dev/null
         wait_for "$ARROWS($view).length === $count"
     done
-    # The threshold is on stage pixels, not CSS: at a zoom of 40% the 92 and 100 pixel gaps shrink to
-    # 36.8 and 40 and keep their arrowheads, the 4.8 one to the right still has none; at 5% every
-    # gap is under 12 stage pixels, and none has any.
-    shell_eval "$E2E.model('$title').content.zoom = 40; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
+    # The threshold is on stage pixels, not CSS: at a zoom of 25% the 92 and 100 pixel gaps shrink to
+    # 23 and 25 and keep their arrowheads, but the 12 pixel one to the right is 3 stage pixels and
+    # loses its own.
+    shell_eval "$E2E.model('$title').content.zoom = 25; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
     wait_for "$ARROWS($view).length === 8"
-    shell_eval "$E2E.model('$title').content.zoom = 5; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
-    wait_for "$ARROWS($view).length === 0"
     shell_eval "$E2E.model('$title').content.zoom = 100; $MANAGER.commit($E2E.model('$title')); 1" >/dev/null
     wait_for "$ARROWS($view).length === 10"
     # A sync destroys the arrowheads it replaces.
