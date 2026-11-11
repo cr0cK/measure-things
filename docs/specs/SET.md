@@ -584,9 +584,9 @@ The panel menu manages the sets: which ones are on screen, and the library.
     next pixel is not, lies `t` beyond the box: one far boundary at the same distance. An edge
     followed at once by another is the middle of a line drawn across two blended device pixels,
     such as a 1-CSS-pixel border at 125%, whose halves can differ by more than the tolerance: the
-    line is thicker. An edge `ceil(scale)` beyond the box, or on the zone's last boundary, is a
-    far boundary whatever follows it. The smallest such `t` wins. When no `t` reaches
-    85% that way, the first far boundary alone decides, with the same 85% and the smallest `t`. At
+    line is thicker. An edge `ceil(scale)` beyond the box, or on the last boundary between two
+    pixels of the zone in that direction, is a far boundary whatever follows it. The smallest such
+    `t` wins. When no `t` reaches 85% that way, the first far boundary alone decides, with the same 85% and the smallest `t`. At
     scales above 1, an independent 1-pixel stripe right after a 1-pixel line, such as a white gap
     and an ink accent, is taken in with it, since it cannot be told from a blended border; that
     trade-off is accepted. A position votes only where the region's own pixel lies on the box's
