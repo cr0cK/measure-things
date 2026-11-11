@@ -288,9 +288,10 @@ The images are mockups. Where an image and the text disagree, the text wins.
   the top of the zone. A horizontal guide is the same at a y position, labeled `y <position>` at
   the left of the zone.
 - Neighboring parallel guides show the distance between them on a line joining them. A distance
-  line, between guides or from a selected rectangle, ends in a filled arrowhead at each end, 5 stage
-  pixels long and 5 wide, in the line's color, its tip on the edge the line reaches, so it never
-  reads as a guide. A line shorter than 12 stage pixels has no arrowheads.
+  line, between guides or from a selected rectangle, is the set's color at 60% opacity, and ends in
+  a filled arrowhead at each end, 5 stage pixels long and 5 wide, in the set's color, opaque, its
+  tip on the edge the line reaches, so it never reads as a guide. A line shorter than 12 stage
+  pixels has no arrowheads.
 - A selected rectangle shows the distance to its nearest neighbor on each side: a guide, or a
   rectangle that overlaps it across the gap. Touching or overlapping neighbors show nothing.
 - A rectangle is a 1-pixel outline with a light fill, labeled with its size, `width × height`,
@@ -579,12 +580,24 @@ The panel menu manages the sets: which ones are on screen, and the library.
     and each size counts the border, as a CSS border box does. A side takes in a line `t` device
     pixels thick, `t` from 1 to `ceil(scale)`, when on at least 85% of the positions along the side,
     the first pixel beyond the region's box is an edge with the region's pixel, at the level's
-    tolerance, and the pixel `t` beyond the box is the first one past it that is an edge with the
-    pixel before it: one far boundary at the same distance. The smallest such `t` wins. The far
-    boundary must lie inside the zone, so a line against the zone's edge is not taken in. Every
-    side is judged against the region's own box, before any side moves, and the 85% filter, the
-    nested merge, the Low filter, and the 30-rectangle cap apply to the moved boxes. Rectangles that
-    then share a box are one;
+    tolerance, and, past it, the first pixel that is an edge with the pixel before it, and whose
+    next pixel is not, lies `t` beyond the box: one far boundary at the same distance. An edge
+    followed at once by another is the middle of a line drawn across two blended device pixels, such
+    as a 1-CSS-pixel border at 125%, whose halves can differ by more than the tolerance: the line is
+    thicker. An edge `ceil(scale)` beyond the box, or on the last boundary between two pixels of the
+    zone in that direction, is a far boundary whatever follows it. The smallest such `t` wins. When
+    no `t` reaches 85% that way, the first far boundary alone decides, with the same 85% and the
+    smallest `t`. At scales above 1, an independent 1-pixel stripe right after a 1-pixel line, such
+    as a white gap and an ink accent, is taken in with it, since it cannot be told from a blended
+    border; that trade-off is accepted. A position votes only where the region's own pixel lies on
+    the box's side, as its row extents tell: on the left and right sides, a row whose first or last
+    pixel is on that side; on the top and bottom, a position within the first or last row's span. A
+    notch, where the region does not reach the side, does not vote for a line beside it, and still
+    counts among the positions. The far boundary must lie inside the zone, so a line against the
+    zone's edge is not taken in. Every side is judged against the region's own box, before any side
+    moves, and the 85% filter, the nested merge, the Low filter, and the 30-rectangle cap apply to
+    the moved boxes. The 85% filter counts the region's own span, row by row, against the moved box:
+    a taken-in line grows the box, not the share filled. Rectangles that then share a box are one;
   - a guide within 1 pixel of a kept rectangle's edge is dropped, whatever its extent, since a
     guide spans the zone.
 - Found helpers sit on pixel boundaries, rounded to stage pixels exactly as snapping rounds, so a
